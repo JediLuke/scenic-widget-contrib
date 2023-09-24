@@ -1,14 +1,26 @@
 defmodule Widgex.Component do
+  defmodule Widget do
+    defstruct id: nil,
+              frame: nil,
+              theme: nil
+  end
+
+  # TODO make a behaviour, widgex components must implement:
+  # draw/1 - returns a new component state from incoming params
+  # render/3 - renders the component state into a scenic graph
+
   defmacro __using__(opts) do
-    quote location: :keep, bind_quoted: [opts: opts] do
+    # quote location: :keep, bind_quoted: [opts: opts] do
+    quote bind_quoted: [opts: opts] do
       use Scenic.Component
       use ScenicWidgets.ScenicEventsDefinitions
       require Logger
       alias Widgex.Structs.{Coordinates, Dimensions, Frame}
 
-      # all Scenic components must implement this function,
-      # but for us it's always the same
+      # all Scenic components must implement this function, but for us it's always the same
       @impl Scenic.Component
+      # TODO maybe there's some cool macros trick I can do to pattern matchy on a specific module struct here...
+      # def validate({%Widget{} = _w, state, %Frame{} = frame, %Theme{} = _t}) when is_struct(state) do
       def validate({state, %Frame{} = frame}) when is_struct(state) do
         {:ok, {state, frame}}
       end
@@ -20,6 +32,10 @@ defmodule Widgex.Component do
         # TODO stuff like theme, frame etc all needs to be apart of the "higher level" struct for a component, abstracted away from the component state... probably Scenic can does this or at least should do it!
         # init_theme = ScenicWidgets.Utils.Theme.get_theme(opts)
 
+        # TODO probably need to register the component somehow here...
+
+        # If the component is properly registered we cuold check if it has already been rendered/spun-up and if it has, instead of rendering/spinning-up again, we could just push an update to it, sort of like a render_or_update function
+
         init_graph = render_group(state, frame, opts)
 
         init_scene =
@@ -28,9 +44,9 @@ defmodule Widgex.Component do
           |> assign(state: state)
           |> push_graph(init_graph)
 
-        if unquote(opts)[:handle_cursor_events?] do
-          request_input(init_scene, [:cursor_pos, :cursor_button])
-        end
+        # if unquote(opts)[:handle_cursor_events?] do
+        #   request_input(init_scene, [:cursor_pos, :cursor_button])
+        # end
 
         {:ok, init_scene}
       end
@@ -41,7 +57,10 @@ defmodule Widgex.Component do
           fn graph ->
             # this function has to be implemented by the Widgex.Component being made
             graph |> render(state, frame)
+
+            # TODO add here, is scrollable??? if so, add scrollbars
           end,
+          # id: state.id || (state.widgex && state.widgex.id),
           # trim outside the frame & move the frame to it's location
           scissor: Dimensions.box(frame.size),
           translate: Coordinates.point(frame.pin)
@@ -59,8 +78,8 @@ defmodule Widgex.Component do
           ) do
         graph
         |> Scenic.Primitives.rect(Dimensions.box(f_size),
-          fill: c,
-          opacity: @opacity
+          fill: c
+          # opacity: @opacity
         )
       end
 

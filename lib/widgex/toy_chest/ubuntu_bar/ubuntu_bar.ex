@@ -22,7 +22,7 @@ defmodule ScenicWidgets.UbuntuBar do
               # metrics: font_metrics
             },
           tile: %{
-            color: QuillEx.GUI.Themes.midnight_shadow().background
+            color: QuillEx.GUI.Themes.midnight_shadow().extended.green
           }
         },
         %{
@@ -178,11 +178,20 @@ defmodule ScenicWidgets.UbuntuBar do
   # end
 
   def handle_input(
-        {:cursor_button, {:btn_left, @clicked, _empty_list?, _local_coords}},
+        {:cursor_button,
+         {:btn_left, @clicked, _empty_list?, {_local_x, local_y} = _local_coords}},
         _context,
         scene
       ) do
-    IO.puts("LEFT CLICKLE")
+    # TODO hax hax hax lol
+    box_size = 60
+    offset = local_y / box_size
+
+    button_num = trunc(offset)
+
+    # cast_parent(scene, {:glyph_clicked, button_num})
+    send_parent_event(scene, {:glyph_clicked_event, button_num})
+
     {:noreply, scene}
   end
 
