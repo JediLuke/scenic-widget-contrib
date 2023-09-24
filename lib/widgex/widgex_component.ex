@@ -1,9 +1,45 @@
 defmodule Widgex.Component do
+  # %__MODULE__{
+  #   widgex: %Widgex.Component.Widget{
+  #     id: :plaintext,
+  #     # frame: %Frame{},
+  #     theme: QuillEx.GUI.Themes.midnight_shadow()
+  #     # layout: %Widgex.Layout{},
+
+  #   },
+  #   text: text,
+  #   scroll: {0, 0}
+  #   # file_bar: %{
+  #   #   show?: true,
+  #   #   filename: nil
+  #   # }
+  # }
+
   defmodule Widget do
     defstruct id: nil,
               frame: nil,
               theme: nil
+
+    # layout: nil
   end
+
+  # defstruct viewport: nil,
+  # pid: nil,
+  # module: nil,
+  # theme: nil,
+  # id: nil,
+  # parent: nil,
+  # children: nil,
+  # child_supervisor: nil,
+  # assigns: %{},
+  # supervisor: nil,
+  # stop_pid: nil
+
+  # defstruct id: nil,
+  #           state: nil
+  #           frame: nil,
+  #           theme: nil,
+  #           layout: nil
 
   # TODO make a behaviour, widgex components must implement:
   # draw/1 - returns a new component state from incoming params
@@ -16,6 +52,9 @@ defmodule Widgex.Component do
       use ScenicWidgets.ScenicEventsDefinitions
       require Logger
       alias Widgex.Structs.{Coordinates, Dimensions, Frame}
+
+      # maybe we shouldn't do this lol but it's the default left margin for text
+      @left_margin 5
 
       # all Scenic components must implement this function, but for us it's always the same
       @impl Scenic.Component
@@ -42,13 +81,58 @@ defmodule Widgex.Component do
           scene
           |> assign(graph: init_graph)
           |> assign(state: state)
+          |> assign(frame: frame)
+          # TODO bring opts into state eventually...
+          |> assign(opts: opts)
           |> push_graph(init_graph)
 
         # if unquote(opts)[:handle_cursor_events?] do
         #   request_input(init_scene, [:cursor_pos, :cursor_button])
         # end
 
+        QuillEx.Lib.Utils.PubSub.subscribe(topic: :radix_state_change)
+
         {:ok, init_scene}
+      end
+
+      def handle_info(
+            {:radix_state_change, new_radix_state},
+            scene
+          ) do
+        # Note that we can't just directly compare old and new states because it may be more complicated, e.g. root scene only wants to change if the number of components changes, not the details of one component, even though these small changes cause a direct comparison to fail
+        {scene_changed?, new_state} = radix_diff(scene.assigns.state, new_radix_state)
+
+        if not scene_changed? do
+          # any child components will get updates by being themselves subscribed to radix state changes...
+          {:noreply, scene}
+        else
+          # TODO here attempt to update the existing graph
+          # gg = scene.assigns.graph
+          # dbg()
+
+          # IO.inspect(scene.assigns.graph)
+
+          # {:widgex_component, QuillEx.GUI.Components.PlainTextScrollable}
+
+          # TODO here Scenic ought to be able to handle us updating the graph
+          new_graph = render_group(new_state, scene.assigns.frame, scene.assigns.opts)
+
+          # new_graph =
+          #   scene.assigns.graph
+          #   |> Scenic.Graph.map({:widgex_component, __MODULE__}, fn component ->
+          #     IO.puts("HIHIHIHI")
+          #     # graph
+          #     render_group(new_state, scene.assigns.frame, scene.assigns.opts)
+          #   end)
+
+          new_scene =
+            scene
+            |> assign(state: new_state)
+            |> assign(graph: new_graph)
+            |> push_graph(new_graph)
+
+          {:noreply, new_scene}
+        end
       end
 
       defp render_group(state, %Frame{} = frame, _opts) do
@@ -60,8 +144,8 @@ defmodule Widgex.Component do
 
             # TODO add here, is scrollable??? if so, add scrollbars
           end,
-          # id: state.id || (state.widgex && state.widgex.id),
           # trim outside the frame & move the frame to it's location
+          id: {:widgex_component, state.widgex.id},
           scissor: Dimensions.box(frame.size),
           translate: Coordinates.point(frame.pin)
         )
@@ -74,13 +158,9 @@ defmodule Widgex.Component do
       def fill_frame(
             %Scenic.Graph{} = graph,
             %Frame{size: f_size},
-            color: c
+            opts \\ []
           ) do
-        graph
-        |> Scenic.Primitives.rect(Dimensions.box(f_size),
-          fill: c
-          # opacity: @opacity
-        )
+        graph |> Scenic.Primitives.rect(Dimensions.box(f_size), opts)
       end
 
       # def handle_input({:cursor_pos, {_x, _y} = coords}, _context, scene) do

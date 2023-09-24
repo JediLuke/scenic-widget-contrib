@@ -2,6 +2,7 @@ defmodule ScenicWidgets.UbuntuBar do
   use Widgex.Component
 
   defstruct id: __MODULE__,
+            widgex: nil,
             menu_map: nil,
             menu_map_config: nil,
             theme: nil,
@@ -9,6 +10,9 @@ defmodule ScenicWidgets.UbuntuBar do
 
   def draw do
     %__MODULE__{
+      widgex: %{
+        id: __MODULE__
+      },
       menu_map: [
         # %{glyph: "~", hi: 1}
         Widgex.ToyChest.Glyph.build(%{id: :g1, glyph: "!"}),
@@ -67,6 +71,20 @@ defmodule ScenicWidgets.UbuntuBar do
         color: QuillEx.GUI.Themes.midnight_shadow().focus
       }
     }
+  end
+
+  def radix_diff(%__MODULE__{} = old_state, radix_state) do
+    # old_component = Enum.find(old_rdx.components, &(&1.widgex.id == __MODULE__))
+    # new_component = Enum.find(new_rdx.components, &(&1.widgex.id == __MODULE__))
+
+    # in our case it will alway sbe the same because the UBuntuBar never changes...
+    new_state = draw()
+
+    if old_state == new_state do
+      {false, old_state}
+    else
+      {true, new_state}
+    end
   end
 
   def render(%Scenic.Graph{} = graph, %__MODULE__{} = state, %Frame{} = f) do

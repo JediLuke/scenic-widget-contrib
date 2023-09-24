@@ -217,7 +217,6 @@ end
 # #   # def handle_info({:radix_state_change, %{root: %{layers: layer_list}}}, scene) do
 # #   # def handle_info({:radix_state_change, new_radix_state}, scene) do
 
-# #   #    dbg()
 # #   #    # #ONE IDEA - instead of triggering by changings in the layer list, re-compute the graph for this layer and change if it's it's changed...
 # #   #    recomputed_layer_graph = scene.assigns.render_fn.(new_radix_state)
 
