@@ -26,8 +26,12 @@ defmodule ScenicWidgets.ScenicEventsDefinitions do
       # These are the numbers used by Scenic to represent the
       # state of a key-press. I just prefer to use these names,
       # so I bind them here.
-      @key_pressed 0
-      @key_released 1
+      # @key_pressed 0
+      # @key_released 1
+
+      # I think on Linux these are reversed :(
+      @key_pressed 1
+      @key_released 0
       @key_held 2
 
       # for mouse-related events, e.g. `{:cursor_button, {:btn_left, 1, [], _coords}}`
@@ -46,6 +50,8 @@ defmodule ScenicWidgets.ScenicEventsDefinitions do
       @right_alt {:key, {:key_rightalt, @key_pressed, []}}
       # in macOS the meta-key registers as :key_unknown, but appears as [:meta] in a keypress combination still
       @meta {:key, {:key_unknown, @key_pressed, []}}
+
+      @left_shift_release {:key, {:key_leftshift, @key_released, []}}
 
       @escape_key {:key, {:key_esc, @key_pressed, []}}
       @tab_key {:key, {:key_tab, @key_pressed, []}}

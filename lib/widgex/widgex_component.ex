@@ -114,6 +114,8 @@ defmodule Widgex.Component do
 
           # {:widgex_component, QuillEx.GUI.Components.PlainTextScrollable}
 
+          # it would be good here to just use Graph.modify, especially for scrolol events
+
           # TODO here Scenic ought to be able to handle us updating the graph
           new_graph = render_group(new_state, scene.assigns.frame, scene.assigns.opts)
 

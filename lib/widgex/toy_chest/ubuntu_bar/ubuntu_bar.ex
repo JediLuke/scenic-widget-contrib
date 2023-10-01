@@ -4,81 +4,26 @@ defmodule ScenicWidgets.UbuntuBar do
   defstruct id: __MODULE__,
             widgex: nil,
             menu_map: nil,
-            menu_map_config: nil,
             theme: nil,
             layout: {:column, :center}
 
-  def draw do
+  def new(%{theme: rdx_theme} = args) do
     %__MODULE__{
       widgex: %{
         id: __MODULE__
       },
       menu_map: [
-        # %{glyph: "~", hi: 1}
-        Widgex.ToyChest.Glyph.build(%{id: :g1, glyph: "!"}),
-        second_glyph(),
-        %{
-          id: :g3,
-          glyph: "&",
-          font:
-            %{
-              # size: 24,
-              # metrics: font_metrics
-            },
-          tile: %{
-            color: QuillEx.GUI.Themes.midnight_shadow().extended.green
-          }
-        },
-        %{
-          id: :g4,
-          glyph: "$",
-          font:
-            %{
-              # size: 24,
-              # metrics: font_metrics
-            },
-          tile: %{
-            color: QuillEx.GUI.Themes.midnight_shadow().border
-          }
-        },
-        %{
-          id: :g5,
-          glyph: "%",
-          font:
-            %{
-              # size: 24,
-              # metrics: font_metrics
-            },
-          tile: %{
-            color: QuillEx.GUI.Themes.midnight_shadow().active
-          }
-        }
+        %{id: :g1, glyph: "!", bg: rdx_theme.bg2, fg: rdx_theme.fg},
+        %{id: :g2, glyph: "$", bg: rdx_theme.bg2, fg: rdx_theme.fg},
+        %{id: :g3, glyph: "&", bg: rdx_theme.bg2, fg: rdx_theme.fg},
+        %{id: :g4, glyph: "%", bg: rdx_theme.bg2, fg: rdx_theme.fg}
       ],
-      theme: QuillEx.GUI.Themes.midnight_shadow()
+      theme: rdx_theme
     }
   end
 
-  def second_glyph do
-    %{
-      id: :g2,
-      glyph: "~",
-      font:
-        %{
-          # size: 24,
-          # metrics: font_metrics
-        },
-      tile: %{
-        color: QuillEx.GUI.Themes.midnight_shadow().focus
-      }
-    }
-  end
-
-  def radix_diff(%__MODULE__{} = old_state, radix_state) do
-    # old_component = Enum.find(old_rdx.components, &(&1.widgex.id == __MODULE__))
-    # new_component = Enum.find(new_rdx.components, &(&1.widgex.id == __MODULE__))
-
-    # in our case it will alway sbe the same because the UBuntuBar never changes...
-    new_state = draw()
+  def radix_diff(%__MODULE__{} = old_state, fresh_radix_state) do
+    new_state = new(fresh_radix_state)
 
     if old_state == new_state do
       {false, old_state}
@@ -89,14 +34,8 @@ defmodule ScenicWidgets.UbuntuBar do
 
   def render(%Scenic.Graph{} = graph, %__MODULE__{} = state, %Frame{} = f) do
     graph
-    |> fill_frame(f, color: state.theme.border)
+    |> fill_frame(f, fill: state.theme.bg2)
     |> render_glyphs(state, f)
-
-    # |> Scenic.Components.button("Sample Button",
-    #   id: :sample_btn_id,
-    #   t: {5, 100},
-    #   font: :ibm_plex_mono
-    # )
   end
 
   def render_glyphs(graph, %__MODULE__{layout: {:column, :center}} = state, %Frame{} = f) do
@@ -105,11 +44,7 @@ defmodule ScenicWidgets.UbuntuBar do
 
     {final_graph, _final_offset} =
       Enum.reduce(state.menu_map, {graph, _init_offset = 0}, fn glyph, {graph, offset} ->
-        new_graph =
-          graph
-          # |> Widgex.ToyChest.Glyph.add_to_graph(%{glyph | size: box_size})
-
-          |> render_glyph(glyph, box_size, offset)
+        new_graph = graph |> render_glyph(glyph, box_size, offset)
 
         {new_graph, offset + 1}
       end)
@@ -134,22 +69,19 @@ defmodule ScenicWidgets.UbuntuBar do
     char_width = FontMetrics.width(glyph.glyph, font.size, font.metrics)
     excess_width = box_size - char_width
 
-    # id: :btn, input: :cursor_button
-
-    # TODO here we could consider using the UbuntuBar state.theme, but right now just want to hack it to get it working...
     graph
     |> Scenic.Primitives.group(
       fn graph ->
         graph
         # |> Scenic.Primitives.rect(icon_size, fill: {:image, args.icon}, translate: translate)
         |> Scenic.Primitives.rect({box_size, box_size},
-          id: :btn,
+          id: glyph.id,
           input: :cursor_button,
-          fill: glyph.tile.color
+          fill: glyph.bg || :black
         )
         |> Scenic.Primitives.text(glyph.glyph,
           font_size: size,
-          fill: :white,
+          fill: glyph.fg || :white,
           translate: {excess_width / 2, size}
         )
       end,
@@ -158,68 +90,18 @@ defmodule ScenicWidgets.UbuntuBar do
     )
   end
 
-  # def handle_input({:cursor_pos, {_x, _y} = hover_coords}, _context, scene) do
-  #   bounds = Scenic.Graph.bounds(scene.assigns.graph)
-
-  #   if hover_coords |> ScenicWidgets.Utils.inside?(bounds) do
-  #     cast_parent(scene, {:hover, scene.assigns.state.id})
-  #   else
-  #     cast_parent(scene, {:no_hover, scene.assigns.state.id})
-  #   end
-
-  #   {:noreply, scene}
-  # end
-
-  # def handle_input(
-  #       {:cursor_button, {:btn_left, @key_pressed, [], {_x, _y} = click_coords}},
-  #       _context,
-  #       scene
-  #     ) do
-  #   IO.puts("GLUPH CLICKED")
-  #   bounds = Scenic.Graph.bounds(scene.assigns.graph)
-
-  #   if click_coords |> ScenicWidgets.Utils.inside?(bounds) do
-  #     cast_parent(scene, {:left_click, scene.assigns.state.id})
-  #   end
-
-  #   {:noreply, scene}
-  # end
-
-  # def handle_input(
-  #       {:cursor_button, {:btn_left, x, [], {_x, _y} = click_coords}},
-  #       _context,
-  #       scene
-  #     )
-  #     when x in [@key_released, @key_held] do
-  #   # ignore...
-  #   {:noreply, scene}
-  # end
-
   def handle_input(
         {:cursor_button,
          {:btn_left, @clicked, _empty_list?, {_local_x, local_y} = _local_coords}},
-        _context,
+        component_id,
         scene
       ) do
-    # TODO hax hax hax lol
-    box_size = 60
-    offset = local_y / box_size
-
-    button_num = trunc(offset)
-
-    # cast_parent(scene, {:glyph_clicked, button_num})
-    send_parent_event(scene, {:glyph_clicked_event, button_num})
-
+    send_parent_event(scene, {:glyph_clicked_event, component_id})
     {:noreply, scene}
   end
 
   def handle_input({:cursor_button, _details} = input, _context, scene) do
     Logger.debug("ignoring input.... #{inspect(input)}")
-    {:noreply, scene}
-  end
-
-  def handle_event(event, _from_pid, scene) do
-    IO.inspect(event)
     {:noreply, scene}
   end
 end
