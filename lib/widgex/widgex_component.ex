@@ -45,9 +45,9 @@ defmodule Widgex.Component do
   # draw/1 - returns a new component state from incoming params
   # render/3 - renders the component state into a scenic graph
 
-  defmacro __using__(opts) do
-    # quote location: :keep, bind_quoted: [opts: opts] do
-    quote bind_quoted: [opts: opts] do
+  defmacro __using__(macro_opts) do
+    quote location: :keep, bind_quoted: [macro_opts: macro_opts] do
+      # quote bind_quoted: [macro_opts: macro_opts] do
       use Scenic.Component
       use ScenicWidgets.ScenicEventsDefinitions
       require Logger
@@ -75,7 +75,8 @@ defmodule Widgex.Component do
 
         # If the component is properly registered we cuold check if it has already been rendered/spun-up and if it has, instead of rendering/spinning-up again, we could just push an update to it, sort of like a render_or_update function
 
-        init_graph = render_group(state, frame, opts)
+        init_opts = Keyword.merge(opts, unquote(macro_opts))
+        init_graph = render_group(state, frame, init_opts)
 
         init_scene =
           scene
@@ -83,7 +84,7 @@ defmodule Widgex.Component do
           |> assign(state: state)
           |> assign(frame: frame)
           # TODO bring opts into state eventually...
-          |> assign(opts: opts)
+          |> assign(opts: init_opts)
           |> push_graph(init_graph)
 
         # if unquote(opts)[:handle_cursor_events?] do
@@ -106,18 +107,10 @@ defmodule Widgex.Component do
           # any child components will get updates by being themselves subscribed to radix state changes...
           {:noreply, scene}
         else
-          # TODO here attempt to update the existing graph
-          # gg = scene.assigns.graph
-          # dbg()
-
-          # IO.inspect(scene.assigns.graph)
-
-          # {:widgex_component, QuillEx.GUI.Components.PlainTextScrollable}
-
-          # it would be good here to just use Graph.modify, especially for scrolol events
-
-          # TODO here Scenic ought to be able to handle us updating the graph
           new_graph = render_group(new_state, scene.assigns.frame, scene.assigns.opts)
+
+          # TODO this is an idea about looping through components in radix state & updating them using Graph.modify
+          # it would be good here to just use Graph.modify, especially for scrolol events
 
           # new_graph =
           #   scene.assigns.graph
@@ -137,14 +130,14 @@ defmodule Widgex.Component do
         end
       end
 
-      defp render_group(state, %Frame{} = frame, _opts) do
+      defp render_group(state, %Frame{} = frame, opts) do
         Scenic.Graph.build(font: :ibm_plex_mono)
         |> Scenic.Primitives.group(
           fn graph ->
-            # this function has to be implemented by the Widgex.Component being made
-            graph |> render(state, frame)
-
-            # TODO add here, is scrollable??? if so, add scrollbars
+            graph
+            # REMINDER: render/3 has to be implemented by the Widgex.Component implementing this behaviour
+            |> render(state, frame)
+            |> render_scrollbars(state, frame, opts)
           end,
           # trim outside the frame & move the frame to it's location
           id: {:widgex_component, state.widgex.id},
@@ -156,13 +149,149 @@ defmodule Widgex.Component do
       @doc """
       A simple helper function which fills the frame with a color.
       """
-      @opacity 0.5
       def fill_frame(
             %Scenic.Graph{} = graph,
             %Frame{size: f_size},
             opts \\ []
           ) do
         graph |> Scenic.Primitives.rect(Dimensions.box(f_size), opts)
+      end
+
+      defp render_scrollbars(graph, state, frame, opts) do
+        case Keyword.get(opts, :scrollable) do
+          :all_axis ->
+            graph
+            |> render_scrollbar_x(state, frame, opts)
+            |> render_scrollbar_y(state, frame, opts)
+
+          _otherwise ->
+            graph
+        end
+      end
+
+      @scrollbar_size 20
+      @scrollbar_bg_opacity @fifteen_percent_opaque
+      @scrollbar_fg_opacity @thirty_percent_opaque
+      defp render_scrollbar_x(graph, state, frame, opts) do
+        {left, top, right, bottom} = Scenic.Graph.bounds(graph)
+        unscissored_width = right - left
+
+        if unscissored_width > frame.size.width do
+          # if we are going to render a vertical scrollbar we need to make room for it
+          unscissored_height = bottom - top
+
+          full_scrollbar_width =
+            if unscissored_height > frame.size.height do
+              frame.size.width - @scrollbar_size
+            else
+              frame.size.width
+            end
+
+          {scroll_x, _scroll_y} = state.scroll
+
+          content_box_scroll_offset =
+            frame.size.width * (-1 * scroll_x / (unscissored_width - frame.size.width))
+
+          content_box_width = frame.size.width * (frame.size.width / unscissored_width)
+
+          {r, g, b} = state.widgex.theme.accent2
+
+          graph
+          |> Scenic.Primitives.group(
+            fn graph ->
+              graph
+              |> Scenic.Primitives.rect({full_scrollbar_width, @scrollbar_size},
+                fill: {r, g, b, @scrollbar_bg_opacity}
+              )
+              |> Scenic.Primitives.rect({content_box_width, @scrollbar_size},
+                id: {:widgex_component, state.widgex.id, :scrollbar_x_content_box},
+                fill: {r, g, b, @scrollbar_fg_opacity},
+                translate: {content_box_scroll_offset, 0},
+                input: [:cursor_pos]
+              )
+            end,
+            id: {:widgex_component, state.widgex.id, :scrollbar_x},
+            translate: {0, frame.size.height - @scrollbar_size}
+          )
+        else
+          # no need to render an x scrollbar...
+          graph
+        end
+      end
+
+      defp render_scrollbar_y(graph, state, frame, opts) do
+        {_left, top, _right, bottom} = Scenic.Graph.bounds(graph)
+        unscissored_height = bottom - top
+
+        if unscissored_height > frame.size.height do
+          # to calculate the size of the "content box" on the scrollbar,
+          # we need to know what % of the underlying content is visible
+          # inside the current Frame - this is x% of the content, so
+          # we need to make the content box x% of the scrollbar size
+          {_scroll_x, scroll_y} = state.scroll
+
+          content_box_scroll_offset =
+            frame.size.height * (-1 * scroll_y / (unscissored_height - frame.size.height))
+
+          content_box_height = frame.size.height * (frame.size.height / unscissored_height)
+
+          {r, g, b} = state.widgex.theme.accent2
+
+          graph
+          |> Scenic.Primitives.group(
+            fn graph ->
+              graph
+              |> Scenic.Primitives.rect({@scrollbar_size, frame.size.height},
+                fill: {r, g, b, @scrollbar_bg_opacity}
+              )
+              |> Scenic.Primitives.rect({@scrollbar_size, content_box_height},
+                id: {:widgex_component, state.widgex.id, :scrollbar_y_content_box},
+                fill: {r, g, b, @scrollbar_fg_opacity},
+                translate: {0, content_box_scroll_offset},
+                input: [:cursor_pos]
+              )
+            end,
+            id: {:widgex_component, state.widgex.id, :scrollbar_y},
+            translate: {frame.size.width - @scrollbar_size, 0}
+          )
+        else
+          # no need to render a y scrollbar...
+          graph
+        end
+      end
+
+      def handle_input(
+            {:cursor_pos, {_x, _y} = coords},
+            scroll_box = {:widgex_component, __MODULE__, content_box},
+            scene
+          )
+          when content_box in [:scrollbar_x_content_box, :scrollbar_y_content_box] do
+        # [
+        #   %Scenic.Primitive{data: box_size}
+        # ] = Scenic.Graph.get(scene.assigns.graph, scroll_box)
+
+        # IO.inspect(primitive)
+
+        # Graph.modify(graph, :rect, fn(p) ->
+        #   update_opts(p, rotate: 0.5)
+        # end)
+
+        {r, g, b} = scene.assigns.state.widgex.theme.accent2
+
+        new_graph =
+          scene.assigns.graph
+          |> Scenic.Graph.modify(
+            scroll_box,
+            &Scenic.Primitives.update_opts(&1, fill: {r, g, b, @sixty_percent_opaque})
+          )
+
+        new_scene =
+          scene
+          # |> assign(state: new_state)
+          |> assign(graph: new_graph)
+          |> push_graph(new_graph)
+
+        {:noreply, new_scene}
       end
 
       # def handle_input({:cursor_pos, {_x, _y} = coords}, _context, scene) do
