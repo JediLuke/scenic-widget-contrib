@@ -171,7 +171,8 @@ defmodule Widgex.Component do
 
       @scrollbar_size 20
       @scrollbar_bg_opacity @fifteen_percent_opaque
-      @scrollbar_fg_opacity @thirty_percent_opaque
+      @scroll_box_no_hover_opacity @thirty_percent_opaque
+      @scroll_box_whilst_hovered_opacity @sixty_percent_opaque
       defp render_scrollbar_x(graph, state, frame, opts) do
         {left, top, right, bottom} = Scenic.Graph.bounds(graph)
         unscissored_width = right - left
@@ -205,7 +206,7 @@ defmodule Widgex.Component do
               )
               |> Scenic.Primitives.rect({content_box_width, @scrollbar_size},
                 id: {:widgex_component, state.widgex.id, :scrollbar_x_content_box},
-                fill: {r, g, b, @scrollbar_fg_opacity},
+                fill: {r, g, b, @scroll_box_no_hover_opacity},
                 translate: {content_box_scroll_offset, 0},
                 input: [:cursor_pos]
               )
@@ -246,7 +247,7 @@ defmodule Widgex.Component do
               )
               |> Scenic.Primitives.rect({@scrollbar_size, content_box_height},
                 id: {:widgex_component, state.widgex.id, :scrollbar_y_content_box},
-                fill: {r, g, b, @scrollbar_fg_opacity},
+                fill: {r, g, b, @scroll_box_no_hover_opacity},
                 translate: {0, content_box_scroll_offset},
                 input: [:cursor_pos]
               )
@@ -260,12 +261,41 @@ defmodule Widgex.Component do
         end
       end
 
+      @scrollbar_content_boxes [
+        {:widgex_component, __MODULE__, :scrollbar_x_content_box},
+        {:widgex_component, __MODULE__, :scrollbar_y_content_box}
+      ]
+      def handle_input(
+            {:cursor_pos, {_x, _y} = cursor_coords},
+            scroll_box,
+            %{assigns: %{scrollbar_clicked?: true}} = scene
+          )
+          when scroll_box in @scrollbar_content_boxes do
+        IO.puts("DRAGN")
+
+        # flip order of subtraction to account for backwards way coords works
+        scroll_delta =
+          Scenic.Math.Vector2.sub(scene.assigns.scrollbar_click_coords, cursor_coords)
+
+        # TODO need to figure out what % of movement through the textbox this delta scroll is & adjust
+
+        ii = {:cursor_scroll, {scroll_delta, cursor_coords}}
+
+        QuillEx.Fluxus.user_input(%{input: ii, component_id: scene.assigns.state.widgex.id})
+
+        new_scene =
+          scene
+          |> assign(scrollbar_click_coords: cursor_coords)
+
+        {:noreply, new_scene}
+      end
+
       def handle_input(
             {:cursor_pos, {_x, _y} = coords},
-            scroll_box = {:widgex_component, __MODULE__, content_box},
+            scroll_box,
             scene
           )
-          when content_box in [:scrollbar_x_content_box, :scrollbar_y_content_box] do
+          when scroll_box in @scrollbar_content_boxes do
         # [
         #   %Scenic.Primitive{data: box_size}
         # ] = Scenic.Graph.get(scene.assigns.graph, scroll_box)
@@ -276,18 +306,58 @@ defmodule Widgex.Component do
         #   update_opts(p, rotate: 0.5)
         # end)
 
+        # we capture cursor pos so that all cursor_pos input gets routed
+        # to this component, so that when we leave the bounds of this component,
+        # we know that we've left (and thus to change the background color back to normal,
+        # not to mention releasing the cursor_pos input)
+        :ok = capture_input(scene, [:cursor_pos, :cursor_button])
+
         {r, g, b} = scene.assigns.state.widgex.theme.accent2
 
         new_graph =
           scene.assigns.graph
           |> Scenic.Graph.modify(
             scroll_box,
-            &Scenic.Primitives.update_opts(&1, fill: {r, g, b, @sixty_percent_opaque})
+            &Scenic.Primitives.update_opts(&1, fill: {r, g, b, @scroll_box_whilst_hovered_opacity})
           )
 
         new_scene =
           scene
           # |> assign(state: new_state)
+          |> assign(graph: new_graph)
+          |> push_graph(new_graph)
+
+        {:noreply, new_scene}
+      end
+
+      def handle_input(
+            {:cursor_pos, {_x, _y} = _coords},
+            _any_other_component,
+            scene
+          ) do
+        # if we get in here then we're capturing cursor_pos input but
+        # we're not hovering over the scroll bar box, so we need to release it
+        :ok = release_input(scene)
+
+        {r, g, b} = scene.assigns.state.widgex.theme.accent2
+
+        new_graph =
+          Enum.reduce(
+            @scrollbar_content_boxes,
+            scene.assigns.graph,
+            fn scroll_box, graph ->
+              graph
+              |> Scenic.Graph.modify(
+                scroll_box,
+                &Scenic.Primitives.update_opts(&1, fill: {r, g, b, @scroll_box_no_hover_opacity})
+              )
+            end
+          )
+
+        new_scene =
+          scene
+          # |> assign(state: new_state)
+          |> assign(scrollbar_clicked?: false)
           |> assign(graph: new_graph)
           |> push_graph(new_graph)
 
@@ -314,15 +384,51 @@ defmodule Widgex.Component do
       #   {:noreply, scene}
       # end
 
-      # def handle_input({:cursor_button, {:btn_left, 0, [], click_coords}}, _context, scene) do
-      #   bounds = Scenic.Graph.bounds(scene.assigns.graph)
+      def handle_input(
+            {:cursor_button, {:btn_left, @clicked, [], click_coords}},
+            scroll_box,
+            scene
+          )
+          when scroll_box in @scrollbar_content_boxes do
+        IO.puts("CLICKCKCK }")
+        # bounds = Scenic.Graph.bounds(scene.assigns.graph)
 
-      #   if click_coords |> ScenicWidgets.Utils.inside?(bounds) do
-      #     cast_parent(scene, {:click, scene.assigns.state.unique_id})
-      #   end
+        # if click_coords |> ScenicWidgets.Utils.inside?(bounds) do
+        #   cast_parent(scene, {:click, scene.assigns.state.unique_id})
+        # end
 
-      #   {:noreply, scene}
-      # end
+        new_scene =
+          scene |> assign(scrollbar_clicked?: true, scrollbar_click_coords: click_coords)
+
+        {:noreply, new_scene}
+      end
+
+      def handle_input(
+            {:cursor_button, {:btn_left, @release_click, [], _click_coords}},
+            scroll_box,
+            scene
+          )
+          when scroll_box in @scrollbar_content_boxes do
+        IO.puts("Unnnnnn CLICKCKCK }")
+
+        {:noreply, scene |> assign(scrollbar_clicked?: false)}
+      end
+
+      def handle_input(
+            {:cursor_button, _click_details},
+            scroll_box,
+            scene
+          )
+          when scroll_box in @scrollbar_content_boxes do
+        IO.puts("IGNLIGL }")
+        # bounds = Scenic.Graph.bounds(scene.assigns.graph)
+
+        # if click_coords |> ScenicWidgets.Utils.inside?(bounds) do
+        #   cast_parent(scene, {:click, scene.assigns.state.unique_id})
+        # end
+
+        {:noreply, scene |> assign(scrollbar_clicked?: false)}
+      end
     end
   end
 end
