@@ -17,7 +17,7 @@ defmodule Widgex.Structs.LayerCake do
           id: atom(),
           # visible?: boolean(),
           # TODO this needs to be a frame_stack (??)
-          # frame: Widgex.Structs.Frame.t() | nil,
+          frame: Widgex.Structs.Frame.t() | nil,
           state: struct() | nil,
           layerable: struct() | nil
           # layout: Widgex.Structs.Layout.t() | nil
@@ -25,7 +25,7 @@ defmodule Widgex.Structs.LayerCake do
 
   defstruct id: nil,
             # visible?: false,
-            # frame: nil,
+            frame: nil,
             state: nil,
             # layerable is the module which represents the layer struct and implements the layer behaviour, we could do with a better name or maybe combine it with state somehow?
             layerable: nil,

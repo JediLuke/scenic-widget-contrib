@@ -220,9 +220,32 @@ defmodule Widgex.Component do
         end
       end
 
+      defp full_text_bounds(graph) do
+        {left, top, right, bottom} = Scenic.Graph.bounds(graph)
+        complete_height = bottom - top
+        complete_width = right - left
+
+        %{width: complete_width, height: complete_height}
+      end
+
+      defp vertical_scrollbar_box_height(
+             _frame = %{size: %{height: frame_height}},
+             _bounds = %{height: full_unbounded_height}
+           ) do
+        frame_height * (frame_height / full_unbounded_height)
+      end
+
+      defp horizontal_scrollbar_box_width(
+             _frame = %{size: %{width: frame_width}},
+             _bounds = %{width: full_unbounded_width}
+           ) do
+        frame_width * (frame_width / full_unbounded_width)
+      end
+
       defp render_scrollbar_y(graph, state, frame, opts) do
-        {_left, top, _right, bottom} = Scenic.Graph.bounds(graph)
-        unscissored_height = bottom - top
+        # {_left, top, _right, bottom} = Scenic.Graph.bounds(graph)
+        # unscissored_height = bottom - top
+        %{height: unscissored_height} = full_text_bounds(graph)
 
         if unscissored_height > frame.size.height do
           # to calculate the size of the "content box" on the scrollbar,
@@ -271,15 +294,88 @@ defmodule Widgex.Component do
             %{assigns: %{scrollbar_clicked?: true}} = scene
           )
           when scroll_box in @scrollbar_content_boxes do
-        IO.puts("DRAGN")
+        IO.inspect(scene.assigns.scrollbar_click_coords, label: "SCC")
+        IO.inspect(cursor_coords, label: "CC")
 
+        # scroll_delta =
+        #   {x_delta, y_delta} =
+        #   Scenic.Math.Vector2.sub(scene.assigns.scrollbar_click_coords, cursor_coords)
+
+        # Determine the difference between the initial click position and current cursor position
         # flip order of subtraction to account for backwards way coords works
-        scroll_delta =
+        {x_delta, y_delta} =
           Scenic.Math.Vector2.sub(scene.assigns.scrollbar_click_coords, cursor_coords)
 
-        # TODO need to figure out what % of movement through the textbox this delta scroll is & adjust
+        # Calculate the scroll ratios
+        full_bounds =
+          %{width: complete_width, height: complete_height} =
+          full_text_bounds(scene.assigns.graph)
 
-        ii = {:cursor_scroll, {scroll_delta, cursor_coords}}
+        vertical_scroll_space =
+          scene.assigns.frame.size.height -
+            vertical_scrollbar_box_height(scene.assigns.frame, full_bounds)
+
+        horizontal_scroll_space =
+          scene.assigns.frame.size.width -
+            horizontal_scrollbar_box_width(scene.assigns.frame, full_bounds)
+
+        vertical_content_scroll_range = complete_height - scene.assigns.frame.size.height
+        horizontal_content_scroll_range = complete_width - scene.assigns.frame.size.width
+
+        vertical_scroll_ratio = vertical_content_scroll_range / vertical_scroll_space
+        horizontal_scroll_ratio = horizontal_content_scroll_range / horizontal_scroll_space
+
+        # Adjust deltas with scroll ratios
+        adjusted_x_delta = x_delta * horizontal_scroll_ratio
+        adjusted_y_delta = y_delta * vertical_scroll_ratio
+
+        # IO.inspect(scroll_delta, label: "DF")
+
+        # # TODO need to figure out what % of movement through the textbox this delta scroll is & adjust
+        # %{width: complete_width, height: complete_height} = full_text_bounds(scene.assigns.graph)
+
+        # # Calculate the proportion of the content that is visible
+        # proportion_visible = scene.assigns.frame.size.height / complete_height
+
+        # # Determine the drag-able distance of the handle
+        # drag_distance =
+        #   scene.assigns.frame.size.height - scene.assigns.frame.size.height * proportion_visible
+
+        # # Calculate the proportion of the handle's movement
+        # handle_move_proportion = y_delta / drag_distance
+
+        # # Calculate how much to scroll the content
+        # # content_scroll =
+        # #   handle_move_proportion * (complete_height - scene.assigns.frame.size.height)
+        # # Given the handle's movement, how much should the content move?
+        # content_move_ratio = (complete_height - scene.assigns.frame.size.height) / drag_distance
+
+        # # Calculate how much to scroll the content based on cursor's y movement
+        # content_scroll = y_delta * content_move_ratio
+
+        # # Update the position of the content and the handle
+        # # The y value of adjusted_delta should be the content_scroll, not just the delta
+        # # adjusted_delta =
+        # #   {x_delta / complete_width * scene.assigns.frame.size.width, content_scroll}
+
+        # adjusted_delta =
+        #   {x_delta / complete_width * scene.assigns.frame.size.width, content_scroll}
+
+        # # what I need is the percentage of the total scrollbar - scrollbar height, * total height of the text
+        # # adjusted_delta = {
+        # #   x_delta / complete_width * scene.assigns.frame.size.width,
+        # #   y_delta / complete_height * scene.assigns.frame.size.height
+        # #   # y_delta / scene.assigns.frame.size.height * complete_height
+        # # }
+
+        # IO.inspect(adjusted_delta, label: "AD")
+
+        # Introduce a factor to slow down the scroll relative to the cursor movement
+        # Adjust this value to find the right speed
+        factor = 1.75
+        adjusted_scroll_delta = {x_delta * factor, y_delta * factor}
+
+        ii = {:cursor_scroll, {adjusted_scroll_delta, cursor_coords}}
 
         QuillEx.Fluxus.user_input(%{input: ii, component_id: scene.assigns.state.widgex.id})
 
