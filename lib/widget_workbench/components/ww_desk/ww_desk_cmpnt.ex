@@ -4,7 +4,8 @@ defmodule WidgetWorkbench.DeskComponent do
   """
   use Scenic.Component
   alias WidgetWorkbench.Desk.State
-  alias Widgex.Structs.{Frame, Coordinates, Dimensions}
+  alias Widgex.Structs.{Coordinates, Dimensions}
+  alias Widgex.Frame
   require Logger
 
   # Validation function

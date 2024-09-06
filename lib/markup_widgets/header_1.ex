@@ -2,7 +2,7 @@ defmodule ScenicWidgets.Markup.Header1 do
   @font_size 40
 
   def draw(graph, frame, text) do
-    center_point = Widgex.Structs.Frame.center(frame)
+    center_point = Widgex.Frame.center(frame)
 
     IO.inspect(center_point)
 
@@ -10,7 +10,7 @@ defmodule ScenicWidgets.Markup.Header1 do
     |> Scenic.Primitives.group(
       fn graph ->
         graph
-        # |> Widgex.Structs.Frame.draw_guidewires(frame)
+        # |> Widgex.Frame.draw_guidewires(frame)
         |> Scenic.Primitives.text(text,
           font_size: @font_size,
           translate: {center_point.x, (frame.size.height - @font_size) / 2 + @font_size},

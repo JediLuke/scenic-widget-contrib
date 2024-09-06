@@ -1,7 +1,7 @@
 defmodule ScenicWidgets.VerticalList do
   use Scenic.Component
   require Logger
-  alias Widgex.Structs.Frame
+  alias Widgex.Frame
 
   def validate(%{frame: _frame, items: _item_list} = data) do
     {:ok, data}
@@ -44,6 +44,10 @@ defmodule ScenicWidgets.VerticalList do
         |> Scenic.Primitives.group(
           fn graph ->
             graph
+            # |> Scenic.Primitives.rect(
+            #   f.size.box,
+            #   scissor: f.size.box
+            # )
           end,
           # NOTE: We will scroll this pane around later on, and need to
           #      add new TidBits to it with Modify
@@ -204,7 +208,7 @@ defmodule ScenicWidgets.VerticalList do
     # }
     # }) do
     # TODO really calculate height
-    item_height = 100
+    item_height = 50
     items_offset = item_height * Enum.count(state)
     # extra_vertial_space = @spacing_buffer * Enum.count(open_tidbits_list)
 
@@ -218,5 +222,10 @@ defmodule ScenicWidgets.VerticalList do
         size: {w, item_height}
       }
     )
+  end
+
+  def handle_cast({:click, details}, scene) do
+    cast_parent(scene, {:click, details})
+    {:noreply, scene}
   end
 end

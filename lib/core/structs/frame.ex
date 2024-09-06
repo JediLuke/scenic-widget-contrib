@@ -4,7 +4,6 @@ defmodule ScenicWidgets.Core.Structs.Frame do
   """
   alias ScenicWidgets.Core.Structs.{Coordinates, Dimensions}
 
-
   defstruct [
     # The {x, y} of the top-left of this Frame
     pin: {0, 0},
@@ -16,27 +15,8 @@ defmodule ScenicWidgets.Core.Structs.Frame do
     dimens: nil
   ]
 
-  # # Make a new frame the same size as the ViewPort
-  # def new(%Scenic.ViewPort{size: {w, h}}) do
-  #   %__MODULE__{
-  #     pin: {0, 0},
-  #     top_left: Coordinates.new(x: 0, y: 0),
-  #     size: {w, h},
-  #     dimensions: Dimensions.new(width: w, height: h)
-  #   }
-  # end
-
   # def new(%{size: {w, h}}) do
   #   new(pin: {0, 0}, size: {w, h})
-  # end
-
-  # def new(%{coords: %Coordinates{} = c, dimens: %Dimensions{} = d}) do
-  #   %__MODULE__{
-  #     pin: {x, y},
-  #     coords: Coordinates.new(x: x, y: y),
-  #     size: {w, h},
-  #     dimens: Dimensions.new(width: w, height: h)
-  #   }
   # end
 
   # # Make a new frame, with the top-left corner at point `pin`
@@ -45,12 +25,15 @@ defmodule ScenicWidgets.Core.Structs.Frame do
   #   new(%{pin: {x, y}, size: {w, h}})
   # end
 
+  # Make a new frame the same size as the ViewPort
   def new(%Scenic.ViewPort{size: {vp_width, vp_height}}) do
-    #TODO why do we need this +1?? Without it we get a dark strip on the right hand side
-    new(%{pin: {0, 0}, size: {vp_width+1, vp_height}})
+    # TODO why do we need this +1?? Without it we get a dark strip on the right hand side
+    new(%{pin: {0, 0}, size: {vp_width + 1, vp_height}})
   end
 
-  def new(pin: pin, size: size), do: new(%{pin: pin, size: size})
+  def new(pin: pin, size: size) do
+    new(%{pin: pin, size: size})
+  end
 
   def new(%{pin: {x, y}, size: {w, h}}) do
     %__MODULE__{

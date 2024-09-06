@@ -18,7 +18,7 @@ defmodule ScenicWidgets.FrameBox do
    @fill_colors [:red, :blue, :green, :yellow]
 
    def validate(%{frame: %Frame{} = _f, color: color} = data) when is_atom(color) do
-      Logger.error "Deprecate calling FrameVox using `color`, prefer `fill`"
+      Logger.error "Deprecate calling FrameBox using `color`, prefer `fill`"
       {:ok, data}
    end
 

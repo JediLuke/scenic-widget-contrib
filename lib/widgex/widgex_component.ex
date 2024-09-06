@@ -15,13 +15,13 @@ defmodule Widgex.Component do
   #   # }
   # }
 
-  defmodule Widget do
-    defstruct id: nil,
-              frame: nil,
-              theme: nil
+  # defmodule Widget do
+  #   defstruct id: nil,
+  #             frame: nil,
+  #             theme: nil
 
-    # layout: nil
-  end
+  #   # layout: nil
+  # end
 
   # defstruct viewport: nil,
   # pid: nil,
@@ -51,7 +51,8 @@ defmodule Widgex.Component do
       use Scenic.Component
       use ScenicWidgets.ScenicEventsDefinitions
       require Logger
-      alias Widgex.Structs.{Coordinates, Dimensions, Frame}
+      alias Widgex.Structs.{Coordinates, Dimensions}
+      alias Widgex.Frame
 
       # maybe we shouldn't do this lol but it's the default left margin for text
       @left_margin 5
@@ -62,6 +63,10 @@ defmodule Widgex.Component do
       # def validate({%Widget{} = _w, state, %Frame{} = frame, %Theme{} = _t}) when is_struct(state) do
       def validate({state, %Frame{} = frame}) when is_struct(state) do
         {:ok, {state, frame}}
+      end
+
+      def validate(%{frame: %Frame{}, state: _state} = data) do
+        {:ok, data}
       end
 
       # all Scenic components must implement this function,
@@ -91,44 +96,44 @@ defmodule Widgex.Component do
         #   request_input(init_scene, [:cursor_pos, :cursor_button])
         # end
 
-        QuillEx.Lib.Utils.PubSub.subscribe(topic: :radix_state_change)
+        # QuillEx.Lib.Utils.PubSub.subscribe(topic: :radix_state_change)
 
         {:ok, init_scene}
       end
 
-      def handle_info(
-            {:radix_state_change, new_radix_state},
-            scene
-          ) do
-        # Note that we can't just directly compare old and new states because it may be more complicated, e.g. root scene only wants to change if the number of components changes, not the details of one component, even though these small changes cause a direct comparison to fail
-        {scene_changed?, new_state} = radix_diff(scene.assigns.state, new_radix_state)
+      # def handle_info(
+      #       {:radix_state_change, new_radix_state},
+      #       scene
+      #     ) do
+      #   # Note that we can't just directly compare old and new states because it may be more complicated, e.g. root scene only wants to change if the number of components changes, not the details of one component, even though these small changes cause a direct comparison to fail
+      #   {scene_changed?, new_state} = radix_diff(scene.assigns.state, new_radix_state)
 
-        if not scene_changed? do
-          # any child components will get updates by being themselves subscribed to radix state changes...
-          {:noreply, scene}
-        else
-          new_graph = render_group(new_state, scene.assigns.frame, scene.assigns.opts)
+      #   if not scene_changed? do
+      #     # any child components will get updates by being themselves subscribed to radix state changes...
+      #     {:noreply, scene}
+      #   else
+      #     new_graph = render_group(new_state, scene.assigns.frame, scene.assigns.opts)
 
-          # TODO this is an idea about looping through components in radix state & updating them using Graph.modify
-          # it would be good here to just use Graph.modify, especially for scrolol events
+      #     # TODO this is an idea about looping through components in radix state & updating them using Graph.modify
+      #     # it would be good here to just use Graph.modify, especially for scrolol events
 
-          # new_graph =
-          #   scene.assigns.graph
-          #   |> Scenic.Graph.map({:widgex_component, __MODULE__}, fn component ->
-          #     IO.puts("HIHIHIHI")
-          #     # graph
-          #     render_group(new_state, scene.assigns.frame, scene.assigns.opts)
-          #   end)
+      #     # new_graph =
+      #     #   scene.assigns.graph
+      #     #   |> Scenic.Graph.map({:widgex_component, __MODULE__}, fn component ->
+      #     #     IO.puts("HIHIHIHI")
+      #     #     # graph
+      #     #     render_group(new_state, scene.assigns.frame, scene.assigns.opts)
+      #     #   end)
 
-          new_scene =
-            scene
-            |> assign(state: new_state)
-            |> assign(graph: new_graph)
-            |> push_graph(new_graph)
+      #     new_scene =
+      #       scene
+      #       |> assign(state: new_state)
+      #       |> assign(graph: new_graph)
+      #       |> push_graph(new_graph)
 
-          {:noreply, new_scene}
-        end
-      end
+      #     {:noreply, new_scene}
+      #   end
+      # end
 
       defp render_group(state, %Frame{} = frame, opts) do
         Scenic.Graph.build(font: :ibm_plex_mono)
@@ -294,9 +299,6 @@ defmodule Widgex.Component do
             %{assigns: %{scrollbar_clicked?: true}} = scene
           )
           when scroll_box in @scrollbar_content_boxes do
-        IO.inspect(scene.assigns.scrollbar_click_coords, label: "SCC")
-        IO.inspect(cursor_coords, label: "CC")
-
         # scroll_delta =
         #   {x_delta, y_delta} =
         #   Scenic.Math.Vector2.sub(scene.assigns.scrollbar_click_coords, cursor_coords)

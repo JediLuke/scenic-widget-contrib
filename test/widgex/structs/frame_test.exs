@@ -1,4 +1,4 @@
-defmodule Widgex.Structs.FrameTest do
+defmodule Widgex.FrameTest do
   use ExUnit.Case, async: true
-  doctest Widgex.Structs.Frame
+  doctest Widgex.Frame
 end

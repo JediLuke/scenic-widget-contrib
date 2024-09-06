@@ -17,7 +17,7 @@ defmodule Widgex.Structs.LayerCake do
           id: atom(),
           # visible?: boolean(),
           # TODO this needs to be a frame_stack (??)
-          frame: Widgex.Structs.Frame.t() | nil,
+          frame: Widgex.Frame.t() | nil,
           state: struct() | nil,
           layerable: struct() | nil
           # layout: Widgex.Structs.Layout.t() | nil
@@ -117,7 +117,7 @@ end
 
 #   @type t :: %__MODULE__{
 #           visible?: boolean(),
-#           frame: Widgex.Structs.Frame.t() | nil,
+#           frame: Widgex.Frame.t() | nil,
 #           state: map() | nil
 #         }
 
