@@ -29,8 +29,8 @@ defmodule Widgex.Frame.Utils do
     right =
       Frame.new(%{
         pin: {
-          f.pin.x,
-          f.pin.y + px
+          f.pin.x + px,
+          f.pin.y
         },
         size: %{
           width: f.size.width - px,
@@ -53,7 +53,7 @@ defmodule Widgex.Frame.Utils do
 
     right =
       Frame.new(%{
-        pin: {f.pin.x, f.pin.y + pc * f.size.width},
+        pin: {f.pin.x + pc * f.size.width, f.pin.y},
         size: %{width: (1 - pc) * f.size.width, height: f.size.height}
       })
 

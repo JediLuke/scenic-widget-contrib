@@ -3,6 +3,19 @@ defmodule ScenicWidgets.VerticalList do
   require Logger
   alias Widgex.Frame
 
+  def validate(
+        %{
+          frame: _frame,
+          items:
+            [
+              {component_module, %{frame: %Widgex.Frame{} = _cf} = _component_args} | _rest
+            ] = _item_list
+        } = data
+      ) do
+    {:ok, data}
+  end
+
+  # TODO delete this one below it;s old but keep it for now for bnackwards coatibility
   def validate(%{frame: _frame, items: _item_list} = data) do
     {:ok, data}
   end
@@ -128,14 +141,22 @@ defmodule ScenicWidgets.VerticalList do
 
   def handle_cast(
         :render_next_component,
-        %{assigns: %{render_queue: [{module, args} = item | rest]}} = scene
-      ) do
-    Logger.debug("#{__MODULE__} attempting to render an additional component... #{inspect(item)}")
+        # %{assigns: %{render_queue: [{module, args} = item | rest]}} = scene
+        %{
+          assigns: %{
+            render_queue: [
+              {component_module, %{frame: %Widgex.Frame{} = _f} = args} = item | rest
+            ]
+          }
+        } = scene
+      )
+      when is_atom(component_module) do
+    # Logger.debug("#{__MODULE__} attempting to render an additional component... #{inspect(item)}")
 
     # rendered_items = scene.assigns.items ++ [item]
 
     # note - need to calculate the item frame using the existing item list, not after we've added the new one!
-    args = put_in(args, [:frame], calc_item_frame(scene.assigns.frame, scene.assigns.items))
+    # args = put_in(args, [:frame], calc_item_frame(scene.assigns.frame, scene.assigns.items))
 
     # |> Scenic.Graph.add_to(:river_pane, fn graph ->
     #   graph
@@ -152,11 +173,27 @@ defmodule ScenicWidgets.VerticalList do
     #   # TODO pass id in the opts
     # end)
 
+    # figure out if this is a `live` component or a `declaritive` one
+
     new_graph =
-      scene.assigns.graph
-      |> Scenic.Graph.add_to(:v_list_window, fn graph ->
-        graph |> module.add_to_graph(args)
-      end)
+      if Kernel.function_exported?(component_module, :draw, 2) do
+        scene.assigns.graph
+        |> Scenic.Graph.add_to(:v_list_window, fn graph ->
+          graph |> component_module.draw(args)
+        end)
+      else
+        # assume it's a component
+        scene.assigns.graph
+        |> Scenic.Graph.add_to(:v_list_window, fn graph ->
+          graph |> component_module.add_to_graph(args)
+        end)
+      end
+
+    # new_graph =
+    #   scene.assigns.graph
+    #   |> Scenic.Graph.add_to(:v_list_window, fn graph ->
+    #     graph |> component_module.add_to_graph(args)
+    #   end)
 
     # |> module.add_to_graph(args)
     # |> Scenic.Graph.add_to(:river_pane, fn graph ->
@@ -226,6 +263,16 @@ defmodule ScenicWidgets.VerticalList do
 
   def handle_cast({:click, details}, scene) do
     cast_parent(scene, {:click, details})
+    {:noreply, scene}
+  end
+
+  def handle_event(e, scene) do
+    IO.inspect("VLIST - #{inspect(e)}")
+    {:noreply, scene}
+  end
+
+  def handle_info(msg, scene) do
+    IO.inspect("VLIST - #{inspect(msg)}")
     {:noreply, scene}
   end
 end
