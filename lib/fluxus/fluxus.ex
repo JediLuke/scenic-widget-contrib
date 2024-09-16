@@ -1,4 +1,23 @@
 # defmodule ScenicWidgets.Fluxus do
+#   # use Supervisor
+
+#   # def start_link,
+#   #   do: Supervisor.start_link(__MODULE__, :ok, name: __MODULE__)
+
+#   # def init(:ok) do
+#   #   children = [
+#   #     # Add your child processes here
+#   #     # For example:
+#   #     # {FluxusSoup.Worker, arg1, arg2}
+#   #   ]
+
+#   #   supervise(children, strategy: :one_for_one)
+#   # end
+
+#   defdelegate start_link, to: ScenicWidgets.Fluxus.FluxusSoup
+# end
+
+# defmodule ScenicWidgets.Fluxus do
 #    @moduledoc """
 #    Flamelex.Fluxus implements the `flux` architecture pattern, of React.js
 #    fame, in Elixir/Scenic. This module provides the interface to that

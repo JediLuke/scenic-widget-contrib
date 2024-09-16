@@ -145,6 +145,36 @@ defmodule ScenicWidgets.VerticalList do
         %{
           assigns: %{
             render_queue: [
+              {draw_fn, %{frame: %Widgex.Frame{} = _f} = args} = item | rest
+            ]
+          }
+        } = scene
+      )
+      when is_function(draw_fn) do
+    new_graph =
+      scene.assigns.graph
+      |> Scenic.Graph.add_to(:v_list_window, fn graph ->
+        draw_fn.(graph, args)
+      end)
+
+    new_scene =
+      scene
+      |> assign(graph: new_graph)
+      |> assign(items: scene.assigns.items ++ [item])
+      |> assign(render_queue: rest)
+      |> push_graph(new_graph)
+
+    GenServer.cast(self(), :render_next_component)
+
+    {:noreply, new_scene}
+  end
+
+  def handle_cast(
+        :render_next_component,
+        # %{assigns: %{render_queue: [{module, args} = item | rest]}} = scene
+        %{
+          assigns: %{
+            render_queue: [
               {component_module, %{frame: %Widgex.Frame{} = _f} = args} = item | rest
             ]
           }
