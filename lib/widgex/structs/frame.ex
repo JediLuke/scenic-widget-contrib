@@ -23,6 +23,8 @@ defmodule Widgex.Frame do
   defdelegate h_split(frame), to: Widgex.Frame.Utils
   defdelegate h_split(frame, args), to: Widgex.Frame.Utils
 
+  defdelegate col_split(frame, args), to: Widgex.Frame.Utils
+
   # Make a new frame the same size as the ViewPort
   def new(%Scenic.ViewPort{size: {vp_width, vp_height}}) do
     # TODO why do we need this +1?? Without it we get a dark strip on the right hand side

@@ -2,7 +2,8 @@ defmodule ScenicWidgets.SideNav do
   use Scenic.Component
   require Logger
   # alias ScenicWidgets.MenuBar.FloatButton
-  alias ScenicWidgets.Core.Structs.Frame
+  # alias ScenicWidgets.Core.Structs.Frame
+  alias Widgex.Frame
   # use ScenicWidgets.ScenicEventsDefinitions
 
   # how tall each menu item is #TODO pass it in as a config
@@ -80,10 +81,10 @@ defmodule ScenicWidgets.SideNav do
     |> Scenic.Primitives.group(
       fn graph ->
         graph
-        |> Scenic.Primitives.rect(frame.size, fill: :gold)
+        |> Scenic.Primitives.rect(frame.size.box, fill: :gold)
         |> render_file_tree(frame, state)
       end,
-      translate: frame.pin
+      translate: frame.pin.point
     )
   end
 
@@ -178,7 +179,8 @@ defmodule ScenicWidgets.SideNav do
     do_render_file_tree(new_graph, outer_frame, rest, {x_offset, y_offset + 1})
   end
 
-  def calc_item_frame(%{dimens: %{width: frame_w}}, y_offset) do
+  # def calc_item_frame(%{dimens: %{width: frame_w}}, y_offset) do
+  def calc_item_frame(%{size: %{width: frame_w}}, y_offset) do
     # {x_offset*@item_indent, y_offset*@item_height}
     Frame.new(pin: {0, y_offset}, size: {frame_w, @item_height})
   end

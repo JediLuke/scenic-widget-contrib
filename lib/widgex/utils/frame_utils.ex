@@ -82,4 +82,28 @@ defmodule Widgex.Frame.Utils do
 
     [top, bottom]
   end
+
+  # def col_split(%Frame{} = f, n) when is_integer(n) and n > 3 do
+  #   col_width = f.size.width / n
+
+  #   [
+  #     Frame.new(pin: f.pin, size: {col_width, h}),
+  #     Frame.new(pin: {f.pin.x + col_width, y}, size: {col_width, h}),
+  #     Frame.new(pin: {f.pin.x + 2 * col_width, y}, size: {col_width, h})
+  #   ]
+  # end
+
+  def col_split(%Frame{} = f, n) when is_integer(n) and n > 0 do
+    col_width = f.size.width / n
+
+    # col_num starts at zero and goes up to n-1, so n columns in total but 0 indexed
+    Enum.map(0..(n - 1), fn col_num ->
+      Frame.new(
+        # Adjust pin based on the current column
+        pin: {f.pin.x + col_num * col_width, f.pin.y},
+        # Keep height consistent, only adjust width
+        size: {col_width, f.size.height}
+      )
+    end)
+  end
 end

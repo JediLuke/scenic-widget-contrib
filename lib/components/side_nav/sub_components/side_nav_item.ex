@@ -4,7 +4,8 @@ defmodule ScenicWidgets.SideNav.Item do
   just customized a little bit.
   """
   use Scenic.Component
-  alias ScenicWidgets.Core.Structs.Frame
+  # alias ScenicWidgets.Core.Structs.Frame
+  alias Widgex.Frame
   require Logger
 
   # how tall each menu item is #TODO pass it in as a config
@@ -47,7 +48,11 @@ defmodule ScenicWidgets.SideNav.Item do
     {:ok, init_scene}
   end
 
-  def bounds(%{frame: %{pin: {top_left_x, top_left_y}, size: {width, height}}}, _opts) do
+  # def bounds(%{frame: %{pin: {top_left_x, top_left_y}, size: {width, height}}}, _opts) do
+  def bounds(
+        %{frame: %{pin: %{x: top_left_x, y: top_left_y}, size: %{width: width, height: height}}},
+        _opts
+      ) do
     # NOTE: Because we use this bounds/2 function to calculate whether or
     # not the mouse is hovering over any particular button, we can't
     # translate entire groups of sub-menus around. We ned to explicitely
@@ -70,13 +75,13 @@ defmodule ScenicWidgets.SideNav.Item do
         graph
         |> Scenic.Primitives.rect(
           {
-            frame.dimens.width - state.offsets.x * @item_indent,
+            frame.size.width - state.offsets.x * @item_indent,
             @item_height
           },
           id: :background,
           fill: theme.active
         )
-        |> Scenic.Primitives.rect(frame.size,
+        |> Scenic.Primitives.rect(frame.size.box,
           stroke: {1, :black}
         )
         |> Scenic.Primitives.text(label,
@@ -100,14 +105,14 @@ defmodule ScenicWidgets.SideNav.Item do
         graph
         |> Scenic.Primitives.rect(
           {
-            frame.dimens.width - state.offsets.x * @item_indent,
+            frame.size.width - state.offsets.x * @item_indent,
             @item_height
           },
           id: :background,
           # fill: theme.active
           fill: :red
         )
-        |> Scenic.Primitives.rect(frame.size,
+        |> Scenic.Primitives.rect(frame.size.box,
           stroke: {1, :black}
         )
         |> Scenic.Primitives.rect({32, 32},
@@ -134,13 +139,13 @@ defmodule ScenicWidgets.SideNav.Item do
         graph
         |> Scenic.Primitives.rect(
           {
-            frame.dimens.width - state.offsets.x * @item_indent,
+            frame.size.width - state.offsets.x * @item_indent,
             @item_height
           },
           id: :background,
           fill: theme.active
         )
-        |> Scenic.Primitives.rect(frame.size,
+        |> Scenic.Primitives.rect(frame.size.box,
           stroke: {1, :black}
         )
         |> Scenic.Primitives.rect({32, 32},

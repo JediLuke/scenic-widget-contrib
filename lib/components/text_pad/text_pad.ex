@@ -1,7 +1,8 @@
 defmodule ScenicWidgets.TextPad do
   use Scenic.Component
   use ScenicWidgets.ScenicEventsDefinitions
-  alias ScenicWidgets.Core.Structs.Frame
+  # alias ScenicWidgets.Core.Structs.Frame
+  alias Widgex.Frame
   alias ScenicWidgets.TextPad.Structs.Font
   require Logger
 
@@ -116,18 +117,20 @@ defmodule ScenicWidgets.TextPad do
         # |> draw_scrollbars(args)
       end,
       id: {__MODULE__, id},
-      translate: frame.coords.point
+      # translate: frame.coords.point
+      translate: frame.pin.point
     )
   end
 
   def draw_background(graph, %{frame: frame, theme: theme}) do
     graph
     |> Scenic.Primitives.rect(
-      {frame.dimens.width, frame.dimens.height},
+      # {frame.dimens.width, frame.dimens.height},
+      frame.size.box,
       id: :background,
       fill: theme.active,
       stroke: {2, theme.border},
-      scissor: frame.dimens.box
+      scissor: frame.size.box
     )
   end
 
@@ -344,7 +347,7 @@ defmodule ScenicWidgets.TextPad do
 
     Frame.new(%{
       pin: {margin.left, margin.top + y_offset},
-      size: {frame.dimens.width, line_height}
+      size: {frame.size.width, line_height}
     })
   end
 
