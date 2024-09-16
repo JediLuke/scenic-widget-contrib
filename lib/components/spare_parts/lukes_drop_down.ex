@@ -459,6 +459,8 @@ defmodule ScenicWidgets.SpareParts.LukesDropDown do
     # capture input
     :ok = capture_input(scene, [:cursor_button, :cursor_pos])
 
+    cast_parent(scene, {:focus, scene.id})
+
     # drop the menu
     graph =
       graph
