@@ -5,20 +5,19 @@ defmodule ScenicWidgets.VerticalList do
 
   def validate(
         %{
+          id: _id,
           frame: _frame,
-          items:
-            [
-              {component_module, %{frame: %Widgex.Frame{} = _cf} = _component_args} | _rest
-            ] = _item_list
+          items: _items,
+          scroll: {_x, _y}
         } = data
       ) do
     {:ok, data}
   end
 
   # TODO delete this one below it;s old but keep it for now for bnackwards coatibility
-  def validate(%{frame: _frame, items: _item_list} = data) do
-    {:ok, data}
-  end
+  # def validate(%{frame: _frame, items: _item_list} = data) do
+  #   {:ok, data}
+  # end
 
   def init(scene, args, opts) do
     # Logger.debug "#{__MODULE__} initializing..."
@@ -30,28 +29,30 @@ defmodule ScenicWidgets.VerticalList do
 
     init_scene =
       scene
-      # |> assign(id: id)
+      # we need an id so that when we cast events up to the parent, we can identify this component
+      |> assign(id: args.id)
       |> assign(graph: init_graph)
       |> assign(frame: args.frame)
       # |> assign(theme: theme)
+      # nothing in items yet cause we haven't rendered anything yet! They go in the render_queue
       |> assign(items: [])
-      |> assign(scroll: {0, 0})
       |> assign(render_queue: args.items)
       |> push_graph(init_graph)
 
     GenServer.cast(self(), :render_next_component)
 
-    # request_input(init_scene, [:cursor_pos, :cursor_button])
     request_input(init_scene, [:cursor_scroll])
 
     {:ok, init_scene}
   end
 
-  def init_render(%{frame: f}) do
+  def init_render(%{frame: f, scroll: scroll}) do
     Scenic.Graph.build()
     |> Scenic.Primitives.group(
       fn graph ->
         graph
+        # add rect so v list has bounds
+        |> Scenic.Primitives.rect(f.size.box)
         # |> ScenicWidgets.FrameBox.add_to_graph(%{frame: f, fill: :pink})
         # NOTE- make the container group, give it translation etc, just don't add any components yet
         |> Scenic.Primitives.group(
@@ -66,7 +67,7 @@ defmodule ScenicWidgets.VerticalList do
           #      add new TidBits to it with Modify
           # Scenic required we register groups/components with a name
           id: :v_list_window,
-          translate: {0, 0}
+          translate: scroll
         )
 
         # draw a scissor rect around the entire list
@@ -78,60 +79,61 @@ defmodule ScenicWidgets.VerticalList do
       # this scissor is _essential_ it's the only one that works lol
       scissor: f.size.box
     )
-
-    # |> Scenic.Primitives.rect(
-    #   f.size.box,
-    #   scissor: f.size.box
-    # )
   end
 
+  # def bounds(%{frame: %{pin: {top_left_x, top_left_y}, size: {width, height}}}, _opts) do
+  #   # NOTE: Because we use this bounds/2 function to calculate whether or
+  #   # not the mouse is hovering over any particular button, we can't
+  #   # translate entire groups of sub-menus around. We ned to explicitely
+  #   # draw buttons in their correct order, and not translate them around,
+  #   # because bounds/2 doesn't seem to work correctly with translated elements
+  #   # TODO talk to Boyd and see if I'm wrong about this, or maybe we can improve Scenic to work with it
+  #   left = top_left_x
+  #   right = top_left_x + width
+  #   top = top_left_y
+  #   bottom = top_left_y + height
+  #   {left, top, right, bottom}
+  # end
+
   def handle_input(
-        {:cursor_scroll, {{_x_scroll, y_scroll} = delta_scroll, coords}},
+        {:cursor_scroll, {{_x_scroll, _y_scroll}, coords}},
         _context,
         scene
       ) do
     # TODO handle all this via a Reducer?? Or just keep it in the component??
     # Flamelex.Fluxus.action({Flamelex.Fluxus.Reducers.Memex, {:scroll, delta_scroll, __MODULE__}})
 
-    new_cumulative_scroll = compute_scroll(scene.assigns.scroll, delta_scroll)
+    # I think it needs be be via a reducer... because e.g. we want to change scroll by pressing shift to get fast scroll, so we need access to the global state
 
-    new_graph =
-      scene.assigns.graph
-      |> Scenic.Graph.modify(
-        :v_list_window,
-        &Scenic.Primitives.update_opts(&1, translate: new_cumulative_scroll)
+    # new_cumulative_scroll = compute_scroll(scene.assigns.scroll, delta_scroll)
+
+    # new_graph =
+    #   scene.assigns.graph
+    #   |> Scenic.Graph.modify(
+    #     :v_list_window,
+    #     &Scenic.Primitives.update_opts(&1, translate: new_cumulative_scroll)
+    #   )
+
+    # new_scene =
+    #   scene
+    #   |> assign(graph: new_graph)
+    #   |> assign(scroll: new_cumulative_scroll)
+    #   |> push_graph(new_graph)
+
+    # cast_parent(scene, {:click, details})
+
+    # {:noreply, new_scene}
+
+    bounds = Scenic.Graph.bounds(scene.assigns.graph)
+
+    if coords |> ScenicWidgets.Utils.inside?(bounds) do
+      cast_parent(
+        scene,
+        {:cursor_scroll, scene.assigns.id, {{_x_scroll, _y_scroll}, coords}}
       )
-
-    new_scene =
-      scene
-      |> assign(graph: new_graph)
-      |> assign(scroll: new_cumulative_scroll)
-      |> push_graph(new_graph)
-
-    {:noreply, new_scene}
-  end
-
-  @fast_scroll_speed 20
-  def compute_scroll({_x, _y} = current_cumulative_scroll, {_dx, dy}) do
-    # TODO cap scroll - right now we just dont allow negative scrolling
-
-    # speed up scrolling, and we never scroll in x direction (yet)
-    fast_scroll = {0, @fast_scroll_speed * dy}
-
-    new_cumulative_scroll =
-      current_cumulative_scroll
-      |> Scenic.Math.Vector2.add(fast_scroll)
-
-    case new_cumulative_scroll do
-      {x, y} when y > 0 ->
-        # we want to be able to scroll "down" the list but
-        # not "up" past the starting point, therefore
-        # we only allow negative y values when scrolling
-        {x, 0}
-
-      {x, y} ->
-        {x, y}
     end
+
+    {:noreply, scene}
   end
 
   def handle_cast(:render_next_component, %{assigns: %{render_queue: []}} = scene) do
@@ -171,7 +173,6 @@ defmodule ScenicWidgets.VerticalList do
 
   def handle_cast(
         :render_next_component,
-        # %{assigns: %{render_queue: [{module, args} = item | rest]}} = scene
         %{
           assigns: %{
             render_queue: [
@@ -253,6 +254,27 @@ defmodule ScenicWidgets.VerticalList do
     {:noreply, new_scene}
   end
 
+  def handle_cast({:set_scroll, {_x, _y} = new_scroll}, scene) do
+    new_graph =
+      scene.assigns.graph
+      |> Scenic.Graph.modify(
+        :v_list_window,
+        &Scenic.Primitives.update_opts(&1, translate: new_scroll)
+      )
+
+    new_scene =
+      scene
+      |> assign(graph: new_graph)
+      |> push_graph(new_graph)
+
+    {:noreply, new_scene}
+  end
+
+  def handle_cast({:click, details}, scene) do
+    cast_parent(scene, {:click, details})
+    {:noreply, scene}
+  end
+
   # def bounds(%{frame: %{pin: {top_left_x, top_left_y}, size: {width, height}}}, _opts) do
   #   # NOTE: Because we use this bounds/2 function to calculate whether or
   #   # not the mouse is hovering over any particular button, we can't
@@ -291,18 +313,13 @@ defmodule ScenicWidgets.VerticalList do
     )
   end
 
-  def handle_cast({:click, details}, scene) do
-    cast_parent(scene, {:click, details})
-    {:noreply, scene}
-  end
+  # def handle_event(e, scene) do
+  #   IO.inspect("VLIST - #{inspect(e)}")
+  #   {:noreply, scene}
+  # end
 
-  def handle_event(e, scene) do
-    IO.inspect("VLIST - #{inspect(e)}")
-    {:noreply, scene}
-  end
-
-  def handle_info(msg, scene) do
-    IO.inspect("VLIST - #{inspect(msg)}")
-    {:noreply, scene}
-  end
+  # def handle_info(msg, scene) do
+  #   IO.inspect("VLIST - #{inspect(msg)}")
+  #   {:noreply, scene}
+  # end
 end
