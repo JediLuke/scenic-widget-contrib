@@ -51,7 +51,7 @@ defmodule ScenicWidgets.ScenicEventsDefinitions do
       # in macOS the meta-key registers as :key_unknown, but appears as [:meta] in a keypress combination still
       @meta {:key, {:key_unknown, @key_pressed, []}}
 
-      @left_shift_release {:key, {:key_leftshift, @key_released, []}}
+      @left_shift_up {:key, {:key_leftshift, @key_released, [:shift]}}
 
       @escape_key {:key, {:key_esc, @key_pressed, []}}
       @tab_key {:key, {:key_tab, @key_pressed, []}}
