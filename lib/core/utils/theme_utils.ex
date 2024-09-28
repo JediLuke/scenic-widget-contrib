@@ -12,6 +12,7 @@ defmodule ScenicWidgets.Utils.Theme do
   # }
 
   def get_theme(opts) do
+    # TODO deprecate, we do this in NeoRadixState now
     (opts[:theme] || Scenic.Primitive.Style.Theme.preset(:light))
     |> Scenic.Primitive.Style.Theme.normalize()
   end

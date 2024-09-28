@@ -101,7 +101,7 @@ defmodule ScenicWidgets.VerticalList do
         scene
       ) do
     # TODO handle all this via a Reducer?? Or just keep it in the component??
-    # Flamelex.Fluxus.action({Flamelex.Fluxus.Reducers.Memex, {:scroll, delta_scroll, __MODULE__}})
+    # Flamelex.Fluxus.action({Flamelex.GUI.Component.RapidSelector.Reducer, {:scroll, delta_scroll, __MODULE__}})
 
     # I think it needs be be via a reducer... because e.g. we want to change scroll by pressing shift to get fast scroll, so we need access to the global state
 

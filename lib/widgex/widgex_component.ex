@@ -51,7 +51,7 @@ defmodule Widgex.Component do
       use Scenic.Component
       use ScenicWidgets.ScenicEventsDefinitions
       require Logger
-      alias Widgex.Structs.{Coordinates, Dimensions}
+      # alias Widgex.Structs.{Coordinates, Dimensions}
       alias Widgex.Frame
 
       # maybe we shouldn't do this lol but it's the default left margin for text
@@ -146,8 +146,10 @@ defmodule Widgex.Component do
           end,
           # trim outside the frame & move the frame to it's location
           id: {:widgex_component, state.widgex.id},
-          scissor: Dimensions.box(frame.size),
-          translate: Coordinates.point(frame.pin)
+          # scissor: Dimensions.box(frame.size),
+          scissor: frame.size.box,
+          # translate: Coordinates.point(frame.pin)
+          translate: frame.pin.point
         )
       end
 
@@ -159,7 +161,7 @@ defmodule Widgex.Component do
             %Frame{size: f_size},
             opts \\ []
           ) do
-        graph |> Scenic.Primitives.rect(Dimensions.box(f_size), opts)
+        graph |> Scenic.Primitives.rect(f_size.box, opts)
       end
 
       defp render_scrollbars(graph, state, frame, opts) do
