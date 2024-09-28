@@ -46,7 +46,8 @@ defmodule ScenicWidgets.ScenicEventsDefinitions do
       @right_shift {:key, {:key_rightshift, @key_pressed, []}}
       @left_ctrl {:key, {:key_leftctrl, @key_pressed, []}}
       @right_ctrl {:key, {:key_rightctrl, @key_pressed, []}}
-      @left_alt {:key, {:key_leftalt, @key_pressed, []}}
+      @left_alt_dn {:key, {:key_leftalt, @key_pressed, []}}
+      @left_alt_up {:key, {:key_leftalt, @key_released, [:alt]}}
       @right_alt {:key, {:key_rightalt, @key_pressed, []}}
       # in macOS the meta-key registers as :key_unknown, but appears as [:meta] in a keypress combination still
       @meta {:key, {:key_unknown, @key_pressed, []}}
