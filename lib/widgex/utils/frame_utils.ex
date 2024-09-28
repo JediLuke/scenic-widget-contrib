@@ -41,6 +41,11 @@ defmodule Widgex.Frame.Utils do
     [left, right]
   end
 
+  # def stack(%Scenic.ViewPort{size: {_vp_width, vp_height}} = vp, :h_split) do
+  #   # split it down the middle (horizontally)
+  #   stack(vp, {:horizontal_split, {vp_height / 2, :px}})
+  # end
+
   def h_split(%Frame{} = f, fraction: pc) when is_float(pc) and pc >= 0 and pc <= 1 do
     left =
       Frame.new(%{
@@ -83,6 +88,32 @@ defmodule Widgex.Frame.Utils do
     [top, bottom]
   end
 
+  def v_split(
+        %Scenic.ViewPort{size: {vp_width, vp_height}},
+        {:vertical_split, {split, :px}}
+      ) do
+    # The day someone discovers buffers in vim/emacs...
+    #
+    # +----------------------+
+    # |           |          |
+    # |           |          |
+    # |           |          |
+    # |           |          |
+    # |<- split ->|          |
+    # |           |          |
+    # |           |          |
+    # |           |          |
+    # |           |          |
+    # +----------------------+
+    #             ^
+    #           divider (in pixels, from the left)
+
+    f1 = Frame.new(pin: {0, 0}, size: {split, vp_height})
+    f2 = Frame.new(pin: {split, 0}, size: {vp_width - split, vp_height})
+
+    [f1, f2]
+  end
+
   # def col_split(%Frame{} = f, n) when is_integer(n) and n > 3 do
   #   col_width = f.size.width / n
 
@@ -106,4 +137,104 @@ defmodule Widgex.Frame.Utils do
       )
     end)
   end
+
+  def shrink(%Widgex.Frame{} = f, factor, :top)
+      when is_number(factor) and factor >= 0 and factor <= 1 do
+    new_height = f.size.height * factor
+    Widgex.Frame.new(%{pin: f.pin, size: {f.size.width, new_height}})
+  end
 end
+
+# @doc """
+# The first page we ever learned to rule-up at school.
+
+# +-----------------+
+# |                 |
+# +-----------------+   <-- linemark
+# |                 |
+# |                 |
+# |                 |
+# |                 |
+# |                 |
+# |                 |
+# +-----------------+
+# """
+
+# def new(
+#       %Scenic.ViewPort{size: {vp_width, vp_height}},
+#       {:standard_rule, frame: 1, linemark: linemark}
+#     ) do
+#   new(pin: {0, 0}, size: {vp_width, linemark})
+# end
+
+# def new(
+#       %Scenic.ViewPort{size: {vp_width, vp_height}},
+#       {:standard_rule, frame: 2, linemark: linemark}
+#     ) do
+#   new(pin: {0, linemark}, size: {vp_width, vp_height - linemark})
+# end
+
+# # split the screen horizontally
+# def stack(
+#       %Scenic.ViewPort{size: {vp_width, vp_height}},
+#       {:horizontal_split, {split_point, :px}}
+#     ) do
+#   # The first page we ever learned to rule-up at school.
+#   #
+#   # +-----------------+
+#   # |                 |
+#   # +-----------------+   <-- divider (in pixels, from the top)
+#   # |                 |
+#   # |                 |
+#   # |                 |
+#   # |                 |
+#   # |                 |
+#   # |                 |
+#   # +-----------------+
+#   f1 = new(pin: {0, 0}, size: {vp_width, split_point})
+#   f2 = new(pin: {0, split_point}, size: {vp_width, vp_height - split_point})
+
+#   [f1, f2]
+# end
+
+# def stack(%Scenic.ViewPort{size: {vp_width, _vp_height}} = vp, :v_split) do
+#   # split it down the middle (vertically)
+#   stack(vp, {:vertical_split, {vp_width / 2, :px}})
+# end
+
+# def stack(
+#       %Scenic.ViewPort{size: {vp_width, vp_height}} = vp,
+#       {:vertical_split, {split, :ratio}}
+#     )
+#     when is_float(split) and split >= 0 and split <= 1 do
+#   stack(vp, {:vertical_split, {split * vp_width, :px}})
+# end
+
+# @doc """
+# Constructs a new `Frame` struct that corresponds to the entire `Scenic.ViewPort`.
+
+# Given a `Scenic.ViewPort`, this function will create a `Frame` that represents the entire viewport by utilizing the `size` attribute of the `ViewPort`.
+
+# ## Params
+
+# - `view_port`: The `Scenic.ViewPort` from which the frame is to be constructed.
+
+# ## Examples
+
+#     iex> alias Scenic.ViewPort
+#     iex> alias Widgex.Structs.{Frame, Coordinates, Dimensions}
+#     iex> view_port = %ViewPort{size: {800, 600}}
+#     iex> Frame.from_viewport(view_port)
+#     %Frame{pin: %Coordinates{x: 0, y: 0}, size: %Dimensions{width: 800, height: 600}}
+# """
+
+# @spec from_viewport(Scenic.ViewPort.t()) :: t()
+# def from_viewport(%Scenic.ViewPort{size: {vp_width, vp_height}}) do
+#   # Uncomment the line below to include the hack* (without it we get a dark strip on the right hand side)
+#   # width = vp_width + 1
+
+#   # Uncomment the line below for the intended behavior
+#   width = vp_width
+
+#   new(%Coordinates{x: 0, y: 0}, %Dimensions{width: width, height: vp_height})
+# end
