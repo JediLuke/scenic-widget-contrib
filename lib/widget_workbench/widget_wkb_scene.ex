@@ -7,6 +7,7 @@ defmodule WidgetWorkbench.Scene do
   alias Scenic.Components
   alias Widgex.Frame
   alias Scenic.ViewPort
+  alias WidgetWorkbench.Components.Modal
 
   @moduledoc """
   A scene that serves as a widget workbench for designing and testing GUI components.
@@ -23,20 +24,46 @@ defmodule WidgetWorkbench.Scene do
     # Build the initial graph
     graph = render(frame)
 
-    # Assign the graph to the scene and push it
+    # Assign the graph and state to the scene
     scene =
       scene
       |> assign(graph: graph)
       |> assign(frame: frame)
+      |> assign(modal_visible: false)
       |> push_graph(graph)
 
     # Request input events
-    request_input(scene, [:cursor_pos, :cursor_button, :key])
+    # request_input(scene, [:cursor_pos, :cursor_button, :key])
 
     {:ok, scene}
   end
 
-  # Render function to build the graph
+  # # Render function to build the graph
+  # defp render(%Frame{} = frame) do
+  #   Graph.build()
+  #   |> Primitives.group(
+  #     fn graph ->
+  #       graph
+  #       # Draw a background
+  #       |> Primitives.rect({frame.size.width, frame.size.height}, fill: :white)
+  #       # Add a placeholder text
+  #       |> Primitives.text(
+  #         "Widget Workbench",
+  #         font_size: 32,
+  #         fill: :black,
+  #         text_align: :center,
+  #         translate: {frame.size.width / 2, 50}
+  #       )
+  #       # Add the tool palette
+  #       |> render_tool_palette(frame)
+
+  #       # Add more components or widgets here
+  #     end,
+  #     translate: frame.pin.point
+  #   )
+  # end
+
+  # Modify the render function to include a modal container
   defp render(%Frame{} = frame) do
     Graph.build()
     |> Primitives.group(
@@ -54,6 +81,11 @@ defmodule WidgetWorkbench.Scene do
         )
         # Add the tool palette
         |> render_tool_palette(frame)
+        # Add a container for the modal
+        |> Primitives.group(
+          fn graph -> graph end,
+          id: :modal_container
+        )
 
         # Add more components or widgets here
       end,
@@ -65,9 +97,7 @@ defmodule WidgetWorkbench.Scene do
   defp render_tool_palette(graph, %Frame{} = frame) do
     palette_width = 200
     palette_height = 100
-    # Position on the right with a 20-pixel margin
     palette_x = frame.size.width - palette_width - 20
-    # Position below the title text
     palette_y = 70
 
     # Draw the tool palette
@@ -114,17 +144,86 @@ defmodule WidgetWorkbench.Scene do
   @impl Scenic.Scene
   def handle_event({:click, :new_widget_button}, _from, scene) do
     Logger.info("New Widget button clicked!")
-    # Implement the action for creating a new widget here
+
+    # Show the modal
+    graph = show_modal(scene.assigns.graph, scene.assigns.frame)
+
+    scene =
+      scene
+      |> assign(graph: graph)
+      |> assign(modal_visible: true)
+      |> push_graph(graph)
+
     {:noreply, scene}
   end
 
   def handle_event({:click, :close_workbench_button}, _from, scene) do
     Logger.info("Close Workbench button clicked!")
-    # Implement the action for closing the workbench
-    # For example, switch back to the root scene:
-    # {:ok, _} = ViewPort.set_root(scene.viewport, {Flamelex.GUI.RootScene, nil})
+    # switch back to Flamelex
+    {:ok, _} = ViewPort.set_root(scene.viewport, Flamelex.GUI.RootScene, nil)
     {:noreply, scene}
   end
 
+  def handle_info({{:modal_submitted, component_name}, _modal_pid}, scene) do
+    Logger.info("Modal submitted with component name: #{component_name}")
+
+    # Hide the modal
+    graph = hide_modal(scene.assigns.graph)
+
+    scene =
+      scene
+      |> assign(graph: graph)
+      |> assign(modal_visible: false)
+      |> push_graph(graph)
+
+    # Implement the logic to handle the new component name
+    # For now, we can just log it or update the scene as needed
+
+    {:noreply, scene}
+  end
+
+  def handle_info({:modal_cancelled, _modal_pid}, scene) do
+    Logger.info("Modal cancelled")
+
+    # Hide the modal
+    graph = hide_modal(scene.assigns.graph)
+
+    scene =
+      scene
+      |> assign(graph: graph)
+      |> assign(modal_visible: false)
+      |> push_graph(graph)
+
+    {:noreply, scene}
+  end
+
+  def handle_info(_msg, scene), do: {:noreply, scene}
+
   def handle_event(_event, _from, scene), do: {:noreply, scene}
+
+  # Function to show the modal
+  defp show_modal(graph, frame) do
+    modal_id = :new_widget_modal
+
+    graph
+    |> Graph.add_to(:modal_container, fn g ->
+      g
+      |> Modal.add_to_graph(
+        %{
+          id: modal_id,
+          frame: frame,
+          title: "Enter Component Name",
+          placeholder: "ComponentName"
+        },
+        id: modal_id
+      )
+    end)
+  end
+
+  # Function to hide the modal
+  defp hide_modal(graph) do
+    graph
+    |> Graph.delete(:modal_container)
+    |> Graph.insert(:modal_container, fn g -> g end)
+  end
 end
