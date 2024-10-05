@@ -6,6 +6,7 @@ defmodule WidgetWorkbench.Components.Modal do
   alias Scenic.Components
   alias Scenic.Scene
   alias Widgex.Frame
+  use ScenicWidgets.ScenicEventsDefinitions
 
   @moduledoc """
   A reusable modal component for displaying dialogs with input fields and buttons.
@@ -108,29 +109,29 @@ defmodule WidgetWorkbench.Components.Modal do
   # Handle input events
   def handle_input({:cursor_button, {:btn_left, 0, _, _}}, _context, scene), do: {:noreply, scene}
 
-  def handle_input({:key, {:key, key, _}}, _context, scene) do
-    case key do
-      # Handle backspace
-      :backspace ->
-        input_value = String.slice(scene.assigns.input_value, 0..-2)
-        update_input_text(scene, input_value)
-
-      # Handle enter key
-      :enter ->
-        send_parent_event(scene, {:modal_submitted, scene.assigns.input_value})
-        {:noreply, scene}
-
-      # Handle other keys (characters)
-      char when is_binary(char) ->
-        input_value = scene.assigns.input_value <> char
-        update_input_text(scene, input_value)
-
-      _ ->
-        {:noreply, scene}
-    end
+  def handle_input(@backspace, _context, scene) do
+    input_value = String.slice(scene.assigns.input_value, 0..-2)
+    update_input_text(scene, input_value)
   end
 
-  def handle_input(_input, _context, scene), do: {:noreply, scene}
+  def handle_input(@enter, _context, scene) do
+    send_parent_event(scene, {:modal_submitted, scene.assigns.input_value})
+    {:noreply, scene}
+  end
+
+  def handle_input({:key, {_k, @key_released, _meta}}, _context, scene) do
+    {:noreply, scene}
+  end
+
+  def handle_input({:key, _k} = ii, _context, scene) when ii in @all_letters do
+    input_value = scene.assigns.input_value <> key2string(ii)
+    update_input_text(scene, input_value)
+  end
+
+  def handle_input(input, _context, scene) do
+    # IO.puts("Unhandled input: #{inspect(input)}")
+    {:noreply, scene}
+  end
 
   # Handle button clicks
   def handle_event({:click, :ok_button}, _from, scene) do

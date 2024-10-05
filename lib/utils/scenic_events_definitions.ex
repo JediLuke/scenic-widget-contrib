@@ -56,8 +56,16 @@ defmodule ScenicWidgets.ScenicEventsDefinitions do
 
       @escape_key {:key, {:key_esc, @key_pressed, []}}
       @tab_key {:key, {:key_tab, @key_pressed, []}}
-      @enter_key {:key, {:key_enter, @key_pressed, []}}
-      @backspace_key {:key, {:key_backspace, @key_pressed, []}}
+
+      @enter_key_dn {:key, {:key_enter, @key_pressed, []}}
+      # @enter_key_up {:key, {:key_enter, @key_released, []}}
+      @enter_key @enter_key_dn
+      @enter @enter_key_dn
+
+      @backspace_key_dn {:key, {:key_backspace, @key_pressed, []}}
+      # @backspace_key_up {:key, {:key_backspace, @key_released, []}}
+      @backspace_key @backspace_key_dn
+      @backspace @backspace_key_dn
 
       @shift_space {:key, {:key_space, @key_pressed, [:shift]}}
       @shift_tab {:key, {:key_tab, @key_pressed, [:shift]}}
