@@ -167,14 +167,21 @@ defmodule Widgex.Frame do
     }
   end
 
-  def draw_x_box(graph, frame, color: c) do
+  def draw_x_box(graph, %Widgex.Frame{} = frame, color: c) do
     graph
-    |> Scenic.Primitives.rect(frame.size.box, stroke: {10, c})
-    |> Scenic.Primitives.line({{0, 0}, {frame.size.width, frame.size.height}},
-      stroke: {4, c}
-    )
-    |> Scenic.Primitives.line({{0, frame.size.height}, {frame.size.width, 0}},
-      stroke: {4, c}
+    |> Scenic.Primitives.group(
+      fn graph ->
+        graph
+        |> Scenic.Primitives.rect(frame.size.box, stroke: {10, c})
+        |> Scenic.Primitives.line({{0, 0}, {frame.size.width, frame.size.height}},
+          stroke: {4, c}
+        )
+        |> Scenic.Primitives.line({{0, frame.size.height}, {frame.size.width, 0}},
+          stroke: {4, c}
+        )
+      end
+      # NOTE don't translate this group, translate in the higher component
+      # translate: frame.pin.point
     )
   end
 
