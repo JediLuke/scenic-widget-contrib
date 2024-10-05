@@ -164,7 +164,7 @@ defmodule WidgetWorkbench.Scene do
     {:noreply, scene}
   end
 
-  def handle_info({{:modal_submitted, component_name}, _modal_pid}, scene) do
+  def handle_event({:modal_submitted, component_name}, _from, scene) do
     Logger.info("Modal submitted with component name: #{component_name}")
 
     # Hide the modal
@@ -178,11 +178,13 @@ defmodule WidgetWorkbench.Scene do
 
     # Implement the logic to handle the new component name
     # For now, we can just log it or update the scene as needed
+    Flamelex.GUI.DevTools.build_new_component(component_name)
 
     {:noreply, scene}
   end
 
-  def handle_info({:modal_cancelled, _modal_pid}, scene) do
+  # def handle_info({:modal_cancelled, _modal_pid}, scene) do
+  def handle_event(:modal_cancelled, _from, scene) do
     Logger.info("Modal cancelled")
 
     # Hide the modal
@@ -220,10 +222,20 @@ defmodule WidgetWorkbench.Scene do
     end)
   end
 
-  # Function to hide the modal
   defp hide_modal(graph) do
     graph
-    |> Graph.delete(:modal_container)
-    |> Graph.insert(:modal_container, fn g -> g end)
+    |> Graph.modify(:modal_container, fn primitive ->
+      %{primitive | data: []}
+    end)
   end
+
+  # defp hide_modal(graph) do
+  #   graph
+  #   |> Graph.modify(:modal_container, fn _primitive ->
+  #     # nil
+  #     # Replace with an empty group
+  #     Scenic.Graph.build()
+  #     |> Primitives.group(fn g -> g end, id: :modal_container)
+  #   end)
+  # end
 end
