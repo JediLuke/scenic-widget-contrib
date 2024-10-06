@@ -9,6 +9,10 @@ defmodule WidgetWorkbench.Scene do
   alias Scenic.ViewPort
   alias WidgetWorkbench.Components.Modal
 
+  @grid_color :light_gray
+  # Customize the grid spacing
+  @grid_spacing 40.0
+
   @moduledoc """
   A scene that serves as a widget workbench for designing and testing GUI components.
   """
@@ -48,6 +52,7 @@ defmodule WidgetWorkbench.Scene do
         graph
         # Draw a background
         |> Primitives.rect({frame.size.width, frame.size.height}, fill: :white)
+        |> draw_grid_background(frame)
         # Add a placeholder text
         |> Primitives.text(
           "Widget Workbench",
@@ -72,6 +77,25 @@ defmodule WidgetWorkbench.Scene do
       end,
       translate: frame.pin.point
     )
+  end
+
+  # Function to draw a pseudo-grid background of "+"
+  defp draw_grid_background(graph, %Frame{} = frame) do
+    # Ensure we have integers by flooring the division results
+    width_count = :math.floor(frame.size.width / @grid_spacing) |> trunc()
+    height_count = :math.floor(frame.size.height / @grid_spacing) |> trunc()
+
+    Enum.reduce(0..width_count, graph, fn x, acc ->
+      Enum.reduce(0..height_count, acc, fn y, acc_inner ->
+        acc_inner
+        |> Primitives.text(
+          "+",
+          font_size: 16,
+          fill: @grid_color,
+          translate: {x * @grid_spacing, y * @grid_spacing}
+        )
+      end)
+    end)
   end
 
   # Function to render the tool palette
