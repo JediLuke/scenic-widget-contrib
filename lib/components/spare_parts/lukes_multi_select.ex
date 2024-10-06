@@ -13,8 +13,17 @@ defmodule ScenicWidgets.SpareParts.LukesMultiSelect do
   @default_font :roboto
   @default_font_size 20
   @border_width 2
-
   @checkbox_size 16
+
+  @caret {{0, 0}, {12, 0}, {6, 6}}
+  @text_id :_dropbox_text_
+  @caret_id :_caret_
+  @dropbox_id :_dropbox_
+  @button_id :_dropbox_btn_
+  @rotate_neutral :math.pi() / 2
+  @rotate_down 0
+  @rotate_up :math.pi()
+  @drop_click_window_ms 400
 
   # --------------------------------------------------------
   @impl Scenic.Component
@@ -46,63 +55,195 @@ defmodule ScenicWidgets.SpareParts.LukesMultiSelect do
     ascent = FontMetrics.ascent(@default_font_size, fm)
     descent = FontMetrics.descent(@default_font_size, fm)
 
-    # Calculate width and height of the component
+    # Calculate width and height
     fm_width =
       Enum.reduce(items, 0, fn {text, _}, w ->
         width = FontMetrics.width(text, @default_font_size, fm)
         max(w, width)
       end)
 
-    width = opts[:width] || fm_width + ascent * 3
-    height = @default_font_size + ascent
+    width =
+      case opts[:width] || opts[:w] do
+        nil -> fm_width + ascent * 3
+        :auto -> fm_width + ascent * 3
+        width when is_number(width) and width > 0 -> width
+      end
 
-    # Calculate the total height of the items list
+    height =
+      case opts[:height] || opts[:h] do
+        nil -> @default_font_size + ascent
+        :auto -> @default_font_size + ascent
+        height when is_number(height) and height > 0 -> height
+      end
+
+    # Calculate the drop box measures
     item_count = Enum.count(items)
-    total_height = item_count * height
+    drop_height = item_count * height
 
-    translate_menu = {0, height + 1}
+    # Get the drop direction
+    direction = opts[:direction] || @default_direction
 
-    # Build the graph for the component
+    # Calculate where to put the drop box
+    translate_menu =
+      case direction do
+        :down -> {0, height + 1}
+        :up -> {0, height * -item_count - 1}
+      end
+
+    # Get the direction to rotate the caret
+    rotate_caret =
+      case direction do
+        :down -> @rotate_down
+        :up -> -@rotate_up
+      end
+
+    text_vpos = height / 2 + ascent / 2 + descent / 3
+    dx = @border_width / 2
+    dy = @border_width / 2
+
+    # Build the graph
     graph =
-      Graph.build(font: @default_font, font_size: @default_font_size, t: {0, 0})
-      |> rect({width, total_height}, fill: theme.background, stroke: {@border_width, theme.border})
+      Graph.build(font: @default_font, font_size: @default_font_size, t: {dx, dy})
+      |> rect(
+        {width, height},
+        fill: theme.background,
+        stroke: {@border_width, theme.border},
+        id: @button_id,
+        input: :cursor_button
+      )
+      |> text("Select options",
+        fill: theme.text,
+        translate: {8, text_vpos},
+        text_align: :left,
+        id: @text_id
+      )
+      |> triangle(@caret,
+        fill: theme.text,
+        translate: {width - 18, height * 0.5},
+        pin: {6, 0},
+        rotate: @rotate_neutral,
+        id: @caret_id
+      )
+      # Build the dropbox group
+      |> group(
+        fn g ->
+          g = rect(g, {width, drop_height}, fill: theme.background, stroke: {2, theme.border})
 
-    final_graph =
-      Enum.reduce(items, graph, fn {text, id}, g ->
-        is_selected = id in initial_selected_ids
+          {g, _} =
+            Enum.reduce(items, {g, 0}, fn {text, id}, {g, i} ->
+              is_selected = id in initial_selected_ids
+              checkbox_y = (height - @checkbox_size) / 2
 
-        g
-        |> group(
-          fn g ->
-            # Checkbox primitive
-            g
-            |> rect({@checkbox_size, @checkbox_size},
-              fill: if(is_selected, do: theme.active, else: theme.background),
-              stroke: {@border_width, theme.border},
-              id: {:checkbox, id},
-              input: :cursor_button
-            )
-            # Label for the item
-            |> text(text,
-              fill: theme.text,
-              translate: {@checkbox_size + 8, height / 2 + ascent / 2 + descent / 3},
-              id: {:label, id}
-            )
-          end,
-          translate: {0, height * Enum.find_index(items, fn {_, item_id} -> item_id == id end)}
-        )
-      end)
+              g =
+                group(
+                  g,
+                  fn g ->
+                    # Each item's background
+                    rect(
+                      g,
+                      {width, height},
+                      fill: theme.background,
+                      id: {:item_background, id}
+                    )
+                    |> rect({@checkbox_size, @checkbox_size},
+                      fill: if(is_selected, do: theme.active, else: theme.background),
+                      stroke: {@border_width, theme.border},
+                      id: {:checkbox, id},
+                      input: :cursor_button,
+                      translate: {8, checkbox_y}
+                    )
+                    |> text(text,
+                      fill: theme.text,
+                      translate: {@checkbox_size + 16, text_vpos},
+                      id: {:label, id}
+                    )
+                  end,
+                  translate: {0, height * i}
+                )
+
+              {g, i + 1}
+            end)
+
+          g
+        end,
+        translate: translate_menu,
+        id: @dropbox_id,
+        hidden: true
+      )
 
     scene =
       scene
-      |> assign(graph: final_graph, selected_ids: initial_selected_ids, theme: theme, id: id)
-      |> push_graph(final_graph)
+      |> assign(
+        graph: graph,
+        selected_ids: initial_selected_ids,
+        theme: theme,
+        id: id,
+        down: false,
+        hover_id: nil,
+        items: items,
+        rotate_caret: rotate_caret,
+        drop_time: 0
+      )
+      |> push_graph(graph)
 
     {:ok, scene}
   end
 
+  # Handle input when the dropdown is closed and button is pressed
+  def handle_input(
+        {:cursor_button, {:btn_left, 1, _, _}},
+        @button_id,
+        %Scene{assigns: %{down: false, graph: graph, rotate_caret: rotate_caret}} = scene
+      ) do
+    # Capture input
+    :ok = capture_input(scene, [:cursor_button, :cursor_pos])
+
+    # Send focus to parent
+    cast_parent(scene, {:focus, scene.id})
+
+    # Show the dropdown and rotate the caret
+    graph =
+      graph
+      |> Graph.modify(@caret_id, &update_opts(&1, rotate: rotate_caret))
+      |> Graph.modify(@dropbox_id, &update_opts(&1, hidden: false))
+
+    scene =
+      scene
+      |> assign(down: true, graph: graph, drop_time: :os.system_time(:milli_seconds))
+      |> push_graph(graph)
+
+    {:noreply, scene}
+  end
+
+  # Handle input when the dropdown is open and button is pressed (close it)
+  def handle_input(
+        {:cursor_button, {:btn_left, 1, _, _}},
+        @button_id,
+        %Scene{
+          assigns: %{
+            down: true,
+            theme: theme,
+            graph: graph
+          }
+        } = scene
+      ) do
+    # Hide the dropdown and rotate the caret back
+    graph =
+      graph
+      |> Graph.modify(@caret_id, &update_opts(&1, rotate: @rotate_neutral))
+      |> Graph.modify(@dropbox_id, &update_opts(&1, hidden: true))
+
+    :ok = release_input(scene)
+
+    scene =
+      scene
+      |> assign(down: false, graph: graph)
+      |> push_graph(graph)
+
+    {:noreply, scene}
+  end
+
   # Handle checkbox click events
-  @impl Scenic.Scene
   def handle_input({:cursor_button, {:btn_left, 1, _, _}}, {:checkbox, item_id}, scene) do
     %{selected_ids: selected_ids, graph: graph, theme: theme} = scene.assigns
 
@@ -113,7 +254,7 @@ defmodule ScenicWidgets.SpareParts.LukesMultiSelect do
         [item_id | selected_ids]
       end
 
-    # Update the graph to reflect the new selection state
+    # Update the checkbox fill
     graph =
       graph
       |> Graph.modify(
@@ -128,6 +269,33 @@ defmodule ScenicWidgets.SpareParts.LukesMultiSelect do
     scene =
       scene
       |> assign(selected_ids: new_selected_ids, graph: graph)
+      |> push_graph(graph)
+
+    {:noreply, scene}
+  end
+
+  # Handle click outside the dropdown to close it
+  def handle_input(
+        {:cursor_button, {:btn_left, _, _, _}},
+        _,
+        %Scene{
+          assigns: %{
+            down: true,
+            graph: graph
+          }
+        } = scene
+      ) do
+    # Hide the dropdown and rotate the caret back
+    graph =
+      graph
+      |> Graph.modify(@caret_id, &update_opts(&1, rotate: @rotate_neutral))
+      |> Graph.modify(@dropbox_id, &update_opts(&1, hidden: true))
+
+    :ok = release_input(scene)
+
+    scene =
+      scene
+      |> assign(down: false, graph: graph)
       |> push_graph(graph)
 
     {:noreply, scene}
