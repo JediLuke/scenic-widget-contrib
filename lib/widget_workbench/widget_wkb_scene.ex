@@ -30,40 +30,17 @@ defmodule WidgetWorkbench.Scene do
       |> assign(graph: graph)
       |> assign(frame: frame)
       |> assign(modal_visible: false)
+      |> assign(current_file_index: 0)
+      |> assign(component_files: [])
       |> push_graph(graph)
 
     # Request input events
-    # request_input(scene, [:cursor_pos, :cursor_button, :key])
+    request_input(scene, [:cursor_pos, :cursor_button, :key])
 
     {:ok, scene}
   end
 
-  # # Render function to build the graph
-  # defp render(%Frame{} = frame) do
-  #   Graph.build()
-  #   |> Primitives.group(
-  #     fn graph ->
-  #       graph
-  #       # Draw a background
-  #       |> Primitives.rect({frame.size.width, frame.size.height}, fill: :white)
-  #       # Add a placeholder text
-  #       |> Primitives.text(
-  #         "Widget Workbench",
-  #         font_size: 32,
-  #         fill: :black,
-  #         text_align: :center,
-  #         translate: {frame.size.width / 2, 50}
-  #       )
-  #       # Add the tool palette
-  #       |> render_tool_palette(frame)
-
-  #       # Add more components or widgets here
-  #     end,
-  #     translate: frame.pin.point
-  #   )
-  # end
-
-  # Modify the render function to include a modal container
+  # Render function to build the graph
   defp render(%Frame{} = frame) do
     Graph.build()
     |> Primitives.group(
@@ -87,7 +64,11 @@ defmodule WidgetWorkbench.Scene do
           id: :modal_container
         )
 
-        # Add more components or widgets here
+        # Add tabs for navigating component files
+        # |> render_file_tabs(frame)
+
+        # # Add an area for editing the current file
+        # |> render_file_editor(frame)
       end,
       translate: frame.pin.point
     )
@@ -134,6 +115,61 @@ defmodule WidgetWorkbench.Scene do
     )
   end
 
+  # Function to render file tabs
+  defp render_file_tabs(graph, %Frame{} = frame) do
+    tab_width = frame.size.width / 6
+    tab_height = 40
+    tab_y = frame.size.height - tab_height - 20
+
+    # Draw tabs for each file
+    graph
+    |> Primitives.group(
+      fn graph ->
+        for i <- 0..5 do
+          graph
+          |> Components.button(
+            "File #{i + 1}",
+            id: {:file_tab, i},
+            width: tab_width - 10,
+            height: tab_height,
+            translate: {i * tab_width + 5, tab_y}
+          )
+        end
+      end,
+      id: :file_tabs
+    )
+  end
+
+  # Function to render the file editor
+  defp render_file_editor(graph, %Frame{} = frame) do
+    editor_width = frame.size.width - 40
+    editor_height = frame.size.height - 200
+    editor_x = 20
+    editor_y = 100
+
+    graph
+    |> Primitives.group(
+      fn graph ->
+        graph
+        # Draw the editor background
+        |> Primitives.rect(
+          {editor_width, editor_height},
+          fill: :light_yellow,
+          stroke: {1, :dark_gray},
+          translate: {editor_x, editor_y}
+        )
+        # Add placeholder text for the editor
+        |> Primitives.text(
+          "Edit your component file here...",
+          font_size: 18,
+          fill: :black,
+          translate: {editor_x + 10, editor_y + 30}
+        )
+      end,
+      id: :file_editor
+    )
+  end
+
   @impl Scenic.Scene
   def handle_input(input, _context, scene) do
     # Handle input events if necessary
@@ -164,26 +200,39 @@ defmodule WidgetWorkbench.Scene do
     {:noreply, scene}
   end
 
+  def handle_event({:click, {:file_tab, index}}, _from, scene) do
+    Logger.info("File tab #{index + 1} clicked!")
+
+    # Update the current file index
+    scene =
+      scene
+      |> assign(current_file_index: index)
+      |> push_graph(scene.assigns.graph)
+
+    {:noreply, scene}
+  end
+
   def handle_event({:modal_submitted, component_name}, _from, scene) do
     Logger.info("Modal submitted with component name: #{component_name}")
 
     # Hide the modal
     graph = hide_modal(scene.assigns.graph)
 
+    # Create new component files
+    # TODO this isnt how that works
+    # component_files = Flamelex.GUI.DevTools.build_new_component(component_name)
+    :ok = Flamelex.GUI.DevTools.build_new_component(component_name)
+
     scene =
       scene
       |> assign(graph: graph)
       |> assign(modal_visible: false)
+      # |> assign(component_files: component_files)
       |> push_graph(graph)
-
-    # Implement the logic to handle the new component name
-    # For now, we can just log it or update the scene as needed
-    Flamelex.GUI.DevTools.build_new_component(component_name)
 
     {:noreply, scene}
   end
 
-  # def handle_info({:modal_cancelled, _modal_pid}, scene) do
   def handle_event(:modal_cancelled, _from, scene) do
     Logger.info("Modal cancelled")
 
@@ -200,7 +249,6 @@ defmodule WidgetWorkbench.Scene do
   end
 
   def handle_info(_msg, scene), do: {:noreply, scene}
-
   def handle_event(_event, _from, scene), do: {:noreply, scene}
 
   # Function to show the modal
@@ -222,20 +270,11 @@ defmodule WidgetWorkbench.Scene do
     end)
   end
 
+  # Function to hide the modal
   defp hide_modal(graph) do
     graph
     |> Graph.modify(:modal_container, fn primitive ->
       %{primitive | data: []}
     end)
   end
-
-  # defp hide_modal(graph) do
-  #   graph
-  #   |> Graph.modify(:modal_container, fn _primitive ->
-  #     # nil
-  #     # Replace with an empty group
-  #     Scenic.Graph.build()
-  #     |> Primitives.group(fn g -> g end, id: :modal_container)
-  #   end)
-  # end
 end
