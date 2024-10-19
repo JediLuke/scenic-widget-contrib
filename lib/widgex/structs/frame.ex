@@ -197,6 +197,11 @@ defmodule Widgex.Frame do
   #   )
   # end
 
+  def draw_guides(graph, frame) do
+    graph
+    |> draw_x_box(frame, color: :white)
+  end
+
   def draw_guidewires(graph, frame) do
     graph
     |> draw_x_box(frame, color: :white)

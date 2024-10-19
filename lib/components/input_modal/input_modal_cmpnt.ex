@@ -106,8 +106,8 @@ defmodule Flamelex.GUI.Component.InputModal do
     # modal_y = (frame.size.height - modal_height) / 2
     modal_frame = modal_frame(frame)
 
-    IO.inspect(modal_frame, label: "MF")
-    IO.inspect(frame, label: "F")
+    # IO.inspect(modal_frame, label: "MF")
+    # IO.inspect(frame, label: "F")
     modal_width = modal_frame.size.width
     modal_height = modal_frame.size.height
     modal_x = modal_frame.pin.x
@@ -188,33 +188,33 @@ defmodule Flamelex.GUI.Component.InputModal do
     # middle_frame = Widgex.Frame.Grid.area_frame(grid, cell_frames, :mid_section)
   end
 
-  # Handle text input events
-  def handle_input({:text_input, text}, _context, state) do
-    new_input = state.input <> text
-    new_state = %{state | input: new_input}
-    {:noreply, new_state, push: render(new_state)}
-  end
+  # # Handle text input events
+  # def handle_input({:text_input, text}, _context, state) do
+  #   new_input = state.input <> text
+  #   new_state = %{state | input: new_input}
+  #   {:noreply, new_state, push: render(new_state)}
+  # end
 
-  # Handle key events (e.g., backspace and enter)
-  def handle_input({:key, {:key, key, _, _}}, _context, state) do
-    case key do
-      :backspace ->
-        new_input = String.slice(state.input, 0..-2)
-        new_state = %{state | input: new_input}
-        {:noreply, new_state, push: render(new_state)}
+  # # Handle key events (e.g., backspace and enter)
+  # def handle_input({:key, {:key, key, _, _}}, _context, state) do
+  #   case key do
+  #     :backspace ->
+  #       new_input = String.slice(state.input, 0..-2)
+  #       new_state = %{state | input: new_input}
+  #       {:noreply, new_state, push: render(new_state)}
 
-      :enter ->
-        # Forward the input to the parent
-        send(state.parent_pid, {:modal_input, state.input})
-        {:noreply, state}
+  #     :enter ->
+  #       # Forward the input to the parent
+  #       send(state.parent_pid, {:modal_input, state.input})
+  #       {:noreply, state}
 
-      _ ->
-        {:noreply, state}
-    end
-  end
+  #     _ ->
+  #       {:noreply, state}
+  #   end
+  # end
 
-  # Ignore other input events
-  def handle_input(_input, _context, state), do: {:noreply, state}
+  # # Ignore other input events
+  # def handle_input(_input, _context, state), do: {:noreply, state}
 end
 
 # defmodule Flamelex.GUI.Component.ModalForm do

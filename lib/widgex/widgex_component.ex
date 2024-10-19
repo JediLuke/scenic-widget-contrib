@@ -96,7 +96,7 @@ defmodule Widgex.Component do
         #   request_input(init_scene, [:cursor_pos, :cursor_button])
         # end
 
-        # QuillEx.Lib.Utils.PubSub.subscribe(topic: :radix_state_change)
+        # Quillex.Utils.PubSub.subscribe(topic: :radix_state_change)
 
         {:ok, init_scene}
       end

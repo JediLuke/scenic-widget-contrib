@@ -100,6 +100,8 @@ defmodule ScenicWidgets.ScenicEventsDefinitions do
         @number_9
       ]
 
+      @number_keys @all_numbers
+
       @lowercase_a {:key, {:key_a, @key_pressed, []}}
       @lowercase_b {:key, {:key_b, @key_pressed, []}}
       @lowercase_c {:key, {:key_c, @key_pressed, []}}
@@ -213,6 +215,8 @@ defmodule ScenicWidgets.ScenicEventsDefinitions do
       ]
 
       @all_letters @lowercase_letters ++ @uppercase_letters
+
+      @ctrl_s {:key, {:key_s, @key_pressed, [:ctrl]}}
 
       @backtick {:key, {:key_grave, @key_pressed, []}}
       @tilde {:key, {:key_grave, @key_pressed, [:shift]}}
@@ -524,6 +528,12 @@ defmodule ScenicWidgets.ScenicEventsDefinitions do
         #      fail! After all, we could just map it to something stupid
         #      like "X" or "?" or whatever (interestingly there's no
         #      character glyff for "null" on a standard modern keyboard !?)
+        #
+        #      Elsewhere within flamelex I have experienced the situation where
+        #      sometimes I really want to see a detailed debug stacktrace, but
+        #      other times that same stacktrack is noise - it depends on the level
+        #      of abstraction that I'm on on any particular day. Having the ability
+        #      to adjust the level of runtime failure has proven useful during development
         #
         #      I think the most fundamental truth about what I have learned
         #      from working with the BEAM is that it's important to understand
