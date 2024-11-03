@@ -56,9 +56,10 @@
 
 defmodule Flamelex.GUI.Component.InputModal do
   use Scenic.Component
+  use ScenicWidgets.ScenicEventsDefinitions
 
   # Validate function for Scenic component
-  def validate(%{frame: %Widgex.Frame{}, prompt: p} = data) when is_binary(p) do
+  def validate(%{id: _id, frame: %Widgex.Frame{}, prompt: p} = data) when is_binary(p) do
     {:ok, data}
   end
 
@@ -70,12 +71,64 @@ defmodule Flamelex.GUI.Component.InputModal do
       |> assign(frame: frame)
       |> assign(graph: graph)
       # |> assign(state: state)
+      |> assign(prompt: args.prompt)
+      |> assign(input: "")
       |> push_graph(graph)
+
+    Registry.register(Quillex.BufferRegistry, {args.id, __MODULE__}, nil)
 
     # Flamelex.Lib.Utils.PubSub.subscribe(topic: :radix_state_change)
 
     {:ok, init_scene}
   end
+
+  def handle_info({:fwd_user_input, input}, scene) when input in @all_letters do
+    new_input = scene.assigns.input <> key2string(input)
+
+    graph =
+      render(%{
+        frame: scene.assigns.frame,
+        prompt: scene.assigns.prompt,
+        input: new_input
+      })
+
+    new_scene =
+      scene
+      |> assign(input: new_input)
+      |> push_graph(graph)
+
+    {:noreply, new_scene}
+  end
+
+  def handle_info({:fwd_user_input, _input}, scene) do
+    # ignore...
+    {:noreply, scene}
+  end
+
+  # # Handle text input events
+  # def handle_input({:text_input, text}, _context, state) do
+  #   new_input = state.input <> text
+  #   new_state = %{state | input: new_input}
+  #   {:noreply, new_state, push: render(new_state)}
+  # end
+
+  # # Handle key events (e.g., backspace and enter)
+  # def handle_input({:key, {:key, key, _, _}}, _context, state) do
+  #   case key do
+  #     :backspace ->
+  #       new_input = String.slice(state.input, 0..-2)
+  #       new_state = %{state | input: new_input}
+  #       {:noreply, new_state, push: render(new_state)}
+
+  #     :enter ->
+  #       # Forward the input to the parent
+  #       send(state.parent_pid, {:modal_input, state.input})
+  #       {:noreply, state}
+
+  #     _ ->
+  #       {:noreply, state}
+  #   end
+  # end
 
   # def render(%{frame: %Widgex.Frame{} = frame, prompt: prompt}) do
   #   Scenic.Graph.build()
@@ -157,6 +210,32 @@ defmodule Flamelex.GUI.Component.InputModal do
         text_base: :middle,
         translate: {modal_x + 30, modal_y + modal_height / 2}
       )
+      # Add the "Save" button
+      |> Scenic.Components.button(
+        "Save",
+        id: :save_button,
+        width: 80,
+        height: 40,
+        # theme: %{
+        #   border: {:solid, 1, :dark_gray},
+        #   fill: {:color, :blue},
+        #   text: {:color, :white}
+        # },
+        translate: {modal_x + modal_width - 180, modal_y + modal_height - 60}
+      )
+      # Add the "Cancel" button
+      |> Scenic.Components.button(
+        "Cancel",
+        id: :cancel_button,
+        width: 80,
+        height: 40,
+        # theme: %{
+        #   border: {:solid, 1, :dark_gray},
+        #   fill: {:color, :gray},
+        #   text: {:color, :white}
+        # },
+        translate: {modal_x + modal_width - 90, modal_y + modal_height - 60}
+      )
     end)
 
     # |> Widgex.Frame.draw_guides(frame)
@@ -165,53 +244,36 @@ defmodule Flamelex.GUI.Component.InputModal do
 
   def modal_frame(frame) do
     # Define a grid that splits the frame into three rows and three columns
+    # Rows: Top 20%, Middle 60%, Bottom 20%
+    # Columns: Left 20%, Middle 60%, Right 20%
     grid =
       Widgex.Frame.Grid.new(frame)
-      # Rows: Top 20%, Middle 60%, Bottom 20%
       |> Widgex.Frame.Grid.rows([0.2, 0.6, 0.2])
-      # Columns: Left 20%, Middle 60%, Right 20%
       |> Widgex.Frame.Grid.columns([0.2, 0.6, 0.2])
       |> Widgex.Frame.Grid.define_areas(%{
-        # Row index, Column index, Row span, Column span
         modal_area: {1, 1, 1, 1}
       })
 
-    # Get the frame for the modal area
-    # Widgex.Frame.Grid.fetch_frame(grid, :modal_area)
-
-    # Calculate the frames
     cell_frames = Widgex.Frame.Grid.calculate(grid)
-
-    # Retrieve frames for banner and footer
     Widgex.Frame.Grid.area_frame(grid, cell_frames, :modal_area)
-    # footer_frame = Widgex.Frame.Grid.area_frame(grid, cell_frames, :footer)
-    # middle_frame = Widgex.Frame.Grid.area_frame(grid, cell_frames, :mid_section)
   end
 
-  # # Handle text input events
-  # def handle_input({:text_input, text}, _context, state) do
-  #   new_input = state.input <> text
-  #   new_state = %{state | input: new_input}
-  #   {:noreply, new_state, push: render(new_state)}
-  # end
+  # Handle button events
+  def handle_event({:click, :save_button}, _from, scene) do
+    # Send the input to the parent as the user clicked "Save"
+    # send(state.parent_pid, {:modal_save, state.input})
+    # IO.puts("CLICKED SAVE #{scene.assigns.input}")
+    # TODO make a better job of referencing a specific buffer
+    cast_parent(scene, {:modal_save, scene.assigns.input})
+    {:noreply, scene}
+  end
 
-  # # Handle key events (e.g., backspace and enter)
-  # def handle_input({:key, {:key, key, _, _}}, _context, state) do
-  #   case key do
-  #     :backspace ->
-  #       new_input = String.slice(state.input, 0..-2)
-  #       new_state = %{state | input: new_input}
-  #       {:noreply, new_state, push: render(new_state)}
-
-  #     :enter ->
-  #       # Forward the input to the parent
-  #       send(state.parent_pid, {:modal_input, state.input})
-  #       {:noreply, state}
-
-  #     _ ->
-  #       {:noreply, state}
-  #   end
-  # end
+  def handle_event({:click, :cancel_button}, _from, scene) do
+    # Send a cancel message to the parent
+    # send(state.parent_pid, :modal_cancel)
+    cast_parent(scene, :modal_cancel)
+    {:noreply, scene}
+  end
 
   # # Ignore other input events
   # def handle_input(_input, _context, state), do: {:noreply, state}
@@ -225,21 +287,6 @@ end
 
 #   @default_font :roboto
 #   @default_font_size 24
-
-#   defstruct frame: nil, prompt: "Enter filename:", input: "", parent_pid: nil
-
-#   # Initialize the component with the frame and parent PID
-#   def init(%{frame: frame, parent_pid: parent_pid} = opts, _scenic_opts) do
-#     state = %__MODULE__{
-#       frame: frame,
-#       prompt: opts[:prompt] || "Enter filename:",
-#       input: "",
-#       parent_pid: parent_pid
-#     }
-
-#     # Render the initial state
-#     {:ok, state, push: render(state)}
-#   end
 
 #   # Render the component
 #   def render(%__MODULE__{frame: frame, prompt: prompt, input: input}) do
@@ -300,8 +347,6 @@ end
 
 #   @default_font :roboto
 #   @default_font_size 24
-
-#   defstruct frame: nil, prompt: "Enter filename:", input: "", parent_pid: nil
 
 #   # Initialize the component with the frame and parent PID
 #   def init(%{frame: frame, parent_pid: parent_pid} = opts, _scenic_opts) do

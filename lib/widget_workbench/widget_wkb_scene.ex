@@ -101,7 +101,7 @@ defmodule WidgetWorkbench.Scene do
   # Function to render the tool palette
   defp render_tool_palette(graph, %Frame{} = frame) do
     palette_width = 200
-    palette_height = 100
+    palette_height = 90
     palette_x = frame.size.width - palette_width - 20
     palette_y = 70
 

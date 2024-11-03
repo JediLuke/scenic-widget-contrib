@@ -1,10 +1,7 @@
 defmodule ScenicWidgets.SideNav do
   use Scenic.Component
   require Logger
-  # alias ScenicWidgets.MenuBar.FloatButton
-  # alias ScenicWidgets.Core.Structs.Frame
   alias Widgex.Frame
-  # use ScenicWidgets.ScenicEventsDefinitions
 
   # how tall each menu item is #TODO pass it in as a config
   @item_height 50
@@ -24,7 +21,6 @@ defmodule ScenicWidgets.SideNav do
 
   def init(scene, args, opts) do
     # Logger.debug("#{__MODULE__} initializing...")
-
     id = opts[:id] || raise "#{__MODULE__} must receive `id` via opts."
 
     theme =
@@ -47,6 +43,7 @@ defmodule ScenicWidgets.SideNav do
 
   def handle_cast({:state_change, new_state}, scene) do
     new_graph = render(scene.assigns.frame, new_state)
+    # TODO instead of re-rendering everything, we should just update the graph with the new state
 
     new_scene =
       scene

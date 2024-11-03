@@ -724,4 +724,8 @@ defmodule ScenicWidgets.SpareParts.LukesDropDown do
   def handle_fetch(_, %{assigns: %{items: items, selected_id: selected_id}} = scene) do
     {:reply, {:ok, {items, selected_id}}, scene}
   end
+
+  def handle_cast(_msg, scene) do
+    {:noreply, scene}
+  end
 end
