@@ -29,7 +29,7 @@ defmodule ScenicWidgets.ScenicEventsDefinitions do
       # @key_pressed 0
       # @key_released 1
 
-      # I think on Linux these are reversed :(
+      # I think on mac & Linux these are reversed :(
       @key_pressed 1
       @key_released 0
       @key_held 2
@@ -52,6 +52,9 @@ defmodule ScenicWidgets.ScenicEventsDefinitions do
       # in macOS the meta-key registers as :key_unknown, but appears as [:meta] in a keypress combination still
       @meta {:key, {:key_unknown, @key_pressed, []}}
 
+      @left_ctrl_dn {:key, {:key_leftctrl, @key_pressed, []}}
+      @left_ctrl_up {:key, {:key_leftctrl, @key_released, [:ctrl]}}
+
       @left_shift_up {:key, {:key_leftshift, @key_released, [:shift]}}
 
       @escape_key {:key, {:key_esc, @key_pressed, []}}
@@ -61,6 +64,8 @@ defmodule ScenicWidgets.ScenicEventsDefinitions do
       # @enter_key_up {:key, {:key_enter, @key_released, []}}
       @enter_key @enter_key_dn
       @enter @enter_key_dn
+
+      @keypad_enter {:key, {:key_kpenter, @key_pressed, []}}
 
       @backspace_key_dn {:key, {:key_backspace, @key_pressed, []}}
       # @backspace_key_up {:key, {:key_backspace, @key_released, []}}

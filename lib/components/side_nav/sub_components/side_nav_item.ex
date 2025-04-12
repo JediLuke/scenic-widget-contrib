@@ -4,6 +4,7 @@ defmodule ScenicWidgets.SideNav.Item do
   just customized a little bit.
   """
   use Scenic.Component
+  use ScenicWidgets.ScenicEventsDefinitions
   # alias ScenicWidgets.Core.Structs.Frame
   alias Widgex.Frame
   require Logger
@@ -41,6 +42,7 @@ defmodule ScenicWidgets.SideNav.Item do
       |> assign(frame: args.frame)
       |> assign(state: args.state)
       |> assign(theme: theme)
+      # |> assign(ctrl_down?: false)
       |> push_graph(init_graph)
 
     request_input(init_scene, [:cursor_pos, :cursor_button])
@@ -84,7 +86,7 @@ defmodule ScenicWidgets.SideNav.Item do
         |> Scenic.Primitives.rect(frame.size.box,
           stroke: {1, :black}
         )
-        |> Scenic.Primitives.text(label,
+        |> Scenic.Primitives.text(label || "none (UNEXPECTED !)",
           fill: theme.text,
           font: state.font.name,
           font_size: state.font.size,
@@ -130,6 +132,11 @@ defmodule ScenicWidgets.SideNav.Item do
     )
   end
 
+  def render(frame, %{item: {:open_node, label, index, sub_tree, _click_fn}} = state, theme) do
+    # rendering is the same for ondes with a click fn
+    render(frame, %{item: {:open_node, label, index, sub_tree}} = state, theme)
+  end
+
   def render(frame, %{item: {:closed_node, label, index, sub_tree}} = state, theme) do
     v_pos = ScenicWidgets.TextUtils.v_pos(state.font)
 
@@ -162,6 +169,12 @@ defmodule ScenicWidgets.SideNav.Item do
       end,
       translate: {state.offsets.x * @item_indent, state.offsets.y * @item_height}
     )
+  end
+
+  def render(frame, %{item: {:closed_node, label, index, sub_tree, _click_fn}} = state, theme) do
+    # rendering is the same for ondes with a click fn
+    temp_state = Map.put(state, :item, {:closed_node, label, index, sub_tree})
+    render(frame, temp_state, theme)
   end
 
   def handle_input({:cursor_pos, {_x, _y} = coords}, _context, scene) do
@@ -207,8 +220,10 @@ defmodule ScenicWidgets.SideNav.Item do
     end
   end
 
-  def handle_input({:cursor_button, {:btn_left, 0, [], click_coords}}, _context, scene) do
+  def handle_input({:cursor_button, {:btn_left, @click, mod_keys, click_coords}}, _context, scene) do
     bounds = Scenic.Graph.bounds(scene.assigns.graph)
+
+    IO.puts "CLICK CLICK"
 
     if click_coords |> ScenicWidgets.Utils.inside?(bounds) do
       case scene.assigns.state do
@@ -216,15 +231,72 @@ defmodule ScenicWidgets.SideNav.Item do
           cast_parent(scene, {:click, item})
 
         %{item: {:closed_node, _label, index, _sub_tree} = item} ->
-          cast_parent(scene, {:open_node, item})
+          # NODE HAS NO CLICK_FN ANYWAY so we can only open it
+            cast_parent(scene, {:open_node, item})
+
+        %{item: {:closed_node, _label, index, _sub_tree, _click_fn} = item} ->
+          if Enum.member?(mod_keys, :ctrl) do
+            IO.puts "clk the CLOSED NODE"
+            cast_parent(scene, {:click, item})
+          else
+            IO.puts "open the node"
+            cast_parent(scene, {:open_node, item})
+          end
 
         %{item: {:open_node, _label, index, _sub_tree} = item} ->
-          cast_parent(scene, {:close_node, item})
+          IO.puts "OPEN NODE EH"
+          if Enum.member?(mod_keys, :ctrl) do
+            cast_parent(scene, {:click, item})
+          else
+            cast_parent(scene, {:close_node, item})
+          end
       end
     end
 
     {:noreply, scene}
   end
+
+  def handle_input({:cursor_button, {:btn_left, 0, [:ctrl], click_coords}}, _context, scene) do
+    bounds = Scenic.Graph.bounds(scene.assigns.graph)
+
+    IO.puts "CLICK CLICK BOOM"
+
+    # if click_coords |> ScenicWidgets.Utils.inside?(bounds) do
+    #   case scene.assigns.state do
+    #     %{item: {:leaf, _label, index, click_fn} = item} ->
+    #       cast_parent(scene, {:click, item})
+
+    #     %{item: {:closed_node, _label, index, _sub_tree} = item} ->
+    #       if scene.assigns.ctrl_down? do
+    #         IO.puts "clk the CLOSED NODE"
+    #         cast_parent(scene, {:click, item})
+    #       else
+    #         IO.puts "open the node"
+    #         cast_parent(scene, {:open_node, item})
+    #       end
+
+    #     %{item: {:open_node, _label, index, _sub_tree} = item} ->
+    #       IO.puts "OPEN NODE EH"
+    #       if scene.assigns.ctrl_down? do
+    #         cast_parent(scene, {:click, item})
+    #       else
+    #         cast_parent(scene, {:close_node, item})
+    #       end
+    #   end
+    # end
+
+    {:noreply, scene}
+  end
+
+  # def handle_input(@left_ctrl_dn, _context, %{assigns: %{ctrl_down?: false}} = scene) do
+  #   IO.puts "YEH YEH"
+  #   {:noreply, scene |> assign(ctrl_down?: true)}
+  # end
+
+  # def handle_input(@left_ctrl_up, _context, %{assigns: %{ctrl_down?: true}} = scene) do
+  #   IO.puts "WAH WAH"
+  #   {:noreply, scene |> assign(ctrl_down?: false)}
+  # end
 
   def handle_input(_input, _context, scene) do
     # Logger.debug "#{__MODULE__} ignoring input: #{inspect input}..."

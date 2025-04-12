@@ -18,8 +18,8 @@ defmodule ScenicWidgets.Markup.Header6 do
           translate: {@left_margin, (f.size.height - @font_size) / 2 + @font_size},
           text_align: :left
         )
-      end
-      # translate: f.pin.point,
+      end,
+      translate: f.pin.point
       # NOTE adding scissor here will also cause it to not scissor!! Does this somehow override ones above it??
       # scissor: f.size.box
     )

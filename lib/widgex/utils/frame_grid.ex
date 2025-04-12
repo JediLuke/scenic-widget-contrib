@@ -6,6 +6,8 @@ defmodule Widgex.Frame.Grid do
   and calculates appropriately sized and positioned frames for use in GUI components.
   """
 
+  # {row, col, row_span, col_span}
+
   alias Widgex.Frame
   alias Widgex.Structs.{Coordinates, Dimensions}
 
@@ -67,6 +69,7 @@ defmodule Widgex.Frame.Grid do
 
       iex> grid = grid |> Widgex.Frame.Grid.rows([0.5, 0.5])
   """
+  #TODO there's a bug here where if we pass [1] for rows it doesn't calculate height correctly
   def rows(%__MODULE__{} = grid, row_sizes) when is_list(row_sizes) do
     %{grid | rows: row_sizes}
   end
@@ -139,6 +142,25 @@ defmodule Widgex.Frame.Grid do
     %{grid | areas: areas}
   end
 
+  # def calculate_grid_frames(frame, row_specs, column_specs, area_definitions) do
+  #   # Create the grid
+  #   grid =
+  #     Widgex.Frame.Grid.new(frame)
+  #     |> Widgex.Frame.Grid.rows(row_specs)
+  #     |> Widgex.Frame.Grid.columns(column_specs)
+  #     |> Widgex.Frame.Grid.define_areas(area_definitions)
+
+  #   # Calculate all cell frames
+  #   cell_frames = Widgex.Frame.Grid.calculate(grid)
+
+  #   # Generate a map of frames for all defined areas
+  #   area_definitions
+  #   |> Map.keys()
+  #   |> Enum.reduce(%{}, fn area_name, acc ->
+  #     Map.put(acc, area_name, Widgex.Frame.Grid.area_frame(grid, cell_frames, area_name))
+  #   end)
+  # end
+
   @doc """
   Calculates frames for all grid cells based on the grid definition.
 
@@ -159,6 +181,7 @@ defmodule Widgex.Frame.Grid do
   end
 
   def calculate(%__MODULE__{} = grid) do
+    IO.puts "DEPRECATE THIS CALCULATE USE calculate_grid_frames"
     %__MODULE__{
       frame: %Frame{
         pin: %Coordinates{x: frame_x, y: frame_y},

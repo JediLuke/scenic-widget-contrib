@@ -236,6 +236,11 @@ defmodule WidgetWorkbench.Scene do
     {:noreply, scene}
   end
 
+  def handle_cast({:open_widget, component}, scene) do
+    IO.puts "Attempting to open #{inspect component}"
+    {:noreply, scene}
+  end
+
   def handle_event({:modal_submitted, component_name}, _from, scene) do
     Logger.info("Modal submitted with component name: #{component_name}")
 
@@ -245,7 +250,11 @@ defmodule WidgetWorkbench.Scene do
     # Create new component files
     # TODO this isnt how that works
     # component_files = Flamelex.GUI.DevTools.build_new_component(component_name)
-    :ok = Flamelex.GUI.DevTools.build_new_component(component_name)
+    # :ok = Flamelex.GUI.DevTools.build_new_component(component_name)
+    {:ok, component} = WidgetWorkbench.ComponentBuilder.build_new_component(component_name)
+
+    # TODO open the new component
+    GenServer.cast(self(), {:open_widget, component})
 
     scene =
       scene

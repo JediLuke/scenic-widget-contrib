@@ -75,9 +75,9 @@ defmodule Widgex.Frame.Utils do
   ## Returns
   A list of two frames, the first frame is the top frame, the second frame is the bottom frame.
   """
-  def v_split(%Frame{size: %{width: f_width}} = f, px: px) do
+  def v_split(%Widgex.Frame{size: %{width: f_width}} = f, px: px) do
     # TODO assert that px < f.size.height
-    top = Frame.new(%{pin: f.pin.point, size: {f_width, px}})
+    top = Frame.new(%{pin: {0, 0}, size: {f_width, px}})
 
     bottom =
       Frame.new(
@@ -88,31 +88,31 @@ defmodule Widgex.Frame.Utils do
     [top, bottom]
   end
 
-  def v_split(
-        %Scenic.ViewPort{size: {vp_width, vp_height}},
-        {:vertical_split, {split, :px}}
-      ) do
-    # The day someone discovers buffers in vim/emacs...
-    #
-    # +----------------------+
-    # |           |          |
-    # |           |          |
-    # |           |          |
-    # |           |          |
-    # |<- split ->|          |
-    # |           |          |
-    # |           |          |
-    # |           |          |
-    # |           |          |
-    # +----------------------+
-    #             ^
-    #           divider (in pixels, from the left)
+  # def v_split(
+  #       %Scenic.ViewPort{size: {vp_width, vp_height}},
+  #       {:vertical_split, {split, :px}}
+  #     ) do
+  #   # The day someone discovers buffers in vim/emacs...
+  #   #
+  #   # +----------------------+
+  #   # |           |          |
+  #   # |           |          |
+  #   # |           |          |
+  #   # |           |          |
+  #   # |<- split ->|          |
+  #   # |           |          |
+  #   # |           |          |
+  #   # |           |          |
+  #   # |           |          |
+  #   # +----------------------+
+  #   #             ^
+  #   #           divider (in pixels, from the left)
 
-    f1 = Frame.new(pin: {0, 0}, size: {split, vp_height})
-    f2 = Frame.new(pin: {split, 0}, size: {vp_width - split, vp_height})
+  #   f1 = Frame.new(pin: {0, 0}, size: {split, vp_height})
+  #   f2 = Frame.new(pin: {split, 0}, size: {vp_width - split, vp_height})
 
-    [f1, f2]
-  end
+  #   [f1, f2]
+  # end
 
   # def col_split(%Frame{} = f, n) when is_integer(n) and n > 3 do
   #   col_width = f.size.width / n
@@ -142,6 +142,10 @@ defmodule Widgex.Frame.Utils do
       when is_number(factor) and factor >= 0 and factor <= 1 do
     new_height = f.size.height * factor
     Widgex.Frame.new(%{pin: f.pin, size: {f.size.width, new_height}})
+  end
+
+  def with_margin(%Widgex.Frame{} = f, m) do
+    raise "not but do it!"
   end
 end
 

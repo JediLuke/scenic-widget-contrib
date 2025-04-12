@@ -4,6 +4,10 @@ defmodule ScenicWidgets.Markup.Header1 do
 
   def draw(graph, %{frame: %Widgex.Frame{} = f, text: text} = args)
       when is_binary(text) do
+    draw(graph, f, text)
+  end
+
+  def draw(graph, %Widgex.Frame{} = f, text) when is_binary(text) do
     graph
     |> Scenic.Primitives.group(
       fn graph ->
@@ -15,10 +19,11 @@ defmodule ScenicWidgets.Markup.Header1 do
           # frame in _absolute_ coordinates (taking into account frame pins & such)
           # whereas here we really just want to translate the text relative to the
           # outer graph, and that outer graph is already translated to the frame pin
-          translate: {f.size.width / 2, (f.size.height - @font_size) / 2 + @font_size},
+          translate: {f.size.width / 2, (f.size.height - @font_size) / 2 + @font_size - 5}, # TODO magic number at thge end here
           # translate: {Widgex.Frame.center(f).x, (f.size.height - @font_size) / 2 + @font_size},
           text_align: :center,
-          fill: Map.get(args, :color, @font_color)
+          fill: @font_color
+          # fill: Map.get(args, :color, @font_color)
         )
       end,
       translate: f.pin.point,

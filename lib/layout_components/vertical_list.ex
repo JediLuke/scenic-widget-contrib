@@ -275,6 +275,16 @@ defmodule ScenicWidgets.VerticalList do
     {:noreply, scene}
   end
 
+  def handle_cast({:focus, _id}, scene) do
+    # this is a bit of a hack but basically when the dropdown
+    # drops it will msg the todo list (it's parent), we
+    # set the whole component into dropdown mode, and in dropdown
+    # mode we dont handle clicks from anything except the dropdown
+    # - this will hopefully fix the bug ("workaround") where clicking
+    # on a dropdown also clicks the item (usually a TODO) below it (in the z plane)
+    {:noreply, scene}
+  end
+
   # def bounds(%{frame: %{pin: {top_left_x, top_left_y}, size: {width, height}}}, _opts) do
   #   # NOTE: Because we use this bounds/2 function to calculate whether or
   #   # not the mouse is hovering over any particular button, we can't

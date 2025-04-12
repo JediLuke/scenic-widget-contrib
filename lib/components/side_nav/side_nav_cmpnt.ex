@@ -54,7 +54,13 @@ defmodule ScenicWidgets.SideNav do
     {:noreply, new_scene}
   end
 
-  def handle_cast({:click, {:leaf, label, index, click_fn}}, scene) do
+  def handle_cast({:click, {:leaf, _label, _index, click_fn}}, scene) do
+    click_fn.()
+    {:noreply, scene}
+  end
+
+  #only nodes which even define a click_fn can be clicked so only match on those
+  def handle_cast({:click, {:closed_node, _label, _index, _sub_tree, click_fn}}, scene) do
     click_fn.()
     {:noreply, scene}
   end
@@ -142,7 +148,11 @@ defmodule ScenicWidgets.SideNav do
 
   def do_render_file_tree(graph, outer_frame, [item | rest], {x_offset, y_offset}) do
     # extract label & index for use in the SideNav.Item `:id`
-    {_node_type, label, index, _other_stuff} = item
+
+    # cant match like this any more since sometimes nodes can have a click_fn and be a 5-tuple
+    # {_node_type, label, index, _other_stuff} = item
+    label = Enum.at(Tuple.to_list(item), 1)
+    index = Enum.at(Tuple.to_list(item), 2)
 
     # the x_offset is how far we move this item to the right, it's a function
     # of how deep we are in the menu tree, i.e. how many offsets we have
@@ -182,10 +192,17 @@ defmodule ScenicWidgets.SideNav do
     Frame.new(pin: {0, y_offset}, size: {frame_w, @item_height})
   end
 
+  #TODO here is a bug it puts the node in the wrong place
   def open_node(nav_tree, {:closed_node, label, index, sub_tree}) do
     # node_to_open = {:closed_node, ^label, ^index} = do_extract_node_from_tree(nav_tree, index)
     do_put_node(nav_tree, {:open_node, label, index, sub_tree}, index)
-    |> IO.inspect(label: "NEW TREE AFTER OPEN")
+    # |> IO.inspect(label: "NEW TREE AFTER OPEN")
+  end
+
+  def open_node(nav_tree, {:closed_node, label, index, sub_tree, _click_fn}) do
+    # node_to_open = {:closed_node, ^label, ^index} = do_extract_node_from_tree(nav_tree, index)
+    do_put_node(nav_tree, {:open_node, label, index, sub_tree}, index)
+    # |> IO.inspect(label: "NEW TREE AFTER OPEN")
   end
 
   def close_node(nav_tree, {:open_node, label, index, sub_tree}) do
@@ -214,7 +231,7 @@ defmodule ScenicWidgets.SideNav do
   end
 
   defp font do
-    {:ok, ibm_plex_mono_metrics} = TruetypeMetrics.load("./assets/fonts/IBMPlexMono-Regular.ttf")
+    {:ok, ibm_plex_mono_metrics} = TruetypeMetrics.load("./assets/fonts/IBM_Plex_Mono/IBMPlexMono-Regular.ttf")
 
     font = %{
       name: :ibm_plex_mono,

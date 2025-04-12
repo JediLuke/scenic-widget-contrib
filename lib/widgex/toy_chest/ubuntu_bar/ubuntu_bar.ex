@@ -7,6 +7,10 @@ defmodule ScenicWidgets.UbuntuBar do
             theme: nil,
             layout: {:column, :center}
 
+  def new() do
+    new(%{theme: QuillEx.GUI.Themes.theme(:solarized_light)})
+  end
+
   def new(%{theme: rdx_theme} = args) do
     %__MODULE__{
       widgex: %{
@@ -57,7 +61,7 @@ defmodule ScenicWidgets.UbuntuBar do
   def render_glyph(graph, glyph, box_size, offset) do
     # TODO...
     {:ok, ibm_plex_mono_font_metrics} =
-      TruetypeMetrics.load("./assets/fonts/IBMPlexMono-Regular.ttf")
+      TruetypeMetrics.load("./assets/fonts/IBM_Plex_Mono/IBMPlexMono-Regular.ttf")
 
     size = box_size * @glyph_ratio
 
@@ -101,7 +105,7 @@ defmodule ScenicWidgets.UbuntuBar do
   end
 
   def handle_input({:cursor_button, _details} = input, _context, scene) do
-    Logger.debug("ignoring input.... #{inspect(input)}")
+    Logger.debug("#{__MODULE__} ignoring input.... #{inspect(input)}")
     {:noreply, scene}
   end
 end

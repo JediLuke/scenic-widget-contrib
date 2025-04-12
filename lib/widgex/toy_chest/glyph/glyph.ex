@@ -9,7 +9,7 @@
 #             glyph: nil
 
 #   def build(%{id: id, glyph: g}) when is_binary(g) do
-#     {:ok, font_metrics} = TruetypeMetrics.load("./assets/fonts/IBMPlexMono-Regular.ttf")
+#     {:ok, font_metrics} = TruetypeMetrics.load("./assets/fonts/IBM_Plex_Mono/IBMPlexMono-Regular.ttf")
 
 #     %__MODULE__{
 #       id: id,
