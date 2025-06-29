@@ -247,6 +247,54 @@ defmodule ScenicWidgets.UbuntuBar do
     ]
   end
 
+  # Cool ASCII art buttons - creative combinations that work everywhere!
+  def cool_ascii_buttons() do
+    [
+      %{id: :new_file, glyph: "[+]", tooltip: "New File"},
+      %{id: :open_file, glyph: "{ }", tooltip: "Open File"},
+      %{id: :save_file, glyph: "[=]", tooltip: "Save File"},
+      %{id: :search, glyph: "(o)", tooltip: "Search"},
+      %{id: :settings, glyph: "<*>", tooltip: "Settings"},
+      %{id: :terminal, glyph: ">_", tooltip: "Terminal"},
+      %{id: :git, glyph: "Y", tooltip: "Git Branch"}
+    ]
+  end
+
+  # ASCII box drawing buttons - using box characters
+  def box_ascii_buttons() do
+    [
+      %{id: :new_file, glyph: "┼", tooltip: "New File"},
+      %{id: :open_file, glyph: "□", tooltip: "Open File"},
+      %{id: :save_file, glyph: "▪", tooltip: "Save File"},
+      %{id: :search, glyph: "◯", tooltip: "Search"},
+      %{id: :settings, glyph: "◆", tooltip: "Settings"}
+    ]
+  end
+
+  # Minimalist ASCII buttons - single powerful characters
+  def minimal_ascii_buttons() do
+    [
+      %{id: :new_file, glyph: "↑", tooltip: "New File"},
+      %{id: :open_file, glyph: "→", tooltip: "Open File"},
+      %{id: :save_file, glyph: "↓", tooltip: "Save File"},
+      %{id: :search, glyph: "◎", tooltip: "Search"},
+      %{id: :settings, glyph: "≡", tooltip: "Settings"},
+      %{id: :terminal, glyph: "$", tooltip: "Terminal"},
+      %{id: :extensions, glyph: "⊞", tooltip: "Extensions"}
+    ]
+  end
+
+  # Retro ASCII buttons - old school computer vibes
+  def retro_ascii_buttons() do
+    [
+      %{id: :new_file, glyph: "▲", tooltip: "New File"},
+      %{id: :open_file, glyph: "■", tooltip: "Open File"},
+      %{id: :save_file, glyph: "●", tooltip: "Save File"},
+      %{id: :search, glyph: "◊", tooltip: "Search"},
+      %{id: :settings, glyph: "▼", tooltip: "Settings"}
+    ]
+  end
+
   # Emoji buttons - for when we dream of a more expressive future!
   def emoji_buttons() do
     [
