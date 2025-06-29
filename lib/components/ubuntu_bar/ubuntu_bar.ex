@@ -47,7 +47,8 @@ defmodule ScenicWidgets.UbuntuBar do
       layout: Map.get(data, :layout, :center), # :top, :center, :bottom
       button_spacing: Map.get(data, :button_spacing, 8),
       font_family: Map.get(data, :font_family, nil), # For cool fonts!
-      padding: Map.get(data, :padding, %{top: 10, bottom: 10})
+      padding: Map.get(data, :padding, %{top: 10, bottom: 10}),
+      remove_top_margin: Map.get(data, :remove_top_margin, false) # For visual alignment when menubar is above
     }
     
     # Validate layout option
@@ -91,6 +92,7 @@ defmodule ScenicWidgets.UbuntuBar do
       button_spacing: data.button_spacing,
       font_family: data.font_family,
       padding: data.padding,
+      remove_top_margin: data.remove_top_margin,
       frame: frame
     }
 
@@ -330,8 +332,13 @@ defmodule ScenicWidgets.UbuntuBar do
     
     start_y = case state.layout do
       :top -> 
-        # Use same margin as sides for visual consistency
-        side_margin
+        # Check if we should remove top margin for visual alignment
+        if state.remove_top_margin do
+          0
+        else
+          # Use same margin as sides for visual consistency
+          side_margin
+        end
       :center -> 
         max(0, (state.frame.size.height - total_height) / 2)
       :bottom -> 
