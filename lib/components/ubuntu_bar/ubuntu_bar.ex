@@ -43,10 +43,19 @@ defmodule ScenicWidgets.UbuntuBar do
       button_active_color: Map.get(data, :button_active_color, {100, 150, 200}),
       text_color: Map.get(data, :text_color, {220, 220, 220}),
       active_button: Map.get(data, :active_button),
-      font_size: Map.get(data, :font_size)
+      font_size: Map.get(data, :font_size),
+      layout: Map.get(data, :layout, :center), # :top, :center, :bottom
+      button_spacing: Map.get(data, :button_spacing, 8),
+      font_family: Map.get(data, :font_family, nil), # For cool fonts!
+      padding: Map.get(data, :padding, %{top: 10, bottom: 10})
     }
     
-    {:ok, normalized}
+    # Validate layout option
+    if normalized.layout not in [:top, :center, :bottom] do
+      {:error, "layout must be one of: :top, :center, :bottom"}
+    else
+      {:ok, normalized}
+    end
   end
   
   def validate(data) do
@@ -78,6 +87,10 @@ defmodule ScenicWidgets.UbuntuBar do
       active_button: data.active_button,
       hovered_button: nil,
       font_size: font_size,
+      layout: data.layout,
+      button_spacing: data.button_spacing,
+      font_family: data.font_family,
+      padding: data.padding,
       frame: frame
     }
 
@@ -119,10 +132,10 @@ defmodule ScenicWidgets.UbuntuBar do
     button = Enum.find(state.buttons, &(&1.id == button_id))
     
     if button do
-      # Send event to parent
-      send_parent_event(scene, {:ubuntu_bar_clicked, button_id, button})
+      # Send event to parent - this is the proper Scenic way to communicate up the tree
+      send_parent_event(scene, {:ubuntu_bar_button_clicked, button_id, button})
       
-      # Update active button
+      # Update active button for visual feedback
       new_state = %{state | active_button: button_id}
       new_graph = render_ubuntu_bar(Scenic.Graph.build(), new_state)
       
@@ -201,6 +214,52 @@ defmodule ScenicWidgets.UbuntuBar do
     ]
   end
 
+  # Egyptian hieroglyphs button set - for the sophisticated coder!
+  def egyptian_buttons() do
+    [
+      %{id: :new_file, glyph: "𓈒", tooltip: "New File"}, # Beginning/New
+      %{id: :open_file, glyph: "𓊞", tooltip: "Open File"}, # Door/Open
+      %{id: :save_file, glyph: "𓂋", tooltip: "Save File"}, # Preserve/Keep
+      %{id: :search, glyph: "𓂀", tooltip: "Search"}, # Eye/See
+      %{id: :settings, glyph: "𓊨", tooltip: "Settings"} # Tools/Craft
+    ]
+  end
+
+  # Symbol buttons using Noto Sans Symbols
+  def symbol_buttons() do
+    [
+      %{id: :new_file, glyph: "⊕", tooltip: "New File"}, # Plus in circle
+      %{id: :open_file, glyph: "⊞", tooltip: "Open File"}, # Square plus
+      %{id: :save_file, glyph: "⊡", tooltip: "Save File"}, # Square with dot
+      %{id: :search, glyph: "⊗", tooltip: "Search"}, # Circle with X
+      %{id: :settings, glyph: "⊙", tooltip: "Settings"} # Circle with dot
+    ]
+  end
+
+  # Simple ASCII buttons (fallback)
+  def ascii_buttons() do
+    [
+      %{id: :new_file, glyph: "+", tooltip: "New File"},
+      %{id: :open_file, glyph: "O", tooltip: "Open File"},
+      %{id: :save_file, glyph: "S", tooltip: "Save File"},
+      %{id: :search, glyph: "?", tooltip: "Search"},
+      %{id: :settings, glyph: "*", tooltip: "Settings"}
+    ]
+  end
+
+  # Emoji buttons - for when we dream of a more expressive future!
+  def emoji_buttons() do
+    [
+      %{id: :new_file, glyph: "📄", tooltip: "New File"},
+      %{id: :open_file, glyph: "📂", tooltip: "Open File"},
+      %{id: :save_file, glyph: "💾", tooltip: "Save File"},
+      %{id: :search, glyph: "🔍", tooltip: "Search"},
+      %{id: :settings, glyph: "⚙️", tooltip: "Settings"},
+      %{id: :favorite, glyph: "⭐", tooltip: "Favorites"},
+      %{id: :home, glyph: "🏠", tooltip: "Home"}
+    ]
+  end
+
   # Private rendering functions
   defp render_ubuntu_bar(graph, state) do
     graph
@@ -213,11 +272,24 @@ defmodule ScenicWidgets.UbuntuBar do
 
   defp render_buttons(graph, state) do
     button_size = state.button_size
-    button_spacing = 8  # Add spacing between buttons
+    button_spacing = state.button_spacing
     
-    # Calculate starting Y position to center buttons vertically
+    # Calculate consistent margin (same as side margin)
+    side_margin = (state.frame.size.width - button_size) / 2
+    
+    # Calculate starting Y position based on layout
     total_height = length(state.buttons) * button_size + (length(state.buttons) - 1) * button_spacing
-    start_y = max(0, (state.frame.size.height - total_height) / 2)
+    
+    start_y = case state.layout do
+      :top -> 
+        # Use same margin as sides for visual consistency
+        side_margin
+      :center -> 
+        max(0, (state.frame.size.height - total_height) / 2)
+      :bottom -> 
+        # Use same margin as sides for visual consistency
+        state.frame.size.height - total_height - side_margin
+    end
     
     Enum.with_index(state.buttons)
     |> Enum.reduce(graph, fn {button, index}, acc_graph ->
@@ -230,8 +302,10 @@ defmodule ScenicWidgets.UbuntuBar do
     is_active = state.active_button == button.id
     is_hovered = state.hovered_button == button.id
     
-    # Center button horizontally in the frame
-    x_pos = (state.frame.size.width - button_size) / 2
+    # Center button horizontally in the frame with consistent margins
+    # Use the same margin on all sides for visual harmony
+    side_margin = (state.frame.size.width - button_size) / 2
+    x_pos = side_margin
     
     button_color = cond do
       is_active -> state.button_active_color
@@ -266,13 +340,22 @@ defmodule ScenicWidgets.UbuntuBar do
     glyph_x = button_size / 2
     glyph_y = button_size / 2 + state.font_size / 3 # Adjust for text baseline
     
-    graph
-    |> text(
-      button.glyph,
+    # Build text options with optional font family
+    text_opts = [
       font_size: state.font_size,
       fill: state.text_color,
       text_align: :center,
       translate: {glyph_x, glyph_y}
-    )
+    ]
+    
+    # Add font family if specified
+    text_opts = if state.font_family do
+      [{:font, state.font_family} | text_opts]
+    else
+      text_opts
+    end
+    
+    graph
+    |> text(button.glyph, text_opts)
   end
 end
