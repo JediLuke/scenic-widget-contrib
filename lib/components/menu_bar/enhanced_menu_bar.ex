@@ -258,6 +258,17 @@ defmodule ScenicWidgets.EnhancedMenuBar do
 
     IO.puts("   Highlight: #{highlight?}")
 
+    # Create a complete theme that includes all required Scenic theme fields
+    float_button_theme = %{
+      active: data.colors.button || data.colors.background,
+      highlight: data.colors.button_hover || data.colors.button_active,
+      text: data.colors.text,
+      background: data.colors.background,
+      border: data.colors.border || data.colors.text,
+      thumb: data.colors.button_hover || data.colors.button_active,
+      focus: data.colors.button_active || data.colors.button_hover
+    }
+    
     graph
     |> FloatButton.add_to_graph(%{
       label: clipped_label,
@@ -269,7 +280,7 @@ defmodule ScenicWidgets.EnhancedMenuBar do
       },
       margin: data.text_margin,
       hover_highlight?: highlight?
-    })
+    }, theme: float_button_theme)
     |> do_render_menu_buttons(data, theme, state, rest)
   end
 
@@ -345,6 +356,17 @@ defmodule ScenicWidgets.EnhancedMenuBar do
     
     item_y = y_index * data.frame.size.height
     
+    # Create complete theme for dropdown items
+    dropdown_theme = %{
+      active: data.colors.dropdown_bg || data.colors.background,
+      highlight: data.colors.button_hover || data.colors.button_active,
+      text: data.colors.text,
+      background: data.colors.dropdown_bg || data.colors.background,
+      border: data.colors.border || data.colors.text,
+      thumb: data.colors.button_hover || data.colors.button_active,
+      focus: data.colors.button_active || data.colors.button_hover
+    }
+    
     graph
     |> FloatButton.add_to_graph(%{
       label: label,
@@ -357,7 +379,7 @@ defmodule ScenicWidgets.EnhancedMenuBar do
       margin: data.text_margin,
       hover_highlight?: highlight?,
       draw_sub_menu_triangle?: has_submenu
-    })
+    }, theme: dropdown_theme)
   end
   
   defp calculate_dropdown_width(data, items) do
@@ -817,6 +839,17 @@ defmodule ScenicWidgets.EnhancedMenuBar do
       clipped_label = clip_text_to_width(label, button_width - (data.text_margin * 2), 
         calculate_font_data(data.font), data.text_clipping)
       
+      # Create complete theme for menu buttons
+      menu_button_theme = %{
+        active: data.colors.button || data.colors.background,
+        highlight: data.colors.button_hover || data.colors.button_active,
+        text: data.colors.text,
+        background: data.colors.background,
+        border: data.colors.border || data.colors.text,
+        thumb: data.colors.button_hover || data.colors.button_active,
+        focus: data.colors.button_active || data.colors.button_hover
+      }
+      
       acc_graph
       |> FloatButton.add_to_graph(%{
         label: clipped_label,
@@ -828,7 +861,7 @@ defmodule ScenicWidgets.EnhancedMenuBar do
         },
         margin: data.text_margin,
         hover_highlight?: highlight?
-      })
+      }, theme: menu_button_theme)
     end)
   end
   
