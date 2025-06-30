@@ -470,9 +470,28 @@ defmodule ScenicWidgets.EnhancedMenuBar do
     end
   end
 
+  # Cache to avoid reloading fonts on every render
+  @font_cache_key :enhanced_menu_bar_font_cache
+  
   defp calculate_font_data(%{name: name, size: size}) do
-    IO.puts("🔍 EnhancedMenuBar: Loading font #{name} size #{size}")
+    cache_key = {name, size}
     
+    case Process.get(@font_cache_key) do
+      %{^cache_key => cached_font_data} ->
+        # Font already cached, return it
+        cached_font_data
+        
+      cache_map when is_map(cache_map) ->
+        # Cache exists but this font not in it, load and cache
+        load_and_cache_font(cache_key, name, size, cache_map)
+        
+      _ ->
+        # No cache yet, create it and load font
+        load_and_cache_font(cache_key, name, size, %{})
+    end
+  end
+  
+  defp load_and_cache_font({name, size} = cache_key, name, size, cache_map) do
     case Scenic.Assets.Static.meta(name) do
       {:ok, {_type, metrics}} ->
         font_data = %{
@@ -482,21 +501,25 @@ defmodule ScenicWidgets.EnhancedMenuBar do
           descent: FontMetrics.descent(size, metrics),
           metrics: metrics
         }
-        IO.puts("   ✅ Font loaded successfully: #{inspect(font_data)}")
+        # Cache the font data
+        new_cache = Map.put(cache_map, cache_key, font_data)
+        Process.put(@font_cache_key, new_cache)
         font_data
         
-      {:error, reason} ->
-        IO.puts("   ❌ Font loading failed: #{inspect(reason)}")
-        IO.puts("   📋 Font loading failed, trying fallback font")
+      {:error, _reason} ->
         # Fallback to a default font
         {:ok, {_type, default_metrics}} = Scenic.Assets.Static.meta(:roboto_mono)
-        %{
+        font_data = %{
           name: :roboto_mono,
           size: size,
           ascent: FontMetrics.ascent(size, default_metrics),
           descent: FontMetrics.descent(size, default_metrics),
           metrics: default_metrics
         }
+        # Cache the fallback font data
+        new_cache = Map.put(cache_map, cache_key, font_data)
+        Process.put(@font_cache_key, new_cache)
+        font_data
     end
   end
 
