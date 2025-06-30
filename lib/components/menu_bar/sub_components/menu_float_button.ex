@@ -125,11 +125,13 @@ defmodule ScenicWidgets.MenuBar.FloatButton do
     bounds = Scenic.Graph.bounds(scene.assigns.graph)
 
     if coords |> ScenicWidgets.Utils.inside?(bounds) do
-      # Logger.debug "Detec'd hover: #{inspect scene.assigns.state.unique_id}, bounds: #{inspect bounds}"
+      Logger.debug "Detec'd hover: #{inspect scene.assigns.state.unique_id}, bounds: #{inspect bounds}"
       cast_parent(scene, {:hover, scene.assigns.state.unique_id})
+      # Event is consumed by handling it
+      {:noreply, scene}
+    else
+      {:noreply, scene}
     end
-
-    {:noreply, scene}
   end
 
   def handle_input({:cursor_button, {:btn_left, 0, [], click_coords}}, _context, scene) do
@@ -137,9 +139,11 @@ defmodule ScenicWidgets.MenuBar.FloatButton do
 
     if click_coords |> ScenicWidgets.Utils.inside?(bounds) do
       cast_parent(scene, {:click, scene.assigns.state.unique_id})
+      # Event is consumed by handling it
+      {:noreply, scene}
+    else
+      {:noreply, scene}
     end
-
-    {:noreply, scene}
   end
 
   def handle_input(_input, _context, scene) do

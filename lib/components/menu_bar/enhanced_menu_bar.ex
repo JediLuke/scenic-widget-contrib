@@ -223,6 +223,7 @@ defmodule ScenicWidgets.EnhancedMenuBar do
 
     IO.puts("🔍 EnhancedMenuBar: Found #{length(menu_items)} menu items")
     IO.puts("   Menu items: #{inspect(menu_items)}")
+    IO.puts("   Current mode: #{inspect(state.mode)}")
 
     graph
     |> do_render_menu_buttons(data, theme, state, menu_items)
@@ -571,18 +572,19 @@ defmodule ScenicWidgets.EnhancedMenuBar do
         
         if y > menu_height do
           # Cursor outside menu area, close dropdowns
+          current_mode = scene.assigns.state.mode
           new_state = %{scene.assigns.state | mode: :inactive}
-          new_graph = render(%{state: new_state, theme: scene.assigns.theme})
+          updated_graph = update_menu_graph(scene.assigns.graph, current_mode, :inactive, new_state, scene.assigns.theme)
           
           new_scene = scene
           |> assign(state: new_state)
-          |> assign(graph: new_graph)
-          |> push_graph(new_graph)
+          |> assign(graph: updated_graph)
+          |> push_graph(updated_graph)
           
           {:noreply, new_scene}
         else
-          # Cursor still in menu area, consume to prevent propagation to components below
-          {:noreply, scene, consumed: true}
+          # Cursor still in menu area, event consumed by handling
+          {:noreply, scene}
         end
     end
   end
@@ -596,7 +598,7 @@ defmodule ScenicWidgets.EnhancedMenuBar do
         # In click mode, trigger hover behavior on click
         # Note: This would need more sophisticated logic to determine which menu item was clicked
         # For now, just consume the event
-        {:noreply, scene, consumed: true}
+        {:noreply, scene}
       :hover ->
         # In hover mode, clicks outside should close menus
         case scene.assigns.state.mode do
@@ -610,7 +612,7 @@ defmodule ScenicWidgets.EnhancedMenuBar do
             |> assign(graph: new_graph)
             |> push_graph(new_graph)
             
-            {:noreply, new_scene, consumed: true}
+            {:noreply, new_scene}
         end
     end
   end
@@ -625,8 +627,8 @@ defmodule ScenicWidgets.EnhancedMenuBar do
       |> assign(graph: new_graph) 
       |> push_graph(new_graph)
       
-    # Consume the escape key event
-    {:noreply, new_scene, consumed: true}
+    # Escape key event consumed by handling
+    {:noreply, new_scene}
   end
 
   def handle_input(_input, _context, scene) do
@@ -639,25 +641,33 @@ defmodule ScenicWidgets.EnhancedMenuBar do
     current_mode = scene.assigns.state.mode
     new_mode = {:hover, hover_index}
     
-    # Only re-render if the hover state actually changed
-    if current_mode != new_mode do
+    # More precise state comparison to avoid unnecessary updates
+    mode_changed = case {current_mode, new_mode} do
+      {:inactive, {:hover, _}} -> true
+      {{:hover, old_index}, {:hover, new_index}} when old_index != new_index -> true
+      _ -> false
+    end
+    
+    if mode_changed do
+      IO.puts("🎯 EnhancedMenuBar: Mode change detected: #{inspect(current_mode)} -> #{inspect(new_mode)}")
       new_state = %{scene.assigns.state | mode: new_mode}
-      new_graph = render(%{state: new_state, theme: scene.assigns.theme})
+      updated_graph = update_menu_graph(scene.assigns.graph, current_mode, new_mode, new_state, scene.assigns.theme)
       
       new_scene =
         scene
         |> assign(state: new_state)
-        |> assign(graph: new_graph)
-        |> push_graph(new_graph)
+        |> assign(graph: updated_graph)
+        |> push_graph(updated_graph)
         
       {:noreply, new_scene}
     else
-      # Same hover state, no need to re-render
+      # Same hover state, no update needed
       {:noreply, scene}
     end
   end
 
   def handle_cast({:click, click_coords}, scene) do
+    IO.puts("🖱️ EnhancedMenuBar: Received click event: #{inspect(click_coords)}")
     data = scene.assigns.state.data
     
     case click_coords do
@@ -695,22 +705,23 @@ defmodule ScenicWidgets.EnhancedMenuBar do
     end
   end
 
-  def handle_cast({:cancel, _mode}, scene) do
+  def handle_cast({:cancel, mode}, scene) do
+    IO.puts("❌ EnhancedMenuBar: Received cancel event for mode: #{inspect(mode)}")
     # Only cancel if we're not already inactive
     case scene.assigns.state.mode do
       :inactive ->
-        # Already inactive, no need to re-render
+        # Already inactive, no need to update
         {:noreply, scene}
-      _ ->
-        # Close the menu
+      current_mode ->
+        # Close the menu by updating to inactive
         new_state = %{scene.assigns.state | mode: :inactive}
-        new_graph = render(%{state: new_state, theme: scene.assigns.theme})
+        updated_graph = update_menu_graph(scene.assigns.graph, current_mode, :inactive, new_state, scene.assigns.theme)
         
         new_scene =
           scene  
           |> assign(state: new_state)
-          |> assign(graph: new_graph)
-          |> push_graph(new_graph)
+          |> assign(graph: updated_graph)
+          |> push_graph(updated_graph)
           
         {:noreply, new_scene}
     end
@@ -719,6 +730,7 @@ defmodule ScenicWidgets.EnhancedMenuBar do
   def handle_cast({:put_menu_map, new_menu_map}, scene) do
     new_data = %{scene.assigns.state.data | menu_map: new_menu_map}
     new_state = %{scene.assigns.state | data: new_data, mode: :inactive}
+    # Menu map change requires full re-render since structure changed
     new_graph = render(%{state: new_state, theme: scene.assigns.theme})
     
     new_scene =
@@ -728,5 +740,124 @@ defmodule ScenicWidgets.EnhancedMenuBar do
       |> push_graph(new_graph)
       
     {:noreply, new_scene}
+  end
+  
+  # ============================================================================
+  # Smart Graph Updates - Update in place instead of full re-render
+  # ============================================================================
+  
+  defp update_menu_graph(graph, old_mode, new_mode, new_state, theme) when old_mode == new_mode do
+    # No change, return graph as-is
+    graph
+  end
+  
+  defp update_menu_graph(graph, _old_mode, new_mode, new_state, theme) do
+    # Only update dropdowns since FloatButton handles its own highlighting
+    update_dropdowns(graph, new_mode, new_state, theme)
+  end
+  
+  defp update_button_highlights(graph, new_mode, new_state) do
+    data = new_state.data
+    
+    # For now, we'll avoid updating individual buttons since FloatButton components
+    # manage their own highlighting. The hover highlighting happens in FloatButton itself.
+    # This is more efficient than re-rendering, and the visual feedback already works.
+    graph
+  end
+  
+  defp render_main_menu_bar_content(graph, data, mode) do
+    frame = data.frame
+    
+    graph
+    |> Scenic.Primitives.rect({frame.size.width, frame.size.height}, 
+      fill: data.colors.background, 
+      id: :menu_background
+    )
+    |> render_menu_buttons_for_mode(data, mode)
+  end
+  
+  defp render_menu_buttons_for_mode(graph, data, mode) do
+    data.menu_map
+    |> Enum.map(fn {:sub_menu, label, _sub_menu} -> label end)
+    |> Enum.with_index(1)
+    |> Enum.reduce(graph, fn {label, index}, acc_graph ->
+      button_width = calculate_button_width(data, label)
+      
+      # Determine if this button should be highlighted
+      highlight? = case mode do
+        :inactive -> false
+        {:hover, [hover_index]} when hover_index == index -> true
+        {:hover, [hover_index | _]} when hover_index == index -> true
+        _ -> false
+      end
+      
+      clipped_label = clip_text_to_width(label, button_width - (data.text_margin * 2), 
+        calculate_font_data(data.font), data.text_clipping)
+      
+      acc_graph
+      |> FloatButton.add_to_graph(%{
+        label: clipped_label,
+        unique_id: [index],
+        font: calculate_font_data(data.font),
+        frame: %{
+          pin: {(index - 1) * (button_width + data.button_spacing), 0},
+          size: {button_width, data.frame.size.height}
+        },
+        margin: data.text_margin,
+        hover_highlight?: highlight?
+      })
+    end)
+  end
+  
+  defp update_dropdowns(graph, new_mode, new_state, theme) do
+    case new_mode do
+      :inactive ->
+        # Remove all dropdowns
+        remove_all_dropdowns(graph)
+      {:hover, hover_chain} ->
+        # Calculate which dropdowns should be visible
+        dropdowns = calculate_dropdowns(new_state.data, hover_chain)
+        update_dropdown_visibility(graph, dropdowns, new_state, theme)
+    end
+  end
+  
+  defp remove_all_dropdowns(graph) do
+    # Remove all dropdown groups from the graph
+    # This is more efficient than re-rendering everything
+    case Scenic.Graph.get(graph, :sub_menu_collection) do
+      [] -> graph  # No dropdowns to remove
+      _primitive -> Scenic.Graph.delete(graph, :sub_menu_collection)
+    end
+  end
+  
+  defp update_dropdown_visibility(graph, dropdowns, new_state, theme) do
+    case dropdowns do
+      [] ->
+        # No dropdowns needed, remove them
+        remove_all_dropdowns(graph)
+      dropdown_list ->
+        # Add or update dropdown collection
+        case Scenic.Graph.get(graph, :sub_menu_collection) do
+          [] ->
+            # Create dropdowns from scratch
+            render_new_dropdowns(graph, dropdown_list, new_state, theme)
+          _primitive ->
+            # Update existing dropdowns (this could be more sophisticated)
+            # For now, replace the entire dropdown collection
+            graph
+            |> Scenic.Graph.delete(:sub_menu_collection)
+            |> render_new_dropdowns(dropdown_list, new_state, theme)
+        end
+    end
+  end
+  
+  defp render_new_dropdowns(graph, dropdown_list, new_state, theme) do
+    graph
+    |> Scenic.Primitives.group(
+      fn graph ->
+        render_dropdown_list(graph, new_state.data, theme, dropdown_list)
+      end,
+      id: :sub_menu_collection
+    )
   end
 end
