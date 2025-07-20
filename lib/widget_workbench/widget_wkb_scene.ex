@@ -8,6 +8,7 @@ defmodule WidgetWorkbench.Scene do
   alias Widgex.Frame
   alias Scenic.ViewPort
   alias WidgetWorkbench.Components.Modal
+  alias WidgetWorkbench.Components.MenuBar
 
   @grid_color :light_gray
   # Customize the grid spacing
@@ -53,21 +54,6 @@ defmodule WidgetWorkbench.Scene do
         # Draw a background
         |> Primitives.rect({frame.size.width, frame.size.height}, fill: :white)
         |> draw_grid_background(frame)
-        # Add a placeholder text
-        |> Primitives.text(
-          "Widget Workbench",
-          font_size: 32,
-          fill: :black,
-          text_align: :center,
-          translate: {frame.size.width / 2, 50}
-        )
-        # Add the tool palette
-        |> render_tool_palette(frame)
-        # Add a container for the modal
-        |> Primitives.group(
-          fn graph -> graph end,
-          id: :modal_container
-        )
 
         # Add tabs for navigating component files
         # |> render_file_tabs(frame)
@@ -96,6 +82,48 @@ defmodule WidgetWorkbench.Scene do
         )
       end)
     end)
+  end
+
+  # Function to render test menu bar
+  defp render_test_menu_bar(graph, %Frame{} = frame) do
+    # Sample menu structure for testing
+    test_menu_map = %{
+      file: {"File", [
+        {:new_file, "New File"},
+        {:open_file, "Open File"},
+        {:save_file, "Save"},
+        {:save_as, "Save As..."},
+        {:quit, "Quit"}
+      ]},
+      edit: {"Edit", [
+        {:undo, "Undo"},
+        {:redo, "Redo"},
+        {:cut, "Cut"},
+        {:copy, "Copy"},
+        {:paste, "Paste"}
+      ]},
+      view: {"View", [
+        {:zoom_in, "Zoom In"},
+        {:zoom_out, "Zoom Out"},
+        {:reset_zoom, "Reset Zoom"},
+        {:toggle_sidebar, "Toggle Sidebar"}
+      ]},
+      help: {"Help", [
+        {:documentation, "Documentation"},
+        {:about, "About"}
+      ]}
+    }
+    
+    menu_bar_data = %{
+      frame: %{
+        pin: %{x: 0, y: 100},
+        size: %{width: frame.size.width, height: 30}
+      },
+      menu_map: test_menu_map
+    }
+    
+    graph
+    |> MenuBar.add_to_graph(menu_bar_data, id: :test_menu_bar)
   end
 
   # Function to render the tool palette
@@ -278,6 +306,22 @@ defmodule WidgetWorkbench.Scene do
       |> assign(modal_visible: false)
       |> push_graph(graph)
 
+    {:noreply, scene}
+  end
+  
+  def handle_event({:menu_item_clicked, item_id}, _from, scene) do
+    Logger.info("Menu item clicked: #{inspect(item_id)}")
+    
+    # Handle different menu actions
+    case item_id do
+      :new_file ->
+        Logger.info("Creating new file...")
+      :quit ->
+        Logger.info("Quit selected")
+      _ ->
+        Logger.info("Menu action: #{item_id}")
+    end
+    
     {:noreply, scene}
   end
 
