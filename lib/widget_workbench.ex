@@ -74,6 +74,10 @@ defmodule WidgetWorkbench do
         IO.puts("")
         IO.puts("   The viewport PID is: #{inspect(pid)}")
         IO.puts("   To stop: WidgetWorkbench.stop()")
+        
+        # Start the auto-reloader
+        start_auto_reloader()
+        
         {:ok, pid}
         
       {:error, reason} ->
@@ -92,7 +96,59 @@ defmodule WidgetWorkbench do
         :ok
       pid ->
         IO.puts("Stopping Widget Workbench...")
-        Scenic.ViewPort.stop(pid)
+        Process.exit(pid, :kill)
+        # Wait for the process to actually stop
+        wait_for_stop()
+        :ok
+    end
+  end
+  
+  defp wait_for_stop(timeout \\ 1000) do
+    case Process.whereis(:widget_workbench_viewport) do
+      nil -> :ok
+      _pid when timeout <= 0 -> :timeout
+      _pid ->
+        Process.sleep(10)
+        wait_for_stop(timeout - 10)
+    end
+  end
+  
+  @doc """
+  Resets the Widget Workbench by stopping and restarting it.
+  """
+  def reset(opts \\ []) do
+    IO.puts("🔄 Resetting Widget Workbench...")
+    stop()
+    Process.sleep(200)
+    start(opts)
+  end
+
+  @doc """
+  Hot reloads the scene without killing the viewport - smoother than reset.
+  """
+  def hot_reload do
+    require Logger
+    
+    case Scenic.ViewPort.info(:widget_workbench_viewport) do
+      {:ok, viewport} ->
+        try do
+          Logger.info("🔥 Hot-reloading scene...")
+          
+          # Use the proper set_root with ViewPort struct
+          Scenic.ViewPort.set_root(viewport, WidgetWorkbench.Scene)
+          Logger.info("✅ Scene restarted with new code!")
+        rescue
+          e -> 
+            Logger.error("❌ Hot reload failed: #{inspect(e)}")
+            # Fallback to full reset
+            spawn(fn -> 
+              Process.sleep(100) 
+              WidgetWorkbench.reset()
+            end)
+            Logger.info("✅ Fallback: Widget Workbench will restart")
+        end
+      _ ->
+        Logger.info("Widget Workbench is not running")
         :ok
     end
   end
@@ -105,5 +161,94 @@ defmodule WidgetWorkbench do
       nil -> false
       _pid -> true
     end
+  end
+  
+  # Auto-reloader functionality
+  defp start_auto_reloader do
+    try do
+      # Kill any existing watcher first
+      if pid = Process.whereis(:widget_workbench_file_watcher) do
+        Process.exit(pid, :kill)
+        Process.sleep(10)
+      end
+      
+      # FileSystem backend info (function not available in this version)
+      
+      # Get absolute path to ensure we're watching the right directory
+      watch_dir = Path.expand("lib/widget_workbench")
+      IO.puts("🔍 Watching directory: #{watch_dir}")
+      IO.puts("🔍 Directory exists: #{File.dir?(watch_dir)}")
+      
+      # Start file system watcher with absolute path
+      {:ok, watcher_pid} = FileSystem.start_link(dirs: [watch_dir])
+      Process.register(watcher_pid, :widget_workbench_file_watcher)
+      
+      IO.puts("🔍 Watcher PID: #{inspect(watcher_pid)}")
+      
+      # Start the reloader process (it will subscribe to the watcher)
+      {:ok, reloader_pid} = WidgetWorkbench.AutoReloader.start_link()
+      
+      IO.puts("🔍 Reloader PID: #{inspect(reloader_pid)}")
+      IO.puts("🔥 Auto-reload enabled for Widget Workbench!")
+    rescue
+      e -> IO.puts("Warning: Auto-reload failed to start: #{inspect(e)}")
+    end
+  end
+end
+
+defmodule WidgetWorkbench.AutoReloader do
+  use GenServer
+  
+  def start_link do
+    GenServer.start_link(__MODULE__, [], name: __MODULE__)
+  end
+  
+  def init([]) do
+    # Subscribe to file system events
+    case Process.whereis(:widget_workbench_file_watcher) do
+      nil ->
+        IO.puts("❌ No file watcher found!")
+        {:ok, %{last_reload: 0}}
+      watcher_pid ->
+        IO.puts("🔍 Found watcher PID: #{inspect(watcher_pid)}")
+        result = FileSystem.subscribe(watcher_pid)
+        IO.puts("🔍 Subscribe result: #{inspect(result)}")
+        IO.puts("📎 Auto-reloader subscribed to file events")
+        {:ok, %{last_reload: 0}}
+    end
+  end
+  
+  def handle_info({:file_event, _watcher_pid, {path, events}}, state) do
+    # Use Logger instead of IO.puts to avoid GenServer termination
+    require Logger
+    Logger.info("📁 File event detected: #{Path.relative_to_cwd(path)} - #{inspect(events)}")
+    
+    if String.ends_with?(path, ".ex") and (:modified in events or :renamed in events) do
+      # Debounce rapid file changes (prevent overlapping reloads)
+      now = :os.system_time(:millisecond)
+      time_since_last = now - state.last_reload
+      
+      if time_since_last > 200 do  # 200ms debounce
+        Logger.info("🔄 File changed: #{Path.relative_to_cwd(path)}")
+        Logger.info("🔄 Hot-reloading scene...")
+        
+        # Recompile the changed file
+        Code.compile_file(path)
+        
+        # Hot reload the scene without killing viewport
+        spawn(fn -> WidgetWorkbench.hot_reload() end)
+        
+        {:noreply, %{state | last_reload: now}}
+      else
+        Logger.info("⏳ Debouncing reload (#{time_since_last}ms since last)")
+        {:noreply, state}
+      end
+    else
+      {:noreply, state}
+    end
+  end
+  
+  def handle_info(_msg, state) do
+    {:noreply, state}
   end
 end

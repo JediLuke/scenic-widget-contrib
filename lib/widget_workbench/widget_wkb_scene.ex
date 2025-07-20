@@ -6,6 +6,7 @@ defmodule WidgetWorkbench.Scene do
   alias Scenic.Primitives
   alias Scenic.Components
   alias Widgex.Frame
+  alias Widgex.Frame.Grid
   alias Scenic.ViewPort
   alias WidgetWorkbench.Components.Modal
   alias WidgetWorkbench.Components.MenuBar
@@ -39,30 +40,35 @@ defmodule WidgetWorkbench.Scene do
       |> assign(component_files: [])
       |> push_graph(graph)
 
-    # Request input events
-    request_input(scene, [:cursor_pos, :cursor_button, :key])
+    # Request input events including viewport resize
+    request_input(scene, [:cursor_pos, :cursor_button, :key, :viewport])
 
     {:ok, scene}
   end
 
   # Render function to build the graph
   defp render(%Frame{} = frame) do
+    # Get the center point of the frame
+    center_point = Frame.center(frame)
+    
     Graph.build()
-    |> Primitives.group(
-      fn graph ->
-        graph
-        # Draw a background
-        |> Primitives.rect({frame.size.width, frame.size.height}, fill: :white)
-        |> draw_grid_background(frame)
+    |> Primitives.rect({frame.size.width, frame.size.height}, fill: :white)
+    |> draw_grid_background(frame)
+    # Add a purple circle in the center
+    |> Primitives.circle(30, fill: :purple, translate: {center_point.x, center_point.y})
+  end
 
-        # Add tabs for navigating component files
-        # |> render_file_tabs(frame)
-
-        # # Add an area for editing the current file
-        # |> render_file_editor(frame)
-      end,
-      translate: frame.pin.point
-    )
+  # Handle hot-reload message to re-render with updated code
+  def handle_info(:hot_reload, scene) do
+    # Get current frame and re-render with updated code
+    frame = scene.assigns.frame
+    new_graph = render(frame)
+    
+    scene = scene
+    |> assign(graph: new_graph)
+    |> push_graph(new_graph)
+    
+    {:noreply, scene}
   end
 
   # Function to draw a pseudo-grid background of "+"
@@ -82,6 +88,85 @@ defmodule WidgetWorkbench.Scene do
         )
       end)
     end)
+  end
+  
+  # Function to render the tools pane
+  defp render_tools_pane(graph, %Frame{} = frame) do
+    # Create a grid for the tools pane layout
+    # Padding of 20px on all sides, but ensure positive dimensions
+    padding = 20
+    padded_width = max(frame.size.width - (padding * 2), 10)
+    padded_height = max(frame.size.height - (padding * 2), 10)
+    
+    padded_frame = Frame.new(%{
+      pin: {padding, padding},
+      size: {padded_width, padded_height}
+    })
+    
+    tools_grid = Grid.new(padded_frame)
+    |> Grid.rows([60, 20, 50, 50, 1])  # Title, gap, button1, button2, remaining space
+    |> Grid.columns([1])
+    |> Grid.row_gap(10)
+    |> Grid.define_areas(%{
+      title: {0, 0, 1, 1},
+      divider: {1, 0, 1, 1},
+      open_button: {2, 0, 1, 1},
+      create_button: {3, 0, 1, 1}
+    })
+    
+    cell_frames = Grid.calculate(tools_grid)
+    title_frame = Grid.area_frame(tools_grid, cell_frames, :title)
+    divider_frame = Grid.area_frame(tools_grid, cell_frames, :divider)
+    open_button_frame = Grid.area_frame(tools_grid, cell_frames, :open_button)
+    create_button_frame = Grid.area_frame(tools_grid, cell_frames, :create_button)
+    
+    graph
+    # Title
+    |> Primitives.text(
+      "WidgetWorkbench",
+      font_size: 24,
+      fill: {:color, {50, 50, 60, 255}},
+      text_align: :center,
+      translate: {title_frame.pin.x + title_frame.size.width / 2, title_frame.pin.y + 30}
+    )
+    # Divider line
+    |> Primitives.line(
+      {{frame.pin.x + 20, divider_frame.pin.y + 10}, 
+       {frame.pin.x + frame.size.width - 20, divider_frame.pin.y + 10}},
+      stroke: {1, {:color, {220, 220, 220, 255}}}
+    )
+    # Open Widget button
+    |> Components.button(
+      "Open Widget",
+      id: :open_widget_button,
+      width: open_button_frame.size.width,
+      height: open_button_frame.size.height,
+      translate: {open_button_frame.pin.x, open_button_frame.pin.y},
+      theme: %{
+        text: :black,
+        background: {:color, {255, 255, 255, 255}},
+        border: {:color, {200, 200, 200, 255}},
+        active: {:color, {240, 240, 240, 255}},
+        thumb: {:color, {180, 180, 180, 255}},
+        focus: {:color, {0, 120, 212, 255}}
+      }
+    )
+    # Create New Widget button
+    |> Components.button(
+      "Create New Widget",
+      id: :create_widget_button,
+      width: create_button_frame.size.width,
+      height: create_button_frame.size.height,
+      translate: {create_button_frame.pin.x, create_button_frame.pin.y},
+      theme: %{
+        text: :black,
+        background: {:color, {255, 255, 255, 255}},
+        border: {:color, {200, 200, 200, 255}},
+        active: {:color, {240, 240, 240, 255}},
+        thumb: {:color, {180, 180, 180, 255}},
+        focus: {:color, {0, 120, 212, 255}}
+      }
+    )
   end
 
   # Function to render test menu bar
@@ -114,11 +199,15 @@ defmodule WidgetWorkbench.Scene do
       ]}
     }
     
+    # Position menubar at top of canvas with some margin
+    # Ensure positive dimensions
+    menubar_width = max(frame.size.width - 40, 100)
+    
     menu_bar_data = %{
-      frame: %{
-        pin: %{x: 0, y: 100},
-        size: %{width: frame.size.width, height: 30}
-      },
+      frame: Frame.new(%{
+        pin: {20, 20},
+        size: {menubar_width, 30}
+      }),
       menu_map: test_menu_map
     }
     
@@ -223,13 +312,42 @@ defmodule WidgetWorkbench.Scene do
   end
 
   @impl Scenic.Scene
+  def handle_input({:viewport, {:reshaped, {width, height}}}, _context, scene) do
+    # Update frame with new dimensions
+    new_frame = Frame.new(%{pin: {0, 0}, size: {width, height}})
+    
+    # Re-render with new frame
+    graph = render(new_frame)
+    
+    scene = scene
+    |> assign(frame: new_frame)
+    |> assign(graph: graph)
+    |> push_graph(graph)
+    
+    {:noreply, scene}
+  end
+
   def handle_input(input, _context, scene) do
-    # Handle input events if necessary
+    # Handle other input events if necessary
     Logger.debug("Widget Workbench received input: #{inspect(input)}")
     {:noreply, scene}
   end
 
   @impl Scenic.Scene
+  def handle_event({:click, :open_widget_button}, _from, scene) do
+    Logger.info("Open Widget button clicked!")
+    # TODO: Show a list of available widgets to open
+    # For now, let's just log it
+    {:noreply, scene}
+  end
+
+  def handle_event({:click, :create_widget_button}, _from, scene) do
+    Logger.info("Create New Widget button clicked!")
+    # TODO: Show modal to create new widget with name input
+    # For now, let's just log it
+    {:noreply, scene}
+  end
+
   def handle_event({:click, :new_widget_button}, _from, scene) do
     Logger.info("New Widget button clicked!")
 
