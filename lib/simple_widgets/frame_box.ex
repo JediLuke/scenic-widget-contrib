@@ -8,13 +8,13 @@ defmodule ScenicWidgets.FrameBox do
   # alias ScenicWidgets.Core.Structs.Frame
   alias Widgex.Frame
 
-  @border_colors [
-    :light_green,
-    :red,
-    :white,
-    :black,
-    :blue
-  ]
+  # @border_colors [
+  #   :light_green,
+  #   :red,
+  #   :white,
+  #   :black,
+  #   :blue
+  # ]
 
   @fill_colors [:red, :blue, :green, :yellow]
 

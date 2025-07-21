@@ -46,16 +46,62 @@ defmodule WidgetWorkbench.Scene do
     {:ok, scene}
   end
 
-  # Render function to build the graph
+  # Render function to build the graph using Widgex Grid
   defp render(%Frame{} = frame) do
-    # Get the center point of the frame
-    center_point = Frame.center(frame)
+    # Create a simple 1x1 grid that fills the entire frame
+    grid = Grid.new(frame)
+    |> Grid.columns([1.0])  # Single column that takes full width
+    |> Grid.rows([1.0])     # Single row that takes full height
     
+    # Calculate cell frames
+    cell_frames = Grid.calculate(grid)
+    
+    # Get the single cell (0,0) and find its center
+    main_cell = Grid.cell_frame(cell_frames, 0, 0)
+    center_point = Frame.center(main_cell)
+    
+    # Build the graph - just white background with a dot in the center
     Graph.build()
     |> Primitives.rect({frame.size.width, frame.size.height}, fill: :white)
     |> draw_grid_background(frame)
-    # Add a purple circle in the center
-    |> Primitives.circle(30, fill: :purple, translate: {center_point.x, center_point.y})
+    # Add a red circle at center using Grid layout
+    |> Primitives.circle(30, fill: :red, translate: {center_point.x, center_point.y})
+  end
+  
+  # Render UI elements using the grid
+  defp render_grid_layout(graph, grid, cell_frames) do
+    # Define named areas for better organization
+    # Using {row, col, row_span, col_span} format
+    grid_with_areas = grid
+    |> Grid.define_areas(%{
+      header: {0, 0, 1, 12},    # Row 0, all 12 columns
+      sidebar: {1, 0, 7, 2},    # Rows 1-7, columns 0-1 (2 columns wide)
+      content: {1, 2, 7, 10}    # Rows 1-7, columns 2-11 (10 columns wide)
+    })
+    
+    # Get frames for each area using the passed cell_frames
+    header_frame = Grid.area_frame(grid_with_areas, cell_frames, :header)
+    sidebar_frame = Grid.area_frame(grid_with_areas, cell_frames, :sidebar)
+    content_frame = Grid.area_frame(grid_with_areas, cell_frames, :content)
+    
+    graph
+    # Render the header area with menu bar
+    |> render_test_menu_bar(header_frame)
+    # Render the sidebar with tools pane
+    |> render_tools_pane(sidebar_frame)
+    # Content area - keep simple for now
+    |> Primitives.rect(
+      {content_frame.size.width, content_frame.size.height},
+      fill: {:color, {252, 252, 253}},
+      stroke: {1, {:color, {220, 220, 230}}},
+      translate: content_frame.pin.point
+    )
+    |> Primitives.text(
+      "Widget Canvas",
+      font_size: 14,
+      fill: {:color, {100, 100, 110}},
+      translate: {elem(content_frame.pin.point, 0) + 10, elem(content_frame.pin.point, 1) + 30}
+    )
   end
 
   # Handle hot-reload message to re-render with updated code
@@ -312,7 +358,9 @@ defmodule WidgetWorkbench.Scene do
   end
 
   @impl Scenic.Scene
-  def handle_input({:viewport, {:reshaped, {width, height}}}, _context, scene) do
+  def handle_input({:viewport, {:reshape, {width, height}}}, _context, scene) do
+    Logger.info("Viewport resized to #{width}x#{height}")
+    
     # Update frame with new dimensions
     new_frame = Frame.new(%{pin: {0, 0}, size: {width, height}})
     
@@ -323,6 +371,15 @@ defmodule WidgetWorkbench.Scene do
     |> assign(frame: new_frame)
     |> assign(graph: graph)
     |> push_graph(graph)
+    
+    {:noreply, scene}
+  end
+  
+  # Keep the old handler in case the event name varies
+  @impl Scenic.Scene
+  def handle_input({:viewport, {:reshaped, {width, height}}}, _context, scene) do
+    # Forward to the main handler
+    handle_input({:viewport, {:reshape, {width, height}}}, _context, scene)
     
     {:noreply, scene}
   end

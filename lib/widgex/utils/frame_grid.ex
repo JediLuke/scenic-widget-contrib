@@ -181,7 +181,7 @@ defmodule Widgex.Frame.Grid do
   end
 
   def calculate(%__MODULE__{} = grid) do
-    IO.puts "DEPRECATE THIS CALCULATE USE calculate_grid_frames"
+    # IO.puts "DEPRECATE THIS CALCULATE USE calculate_grid_frames"
     %__MODULE__{
       frame: %Frame{
         pin: %Coordinates{x: frame_x, y: frame_y},

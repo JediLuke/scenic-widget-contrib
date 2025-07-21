@@ -232,11 +232,20 @@ defmodule WidgetWorkbench.AutoReloader do
         Logger.info("🔄 File changed: #{Path.relative_to_cwd(path)}")
         Logger.info("🔄 Hot-reloading scene...")
         
-        # Recompile the changed file
-        Code.compile_file(path)
-        
-        # Hot reload the scene without killing viewport
-        spawn(fn -> WidgetWorkbench.hot_reload() end)
+        # Try to recompile the changed file
+        spawn(fn ->
+          try do
+            Code.compile_file(path)
+            Logger.info("✅ Compilation successful")
+            
+            # Hot reload the scene without killing viewport
+            WidgetWorkbench.hot_reload()
+          rescue
+            e ->
+              Logger.error("❌ Compilation failed: #{Exception.message(e)}")
+              Logger.error("💡 Fix the errors and save again to retry")
+          end
+        end)
         
         {:noreply, %{state | last_reload: now}}
       else

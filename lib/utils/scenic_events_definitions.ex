@@ -222,6 +222,8 @@ defmodule ScenicWidgets.ScenicEventsDefinitions do
       @all_letters @lowercase_letters ++ @uppercase_letters
 
       @ctrl_s {:key, {:key_s, @key_pressed, [:ctrl]}}
+      @ctrl_h {:key, {:key_h, @key_pressed, [:ctrl]}}
+      @ctrl_a {:key, {:key_a, @key_pressed, [:ctrl]}}
 
       @backtick {:key, {:key_grave, @key_pressed, []}}
       @tilde {:key, {:key_grave, @key_pressed, [:shift]}}
@@ -297,6 +299,18 @@ defmodule ScenicWidgets.ScenicEventsDefinitions do
       @down_arrow {:key, {:key_down, @key_pressed, []}}
 
       @arrow_keys [@left_arrow, @right_arrow, @up_arrow, @down_arrow]
+
+      # Shift+Arrow keys for text selection
+      @shift_left_arrow {:key, {:key_left, @key_pressed, [:shift]}}
+      @shift_right_arrow {:key, {:key_right, @key_pressed, [:shift]}}
+      @shift_up_arrow {:key, {:key_up, @key_pressed, [:shift]}}
+      @shift_down_arrow {:key, {:key_down, @key_pressed, [:shift]}}
+
+      @shift_arrow_keys [@shift_left_arrow, @shift_right_arrow, @shift_up_arrow, @shift_down_arrow]
+
+      @home_key {:key, {:key_home, @key_pressed, []}}
+      @end_key {:key, {:key_end, @key_pressed, []}}
+      @delete_key {:key, {:key_delete, @key_pressed, []}}
 
       @valid_text_input_characters @all_letters ++
                                      @all_numbers ++

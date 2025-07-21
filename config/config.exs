@@ -10,6 +10,7 @@ if Mix.env() == :dev do
       %{
         name: :widget_workbench_viewport,
         scenes: [
+          {"lib/widget_workbench/widget_wkb_scene.ex", WidgetWorkbench.Scene},
           {"lib/widget_workbench", WidgetWorkbench.Scene},
           {"lib/widget_workbench/components", []}
         ]
