@@ -129,27 +129,27 @@ defmodule WidgetWorkbench do
   def hot_reload do
     require Logger
     
-    case Scenic.ViewPort.info(:widget_workbench_viewport) do
-      {:ok, viewport} ->
-        try do
-          Logger.info("🔥 Hot-reloading scene...")
-          
-          # Use the proper set_root with ViewPort struct
+    # Try to find the scene process instead of restarting it
+    scene_pid = Process.whereis(:_widget_workbench_scene_)
+    
+    Logger.info("🔍 Looking for scene process: #{inspect(scene_pid)}")
+    
+    if scene_pid && Process.alive?(scene_pid) do
+      Logger.info("🔥 Hot-reloading scene (sending message to #{inspect(scene_pid)})...")
+      send(scene_pid, :hot_reload)
+      Logger.info("✅ Hot reload message sent!")
+    else
+      Logger.info("❌ Scene process not found or not alive")
+      # Fallback to set_root if we can't find the scene
+      case Scenic.ViewPort.info(:widget_workbench_viewport) do
+        {:ok, viewport} ->
+          Logger.info("🔥 Hot-reloading scene (restarting)...")
           Scenic.ViewPort.set_root(viewport, WidgetWorkbench.Scene)
           Logger.info("✅ Scene restarted with new code!")
-        rescue
-          e -> 
-            Logger.error("❌ Hot reload failed: #{inspect(e)}")
-            # Fallback to full reset
-            spawn(fn -> 
-              Process.sleep(100) 
-              WidgetWorkbench.reset()
-            end)
-            Logger.info("✅ Fallback: Widget Workbench will restart")
-        end
-      _ ->
-        Logger.info("Widget Workbench is not running")
-        :ok
+        _ ->
+          Logger.info("Widget Workbench is not running")
+          :ok
+      end
     end
   end
   

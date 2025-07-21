@@ -21,14 +21,37 @@ defmodule WidgetWorkbench.Scene do
 
   @impl Scenic.Scene
   def init(scene, _params, _opts) do
-    # Get the viewport dimensions
-    %{size: {width, height}} = scene.viewport
+    # Register this process so hot reload can find it
+    Process.register(self(), :_widget_workbench_scene_)
+    
+    # Try to get stored window size first (from previous resize events)
+    {width, height} = try do
+      case :ets.lookup(:widget_workbench_state, :current_size) do
+        [{:current_size, stored_size}] ->
+          Logger.info("🔍 Using stored window size: #{inspect(stored_size)}")
+          stored_size
+        [] ->
+          # Table exists but no size stored yet
+          size = scene.viewport.size
+          :ets.insert(:widget_workbench_state, {:current_size, size})
+          Logger.info("📐 Storing initial window size: #{inspect(size)}")
+          size
+      end
+    rescue
+      ArgumentError ->
+        # Table doesn't exist - create it and use viewport size
+        :ets.new(:widget_workbench_state, [:set, :public, :named_table])
+        size = scene.viewport.size
+        :ets.insert(:widget_workbench_state, {:current_size, size})
+        Logger.info("📐 Created ETS table with initial window size: #{inspect(size)}")
+        size
+    end
 
     # Create a frame for the scene
     frame = Frame.new(%{pin: {0, 0}, size: {width, height}})
 
     # Build the initial graph
-    graph = render(frame)
+    graph = render(frame, nil, false)
 
     # Assign the graph and state to the scene
     scene =
@@ -38,6 +61,9 @@ defmodule WidgetWorkbench.Scene do
       |> assign(modal_visible: false)
       |> assign(current_file_index: 0)
       |> assign(component_files: [])
+      |> assign(selected_component: nil)
+      |> assign(selected_component_module: nil)
+      |> assign(component_modal_visible: false)
       |> push_graph(graph)
 
     # Request input events including viewport resize
@@ -47,25 +73,278 @@ defmodule WidgetWorkbench.Scene do
   end
 
   # Render function to build the graph using Widgex Grid
-  defp render(%Frame{} = frame) do
-    # Create a simple 1x1 grid that fills the entire frame
+  defp render(%Frame{} = frame, selected_component \\ nil, show_modal \\ false) do
+    # Create a grid with 2 columns: 2/3 for main area, 1/3 for constructor pane
     grid = Grid.new(frame)
-    |> Grid.columns([1.0])  # Single column that takes full width
-    |> Grid.rows([1.0])     # Single row that takes full height
+    |> Grid.columns([2/3, 1/3])  # Two columns: main area (2/3) and constructor pane (1/3)
+    |> Grid.rows([1.0])           # Single row that takes full height
     
     # Calculate cell frames
     cell_frames = Grid.calculate(grid)
     
-    # Get the single cell (0,0) and find its center
-    main_cell = Grid.cell_frame(cell_frames, 0, 0)
-    center_point = Frame.center(main_cell)
+    # Get the main area (left 2/3) and constructor pane (right 1/3)
+    main_area = Grid.cell_frame(cell_frames, 0, 0)
+    constructor_area = Grid.cell_frame(cell_frames, 0, 1)
     
-    # Build the graph - just white background with a dot in the center
-    Graph.build()
-    |> Primitives.rect({frame.size.width, frame.size.height}, fill: :white)
+    # Build the graph
+    graph = Graph.build()
+    # Render the main drawing area
+    |> render_main_area(main_area, selected_component)
+    # Render the constructor pane
+    |> render_constructor_pane(constructor_area)
+    
+    # Add modal if needed
+    if show_modal do
+      graph |> render_component_selection_modal(frame)
+    else
+      graph
+    end
+  end
+  
+  # Render the main drawing area
+  defp render_main_area(graph, %Frame{} = frame, selected_component) do
+    graph
+    # Main area background
+    |> Primitives.rect(
+      {frame.size.width, frame.size.height}, 
+      fill: :white,
+      translate: frame.pin.point
+    )
+    # Draw grid background
     |> draw_grid_background(frame)
-    # Add a red circle at center using Grid layout
-    |> Primitives.circle(30, fill: :red, translate: {center_point.x, center_point.y})
+    # Render content based on selection
+    |> render_main_content(frame, selected_component)
+  end
+  
+  # Render content in the main area
+  defp render_main_content(graph, frame, nil) do
+    # No component selected - show the yellow circle
+    center_point = Frame.center(frame)
+    graph
+    |> Primitives.circle(30, fill: :purple, translate: {center_point.x, center_point.y})
+  end
+  
+  defp render_main_content(graph, frame, {component_name, component_module}) do
+    # Component selected - render it centered in the frame
+    center_point = Frame.center(frame)
+    
+    # Create a reasonable default frame for the component
+    # We'll give it a 400x200 frame by default
+    component_frame = Frame.new(%{
+      pin: {center_point.x - 200, center_point.y - 100},
+      size: {400, 200}
+    })
+    
+    # Add the component to the graph
+    # Most components accept a frame parameter
+    try do
+      graph
+      |> component_module.add_to_graph(nil, frame: component_frame, id: :loaded_component)
+    rescue
+      _ ->
+        # If that fails, try with default parameters
+        try do
+          graph
+          |> component_module.add_to_graph("Default Text", id: :loaded_component)
+        rescue
+          _ ->
+            # If all else fails, show an error message
+            graph
+            |> Primitives.text(
+              "Failed to load: #{component_name}",
+              font_size: 16,
+              fill: :red,
+              translate: {center_point.x, center_point.y},
+              text_align: :center
+            )
+        end
+    end
+  end
+  
+  # Render the constructor pane on the right side
+  defp render_constructor_pane(graph, %Frame{} = frame) do
+    # Create a grid layout for the constructor pane
+    pane_grid = Grid.new(frame)
+    |> Grid.rows([20, 35, 30, 15, 50, 20, 50, 20, 50, 1])  # Top padding, title, subtitle, gap, reset, gap, new, gap, load, remaining
+    |> Grid.columns([0.1, 0.8, 0.1])  # Small padding, large content area, small padding
+    |> Grid.define_areas(%{
+      title: {1, 1, 1, 1},
+      subtitle: {2, 1, 1, 1},
+      reset_button: {4, 1, 1, 1},
+      new_button: {6, 1, 1, 1},
+      load_button: {8, 1, 1, 1}
+    })
+    
+    cell_frames = Grid.calculate(pane_grid)
+    title_frame = Grid.area_frame(pane_grid, cell_frames, :title)
+    subtitle_frame = Grid.area_frame(pane_grid, cell_frames, :subtitle)
+    reset_button_frame = Grid.area_frame(pane_grid, cell_frames, :reset_button)
+    new_button_frame = Grid.area_frame(pane_grid, cell_frames, :new_button)
+    load_button_frame = Grid.area_frame(pane_grid, cell_frames, :load_button)
+    
+    graph
+    # Grey background for constructor pane
+    |> Primitives.rect(
+      {frame.size.width, frame.size.height},
+      fill: {:color, {230, 230, 235}},
+      stroke: {1, {:color, {200, 200, 205}}},
+      translate: frame.pin.point
+    )
+    # Add a title for the constructor pane
+    |> Primitives.text(
+      "Widget Workbench",
+      font_size: 20,
+      fill: {:color, {40, 40, 50}},
+      translate: {elem(title_frame.pin.point, 0) + title_frame.size.width / 2, elem(title_frame.pin.point, 1) + 25},
+      text_align: :center
+    )
+    # Add subtitle/help text
+    |> Primitives.text(
+      "Design & test Scenic components",
+      font_size: 14,
+      fill: {:color, {100, 100, 110}},
+      translate: {elem(subtitle_frame.pin.point, 0) + subtitle_frame.size.width / 2, elem(subtitle_frame.pin.point, 1) + 20},
+      text_align: :center
+    )
+    # Reset Scene button (red)
+    |> Components.button(
+      "Reset Scene",
+      id: :reset_scene_button,
+      width: reset_button_frame.size.width,
+      height: reset_button_frame.size.height,
+      translate: reset_button_frame.pin.point,
+      theme: %{
+        text: :white,
+        background: {:color, {220, 53, 69}},
+        border: {:color, {200, 33, 49}},
+        active: {:color, {180, 13, 29}},
+        thumb: {:color, {240, 73, 89}},
+        focus: {:color, {160, 0, 19}}
+      }
+    )
+    # New Widget button
+    |> Components.button(
+      "New Widget",
+      id: :new_widget_button,
+      width: new_button_frame.size.width,
+      height: new_button_frame.size.height,
+      translate: new_button_frame.pin.point,
+      theme: %{
+        text: :white,
+        background: {:color, {70, 130, 180}},
+        border: {:color, {60, 120, 170}},
+        active: {:color, {50, 110, 160}},
+        thumb: {:color, {80, 140, 190}},
+        focus: {:color, {40, 100, 150}}
+      }
+    )
+    # Load Component button
+    |> Components.button(
+      "Load Component",
+      id: :load_component_button,
+      width: load_button_frame.size.width,
+      height: load_button_frame.size.height,
+      translate: load_button_frame.pin.point,
+      theme: %{
+        text: :white,
+        background: {:color, {34, 139, 34}},
+        border: {:color, {24, 129, 24}},
+        active: {:color, {14, 119, 14}},
+        thumb: {:color, {44, 149, 44}},
+        focus: {:color, {4, 109, 4}}
+      }
+    )
+  end
+  
+  # Render the component selection modal
+  defp render_component_selection_modal(graph, %Frame{} = frame) do
+    # Create a centered modal frame
+    modal_width = 400
+    modal_height = 500
+    modal_x = (frame.size.width - modal_width) / 2
+    modal_y = (frame.size.height - modal_height) / 2
+    
+    # Component list for the modal
+    components = [
+      {"Menu Bar", :menu_bar},
+      {"Enhanced Menu Bar", :enhanced_menu_bar},
+      {"Tab Bar", :tab_bar},
+      {"Side Nav", :side_nav},
+      {"Text Button", :text_button},
+      {"Icon Button", :icon_button},
+      {"Frame Box", :frame_box},
+      {"Test Pattern", :test_pattern}
+    ]
+    
+    graph
+    # Semi-transparent overlay
+    |> Primitives.rect(
+      {frame.size.width, frame.size.height},
+      fill: {:color, {0, 0, 0, 128}},
+      translate: {0, 0}
+    )
+    # Modal background
+    |> Primitives.rect(
+      {modal_width, modal_height},
+      fill: :white,
+      stroke: {2, {:color, {100, 100, 100}}},
+      translate: {modal_x, modal_y}
+    )
+    # Modal title
+    |> Primitives.text(
+      "Select Component",
+      font_size: 18,
+      fill: {:color, {40, 40, 50}},
+      translate: {modal_x + modal_width / 2, modal_y + 30},
+      text_align: :center
+    )
+    # Render component list
+    |> render_component_list(components, modal_x, modal_y + 60, modal_width)
+    # Cancel button
+    |> Components.button(
+      "Cancel",
+      id: :cancel_component_selection,
+      width: 80,
+      height: 35,
+      translate: {modal_x + modal_width - 90, modal_y + modal_height - 45},
+      theme: %{
+        text: :white,
+        background: {:color, {150, 150, 150}},
+        border: {:color, {130, 130, 130}},
+        active: {:color, {120, 120, 120}},
+        thumb: {:color, {160, 160, 160}},
+        focus: {:color, {140, 140, 140}}
+      }
+    )
+  end
+  
+  # Render the list of components as buttons
+  defp render_component_list(graph, components, x, start_y, width) do
+    button_height = 40
+    button_margin = 5
+    
+    components
+    |> Enum.with_index()
+    |> Enum.reduce(graph, fn {{name, id}, index}, acc_graph ->
+      y = start_y + (button_height + button_margin) * index
+      
+      acc_graph
+      |> Components.button(
+        name,
+        id: {:select_component, id},
+        width: width - 40,
+        height: button_height,
+        translate: {x + 20, y},
+        theme: %{
+          text: {:color, {50, 50, 60}},
+          background: {:color, {245, 245, 250}},
+          border: {:color, {200, 200, 210}},
+          active: {:color, {70, 130, 180}},
+          thumb: {:color, {220, 220, 230}},
+          focus: {:color, {60, 120, 170}}
+        }
+      )
+    end)
   end
   
   # Render UI elements using the grid
@@ -106,9 +385,23 @@ defmodule WidgetWorkbench.Scene do
 
   # Handle hot-reload message to re-render with updated code
   def handle_info(:hot_reload, scene) do
-    # Get current frame and re-render with updated code
-    frame = scene.assigns.frame
-    new_graph = render(frame)
+    # Get size from multiple sources to debug
+    stored_frame = scene.assigns.frame
+    scene_viewport_size = scene.viewport.size
+    
+    {:ok, viewport_info} = Scenic.ViewPort.info(:widget_workbench_viewport)
+    vp_info_size = viewport_info.size
+    
+    Logger.info("Hot reload debug:")
+    Logger.info("  - Stored frame size: #{inspect(stored_frame.size.box)}")
+    Logger.info("  - scene.viewport.size: #{inspect(scene_viewport_size)}")
+    Logger.info("  - ViewPort.info size: #{inspect(vp_info_size)}")
+    
+    # Use the stored frame size since that's what was last set by resize event
+    current_frame = stored_frame
+    
+    # Re-render with current dimensions and selected component
+    new_graph = render(current_frame, scene.assigns[:selected_component], scene.assigns[:component_modal_visible] || false)
     
     scene = scene
     |> assign(graph: new_graph)
@@ -122,6 +415,9 @@ defmodule WidgetWorkbench.Scene do
     # Ensure we have integers by flooring the division results
     width_count = :math.floor(frame.size.width / @grid_spacing) |> trunc()
     height_count = :math.floor(frame.size.height / @grid_spacing) |> trunc()
+    
+    # Get frame origin position
+    {frame_x, frame_y} = frame.pin.point
 
     Enum.reduce(0..width_count, graph, fn x, acc ->
       Enum.reduce(0..height_count, acc, fn y, acc_inner ->
@@ -130,7 +426,7 @@ defmodule WidgetWorkbench.Scene do
           "+",
           font_size: 16,
           fill: @grid_color,
-          translate: {x * @grid_spacing, y * @grid_spacing}
+          translate: {frame_x + (x * @grid_spacing), frame_y + (y * @grid_spacing)}
         )
       end)
     end)
@@ -361,11 +657,14 @@ defmodule WidgetWorkbench.Scene do
   def handle_input({:viewport, {:reshape, {width, height}}}, _context, scene) do
     Logger.info("Viewport resized to #{width}x#{height}")
     
+    # Store the new size in ETS for hot reload
+    :ets.insert(:widget_workbench_state, {:current_size, {width, height}})
+    
     # Update frame with new dimensions
     new_frame = Frame.new(%{pin: {0, 0}, size: {width, height}})
     
-    # Re-render with new frame
-    graph = render(new_frame)
+    # Re-render with new frame and selected component
+    graph = render(new_frame, scene.assigns[:selected_component], scene.assigns[:component_modal_visible] || false)
     
     scene = scene
     |> assign(frame: new_frame)
@@ -496,6 +795,83 @@ defmodule WidgetWorkbench.Scene do
       _ ->
         Logger.info("Menu action: #{item_id}")
     end
+    
+    {:noreply, scene}
+  end
+
+  def handle_event({:click, :load_component_button}, _from, scene) do
+    Logger.info("Load Component button clicked - showing component selection modal")
+    
+    # Show the component selection modal
+    new_graph = render(scene.assigns.frame, scene.assigns.selected_component, true)
+    
+    scene = scene
+    |> assign(component_modal_visible: true)
+    |> assign(graph: new_graph)
+    |> push_graph(new_graph)
+    
+    {:noreply, scene}
+  end
+  
+  def handle_event({:click, :reset_scene_button}, _from, scene) do
+    Logger.info("Reset Scene button clicked - clearing component and reloading")
+    
+    # Clear selected component and re-render
+    new_graph = render(scene.assigns.frame, nil, false)
+    
+    scene = scene
+    |> assign(selected_component: nil)
+    |> assign(component_modal_visible: false)
+    |> assign(graph: new_graph)
+    |> push_graph(new_graph)
+    
+    {:noreply, scene}
+  end
+  
+  def handle_event({:click, :new_widget_button}, _from, scene) do
+    Logger.info("New Widget button clicked")
+    {:noreply, scene}
+  end
+  
+  def handle_event({:click, :cancel_component_selection}, _from, scene) do
+    Logger.info("Component selection cancelled")
+    
+    # Hide the modal
+    new_graph = render(scene.assigns.frame, scene.assigns.selected_component, false)
+    
+    scene = scene
+    |> assign(component_modal_visible: false)
+    |> assign(graph: new_graph)
+    |> push_graph(new_graph)
+    
+    {:noreply, scene}
+  end
+  
+  def handle_event({:click, {:select_component, component_id}}, _from, scene) do
+    # Map component IDs to their modules and display names
+    component_map = %{
+      :menu_bar => {"Menu Bar", ScenicWidgets.MenuBar},
+      :enhanced_menu_bar => {"Enhanced Menu Bar", ScenicWidgets.EnhancedMenuBar},
+      :tab_bar => {"Tab Bar", Quillex.GUI.Components.TabBar},
+      :side_nav => {"Side Nav", ScenicWidgets.SideNav},
+      :text_button => {"Text Button", ScenicWidgets.TextButton},
+      :icon_button => {"Icon Button", ScenicWidgets.IconButton},
+      :frame_box => {"Frame Box", ScenicWidgets.FrameBox},
+      :test_pattern => {"Test Pattern", ScenicWidgets.TestPattern}
+    }
+    
+    # Get the selected component
+    selected = Map.get(component_map, component_id)
+    Logger.info("Component selected: #{inspect(selected)}")
+    
+    # Re-render with the selected component and hide modal
+    new_graph = render(scene.assigns.frame, selected, false)
+    
+    scene = scene
+    |> assign(selected_component: selected)
+    |> assign(component_modal_visible: false)
+    |> assign(graph: new_graph)
+    |> push_graph(new_graph)
     
     {:noreply, scene}
   end
