@@ -791,7 +791,7 @@ defmodule ScenicWidgets.EnhancedMenuBar do
   # Smart Graph Updates - Update in place instead of full re-render
   # ============================================================================
   
-  defp update_menu_graph(graph, old_mode, new_mode, new_state, theme) when old_mode == new_mode do
+  defp update_menu_graph(graph, old_mode, new_mode, _new_state, _theme) when old_mode == new_mode do
     # No change, return graph as-is
     graph
   end
@@ -801,8 +801,8 @@ defmodule ScenicWidgets.EnhancedMenuBar do
     update_dropdowns(graph, new_mode, new_state, theme)
   end
   
-  defp update_button_highlights(graph, new_mode, new_state) do
-    data = new_state.data
+  defp update_button_highlights(graph, _new_mode, _new_state) do
+    # data = new_state.data  # Currently unused
     
     # For now, we'll avoid updating individual buttons since FloatButton components
     # manage their own highlighting. The hover highlighting happens in FloatButton itself.

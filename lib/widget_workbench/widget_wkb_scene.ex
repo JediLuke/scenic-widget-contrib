@@ -121,7 +121,7 @@ defmodule WidgetWorkbench.Scene do
     # No component selected - show the yellow circle
     center_point = Frame.center(frame)
     graph
-    |> Primitives.circle(30, fill: :purple, translate: {center_point.x, center_point.y})
+    |> Primitives.circle(30, fill: :green, translate: {center_point.x, center_point.y})
   end
   
   defp render_main_content(graph, frame, {component_name, component_module}) do
@@ -135,29 +135,140 @@ defmodule WidgetWorkbench.Scene do
       size: {400, 200}
     })
     
-    # Add the component to the graph
-    # Most components accept a frame parameter
+    # Try different component loading strategies with better isolation
     try do
-      graph
-      |> component_module.add_to_graph(nil, frame: component_frame, id: :loaded_component)
-    rescue
-      _ ->
-        # If that fails, try with default parameters
-        try do
-          graph
-          |> component_module.add_to_graph("Default Text", id: :loaded_component)
-        rescue
-          _ ->
-            # If all else fails, show an error message
-            graph
-            |> Primitives.text(
-              "Failed to load: #{component_name}",
-              font_size: 16,
-              fill: :red,
-              translate: {center_point.x, center_point.y},
-              text_align: :center
-            )
+      # Strategy 1: Check if it has add_to_graph function
+      if function_exported?(component_module, :add_to_graph, 3) do
+        graph
+        |> component_module.add_to_graph(prepare_component_data(component_module, component_frame), id: :loaded_component)
+      else
+        # Strategy 2: Use standard Scenic.Component pattern with timeout and isolation
+        component_data = prepare_component_data(component_module, component_frame)
+        Logger.info("Loading component #{component_name} with data: #{inspect(component_data)}")
+        
+        # Convert pin to tuple for Scenic compatibility
+        translate_pin = case component_frame.pin do
+          %Widgex.Structs.Coordinates{x: x, y: y} -> {x, y}
+          {x, y} -> {x, y}
         end
+        
+        graph
+        |> component_module.add_to_graph(
+          component_data,
+          id: :loaded_component,
+          translate: translate_pin
+        )
+      end
+    rescue
+      error ->
+        Logger.warn("Failed to load component #{component_name}: #{Exception.message(error)}")
+        Logger.warn("Error details: #{inspect(error)}")
+        
+        # Show detailed error message
+        error_text = case error do
+          %FunctionClauseError{} -> "Invalid component format"
+          %ArgumentError{} -> "Invalid arguments"
+          _ -> Exception.message(error)
+        end
+        
+        graph
+        |> Primitives.text(
+          "Failed to load: #{component_name}",
+          font_size: 16,
+          fill: :red,
+          translate: {center_point.x, center_point.y - 20},
+          text_align: :center
+        )
+        |> Primitives.text(
+          error_text,
+          font_size: 12,
+          fill: :red,
+          translate: {center_point.x, center_point.y + 10},
+          text_align: :center
+        )
+        |> Primitives.text(
+          "(Component isolation working!)",
+          font_size: 10,
+          fill: :green,
+          translate: {center_point.x, center_point.y + 40},
+          text_align: :center
+        )
+    catch
+      :exit, reason ->
+        Logger.warn("Component #{component_name} exited: #{inspect(reason)}")
+        
+        graph
+        |> Primitives.text(
+          "Component crashed: #{component_name}",
+          font_size: 16,
+          fill: :red,
+          translate: {center_point.x, center_point.y},
+          text_align: :center
+        )
+        |> Primitives.text(
+          "(Workbench protected from crash)",
+          font_size: 10,
+          fill: :green,
+          translate: {center_point.x, center_point.y + 30},
+          text_align: :center
+        )
+    end
+  end
+  
+  # Prepare component data based on the component type
+  defp prepare_component_data(component_module, component_frame) do
+    case component_module do
+      ScenicWidgets.MenuBar ->
+        # MenuBar needs menu_map and frame with specific format - start at better position and smaller size
+        better_frame = Frame.new(%{
+          pin: {80, 80},  # Start away from top-left corner
+          size: {component_frame.size.width, 60}  # Make it only 60px high
+        })
+        
+        %{
+          frame: better_frame,
+          menu_map: [
+            {:sub_menu, "File", [
+              {"new_file", "New File"},     # Fix: use string labels, not atoms
+              {"open_file", "Open File"},
+              {"save_file", "Save"},
+              {"quit", "Quit"}
+            ]},
+            {:sub_menu, "Edit", [
+              {"undo", "Undo"},
+              {"redo", "Redo"},
+              {"cut", "Cut"},
+              {"copy", "Copy"},
+              {"paste", "Paste"}
+            ]},
+            {:sub_menu, "Help", [
+              {"about", "About"}
+            ]}
+          ]
+        }
+      
+      ScenicWidgets.IconButton ->
+        # Convert Coordinates struct to tuple format for IconButton  
+        {pin_x, pin_y} = case component_frame.pin do
+          %Widgex.Structs.Coordinates{x: x, y: y} -> {x, y}
+          {x, y} -> {x, y}
+        end
+        
+        # Create a new frame with tuple pin for IconButton
+        icon_frame = Frame.new(%{
+          pin: {pin_x, pin_y},
+          size: component_frame.size
+        })
+        
+        %{frame: icon_frame, text: "Icon Button"}
+      
+      ScenicWidgets.TextButton ->
+        # TextButton might also need frame in a map
+        %{frame: component_frame, text: "Text Button"}
+      
+      _ ->
+        # Default: try frame parameter
+        component_frame
     end
   end
   
@@ -264,17 +375,8 @@ defmodule WidgetWorkbench.Scene do
     modal_x = (frame.size.width - modal_width) / 2
     modal_y = (frame.size.height - modal_height) / 2
     
-    # Component list for the modal
-    components = [
-      {"Menu Bar", :menu_bar},
-      {"Enhanced Menu Bar", :enhanced_menu_bar},
-      {"Tab Bar", :tab_bar},
-      {"Side Nav", :side_nav},
-      {"Text Button", :text_button},
-      {"Icon Button", :icon_button},
-      {"Frame Box", :frame_box},
-      {"Test Pattern", :test_pattern}
-    ]
+    # Dynamically discover components from /lib/components
+    components = discover_components()
     
     graph
     # Semi-transparent overlay
@@ -383,13 +485,82 @@ defmodule WidgetWorkbench.Scene do
     )
   end
 
+  # Discover components dynamically from /lib/components directory
+  defp discover_components do
+    components_dir = Path.join([File.cwd!(), "lib", "components"])
+    
+    if File.dir?(components_dir) do
+      components_dir
+      |> File.ls!()
+      |> Enum.filter(&File.dir?(Path.join(components_dir, &1)))
+      |> Enum.map(&discover_component_from_dir(&1, Path.join(components_dir, &1)))
+      |> Enum.filter(& &1)  # Remove nils
+      |> Enum.sort_by(fn {name, _} -> name end)  # Sort alphabetically
+    else
+      # Fallback to hardcoded list if directory doesn't exist
+      [
+        {"Test Pattern", ScenicWidgets.TestPattern},
+        {"Frame Box", ScenicWidgets.FrameBox},
+        {"Text Button", ScenicWidgets.TextButton}
+      ]
+    end
+  end
+  
+  # Try to discover a component from a directory
+  defp discover_component_from_dir(dir_name, dir_path) do
+    # Look for the main component file (same name as directory)
+    main_file = "#{dir_name}.ex"
+    main_file_path = Path.join(dir_path, main_file)
+    
+    cond do
+      File.exists?(main_file_path) ->
+        # Convert directory name to module name
+        module_name = dir_name |> Macro.camelize()
+        display_name = dir_name |> String.replace("_", " ") |> String.split(" ") |> Enum.map(&String.capitalize/1) |> Enum.join(" ")
+        
+        # Try to build the module atom - this might fail for non-standard modules
+        try do
+          module_atom = Module.concat([ScenicWidgets, module_name])
+          {display_name, module_atom}
+        rescue
+          _ -> 
+            # If module creation fails, still include it but mark it specially
+            {display_name <> " (experimental)", String.to_atom("Elixir.ScenicWidgets.#{module_name}")}
+        end
+        
+      true ->
+        # Look for any .ex file in the directory
+        case File.ls(dir_path) do
+          {:ok, files} ->
+            ex_files = Enum.filter(files, &String.ends_with?(&1, ".ex"))
+            if length(ex_files) > 0 do
+              # Use the first .ex file found
+              file_name = List.first(ex_files) |> String.replace(".ex", "")
+              module_name = file_name |> Macro.camelize()
+              display_name = dir_name |> String.replace("_", " ") |> String.split(" ") |> Enum.map(&String.capitalize/1) |> Enum.join(" ")
+              
+              try do
+                module_atom = Module.concat([ScenicWidgets, module_name])
+                {display_name, module_atom}
+              rescue
+                _ -> 
+                  {display_name <> " (experimental)", String.to_atom("Elixir.ScenicWidgets.#{module_name}")}
+              end
+            else
+              nil  # No .ex files found
+            end
+          _ -> nil  # Can't read directory
+        end
+    end
+  end
+
   # Handle hot-reload message to re-render with updated code
   def handle_info(:hot_reload, scene) do
     # Get size from multiple sources to debug
     stored_frame = scene.assigns.frame
     scene_viewport_size = scene.viewport.size
     
-    {:ok, viewport_info} = Scenic.ViewPort.info(:widget_workbench_viewport)
+    {:ok, viewport_info} = Scenic.ViewPort.info(:main_viewport)
     vp_info_size = viewport_info.size
     
     Logger.info("Hot reload debug:")
@@ -847,21 +1018,11 @@ defmodule WidgetWorkbench.Scene do
     {:noreply, scene}
   end
   
-  def handle_event({:click, {:select_component, component_id}}, _from, scene) do
-    # Map component IDs to their modules and display names
-    component_map = %{
-      :menu_bar => {"Menu Bar", ScenicWidgets.MenuBar},
-      :enhanced_menu_bar => {"Enhanced Menu Bar", ScenicWidgets.EnhancedMenuBar},
-      :tab_bar => {"Tab Bar", Quillex.GUI.Components.TabBar},
-      :side_nav => {"Side Nav", ScenicWidgets.SideNav},
-      :text_button => {"Text Button", ScenicWidgets.TextButton},
-      :icon_button => {"Icon Button", ScenicWidgets.IconButton},
-      :frame_box => {"Frame Box", ScenicWidgets.FrameBox},
-      :test_pattern => {"Test Pattern", ScenicWidgets.TestPattern}
-    }
+  def handle_event({:click, {:select_component, component_module}}, _from, scene) do
+    # Find the component info from our discovered list
+    components = discover_components()
+    selected = Enum.find(components, fn {_name, module} -> module == component_module end)
     
-    # Get the selected component
-    selected = Map.get(component_map, component_id)
     Logger.info("Component selected: #{inspect(selected)}")
     
     # Re-render with the selected component and hide modal

@@ -1,6 +1,6 @@
-defmodule WidgetWorkbench.Widget.Struct do
-  defstruct [:id, :name, :type, :properties]
-end
+# defmodule WidgetWorkbench.Widget.Struct do
+#   defstruct [:id, :name, :type, :properties]
+# end
 
 # %Editor.WidgetConstruction{
 #   id: "main_editor",

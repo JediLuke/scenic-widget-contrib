@@ -7,7 +7,7 @@ defmodule WidgetWorkbench.Components.MenuBar do
   use Scenic.Component
   require Logger
   
-  alias WidgetWorkbench.Components.MenuBar.{State, Renderizer, Reducer, Api}
+  alias WidgetWorkbench.Components.MenuBar.{State, OptimizedRenderizer, Reducer, Api}
   alias Scenic.Graph
   
   @impl Scenic.Component
@@ -26,12 +26,12 @@ defmodule WidgetWorkbench.Components.MenuBar do
     # Initialize component state
     state = State.new(data)
     
-    # Initial render
-    graph = Renderizer.render(Graph.build(), state)
+    # Initial render with all elements pre-rendered
+    graph = OptimizedRenderizer.initial_render(Graph.build(), state)
     
     scene =
       scene
-      |> assign(state: state)
+      |> assign(state: state, graph: graph)
       |> push_graph(graph)
     
     # Request input events
@@ -48,12 +48,12 @@ defmodule WidgetWorkbench.Components.MenuBar do
     new_state = Reducer.handle_cursor_pos(state, coords)
     
     if new_state != state do
-      # Re-render if state changed
-      graph = Renderizer.render(Graph.build(), new_state)
+      # Update only changed elements
+      graph = OptimizedRenderizer.update_render(scene.assigns.graph, state, new_state)
       
       scene =
         scene
-        |> assign(state: new_state)
+        |> assign(state: new_state, graph: graph)
         |> push_graph(graph)
     end
     
@@ -69,11 +69,11 @@ defmodule WidgetWorkbench.Components.MenuBar do
         # Send event to parent
         send_parent_event(scene, {:menu_item_clicked, item_id})
         
-        graph = Renderizer.render(Graph.build(), new_state)
+        graph = OptimizedRenderizer.update_render(scene.assigns.graph, state, new_state)
         
         scene =
           scene
-          |> assign(state: new_state)
+          |> assign(state: new_state, graph: graph)
           |> push_graph(graph)
           
       {:noop, _state} ->
@@ -92,11 +92,11 @@ defmodule WidgetWorkbench.Components.MenuBar do
     state = scene.assigns.state
     new_state = Api.set_active_menu(state, menu_id)
     
-    graph = Renderizer.render(Graph.build(), new_state)
+    graph = OptimizedRenderizer.update_render(scene.assigns.graph, state, new_state)
     
     scene =
       scene
-      |> assign(state: new_state)
+      |> assign(state: new_state, graph: graph)
       |> push_graph(graph)
     
     {:noreply, scene}
@@ -106,11 +106,11 @@ defmodule WidgetWorkbench.Components.MenuBar do
     state = scene.assigns.state
     new_state = Api.close_all_menus(state)
     
-    graph = Renderizer.render(Graph.build(), new_state)
+    graph = OptimizedRenderizer.update_render(scene.assigns.graph, state, new_state)
     
     scene =
       scene
-      |> assign(state: new_state)
+      |> assign(state: new_state, graph: graph)
       |> push_graph(graph)
     
     {:noreply, scene}

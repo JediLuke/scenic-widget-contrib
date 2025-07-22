@@ -28,7 +28,7 @@ defmodule Mix.Tasks.WidgetWorkbench do
       drivers: [
         [
           module: Scenic.Driver.Local,
-          name: :local,
+          name: :scenic_driver,
           window: [
             resizeable: true,
             title: "Widget Workbench"
