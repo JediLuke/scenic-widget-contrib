@@ -8,7 +8,7 @@ if Mix.env() == :dev do
   config :scenic_live_reload,
     viewports: [
       %{
-        name: :widget_workbench_viewport,
+        name: :main_viewport,
         scenes: [
           {"lib/widget_workbench/widget_wkb_scene.ex", WidgetWorkbench.Scene},
           {"lib/widget_workbench", WidgetWorkbench.Scene},

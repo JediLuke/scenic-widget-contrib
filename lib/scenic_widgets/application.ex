@@ -7,12 +7,12 @@ defmodule ScenicWidgets.Application do
     children = []
 
     # Add ScenicLiveReload to children in dev environment if not already started
-    children =
-      if Mix.env() == :dev && !Process.whereis(ScenicLiveReload) do
-        [{ScenicLiveReload, []}] ++ children
-      else
-        children
-      end
+    # children =
+    #   if Mix.env() == :dev && !Process.whereis(ScenicLiveReload) do
+    #     [{ScenicLiveReload, []}] ++ children
+    #   else
+    #     children
+    #   end
 
     # Conditionally start Tidewave server for development
     children =

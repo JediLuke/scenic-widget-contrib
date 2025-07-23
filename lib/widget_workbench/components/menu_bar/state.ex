@@ -44,7 +44,7 @@ defmodule WidgetWorkbench.Components.MenuBar.State do
   This allows us to pre-render them and just toggle visibility.
   """
   def calculate_dropdown_bounds(frame, menu_map) do
-    menu_height = 30
+    menu_height = 40
     item_width = 150
     dropdown_padding = 5
     
@@ -95,7 +95,7 @@ defmodule WidgetWorkbench.Components.MenuBar.State do
     x >= frame.pin.x &&
     x <= frame.pin.x + frame.size.width &&
     y >= frame.pin.y &&
-    y <= frame.pin.y + 30
+    y <= frame.pin.y + 40
   end
   
   @doc """

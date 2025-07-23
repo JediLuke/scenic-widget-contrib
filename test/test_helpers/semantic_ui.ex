@@ -57,7 +57,8 @@ defmodule ScenicWidgets.TestHelpers.SemanticUI do
     # Check what buttons are actually available
     cond do
       String.contains?(rendered_content, "Load Component") ->
-        click_button_by_name("Load Component")
+        # We know from WidgetWorkbench.Scene that Load Component is in right pane
+        click_load_component_directly()
       
       String.contains?(rendered_content, "New Widget") ->
         # If we only see "New Widget", we might need to navigate to find "Load Component"
@@ -67,6 +68,46 @@ defmodule ScenicWidgets.TestHelpers.SemanticUI do
       
       true ->
         {:error, "Neither 'Load Component' nor 'New Widget' buttons found. UI may not be ready."}
+    end
+  end
+  
+  defp click_load_component_directly() do
+    {:ok, viewport_info} = get_viewport_info()
+    {screen_width, screen_height} = viewport_info.size
+    
+    # From WidgetWorkbench.Scene, we know:
+    # - Constructor pane is right 1/3 of screen
+    # - Grid layout: rows [20, 35, 30, 15, 50, 20, 50, 20, 50, 1]
+    # - Load button is in row 8 (index 8)
+    # Let's calculate the exact position
+    
+    # Right pane starts at 2/3 of width
+    right_pane_start = screen_width * (2.0 / 3.0)
+    right_pane_width = screen_width * (1.0 / 3.0)
+    
+    # Button is centered in the pane with 0.1 padding on each side
+    button_center_x = right_pane_start + (right_pane_width * 0.5)
+    
+    # Calculate Y position based on grid rows
+    # rows: [20, 35, 30, 15, 50, 20, 50, 20, 50, 1]
+    # Load button is at row index 8
+    row_heights = [20, 35, 30, 15, 50, 20, 50, 20, 50]
+    button_y_start = Enum.sum(Enum.take(row_heights, 8))
+    button_y_center = button_y_start + 25  # Middle of 50px button
+    
+    # Convert to integers
+    click_x = round(button_center_x)
+    click_y = round(button_y_center)
+    
+    IO.puts("🎯 Clicking Load Component button at calculated position (#{click_x}, #{click_y})")
+    
+    click_at_position(click_x, click_y)
+    Process.sleep(500)
+    
+    # Verify the modal opened
+    case verify_modal_opened() do
+      {:ok, modal_info} -> {:ok, %{clicked: true, modal: modal_info}}
+      {:error, reason} -> {:error, "Button clicked but modal didn't open: #{reason}"}
     end
   end
   
@@ -182,7 +223,9 @@ defmodule ScenicWidgets.TestHelpers.SemanticUI do
     cond do
       String.contains?(rendered_content, "Menu Bar") and 
       String.contains?(rendered_content, "Tab Bar") ->
-        {:ok, %{status: :open, components_visible: true}}
+        # Debug: show what components we see
+        IO.puts("📋 Modal components detected in rendered content")
+        {:ok, %{status: :open, components_visible: true, content: rendered_content}}
       
       String.contains?(rendered_content, "Select Component") ->
         {:ok, %{status: :open, components_visible: false}}
@@ -202,23 +245,68 @@ defmodule ScenicWidgets.TestHelpers.SemanticUI do
       
       {screen_width, screen_height} = viewport_info.size
       
-      # Modal is centered
-      modal_center_x = round(screen_width / 2)
+      # From WidgetWorkbench.Scene render_component_selection_modal:
+      # Modal is 400x500, centered on screen
+      modal_width = 400
+      modal_height = 500
+      modal_x = (screen_width - modal_width) / 2
+      modal_y = (screen_height - modal_height) / 2
       
-      # Calculate component position based on alphabetical order
-      # This is a heuristic - in practice we'd want better element detection
-      component_y = case component_name do
-        "Menu Bar" -> round(screen_height / 2 + 20)   # Likely 2nd-3rd item
-        "Tab Bar" -> round(screen_height / 2 + 65)    # Likely last item
-        _ -> round(screen_height / 2 + 20)            # Default position
+      # Components list starts at modal_y + 60
+      # Each button is 40px high with 5px margin
+      button_height = 40
+      button_margin = 5
+      
+      # Button width is modal_width - 40 (20px padding on each side)
+      button_width = modal_width - 40
+      button_x = modal_x + 20
+      
+      # From the rendered output, components appear in this order:
+      # Parse the rendered content to find the actual order
+      rendered_content = ScriptInspector.get_rendered_text_string()
+      
+      # Find Menu Bar's position by looking for it in the modal content
+      # Components seem to be listed vertically in the modal
+      component_index = if String.contains?(rendered_content, "Select Component") do
+        # Count how many component names appear before our target
+        components_before = 0
+        
+        # List of components we might see (based on actual output)
+        possible_components = [
+          "Buttons", "Frame Box", "Icon Button", "Input Modal", 
+          "Menu Bar", "Reset Scene", "Scroll Bars", "Side Nav", 
+          "Tab Bar", "Test Pattern", "Text Button"
+        ]
+        
+        # Based on actual directory listing, Menu Bar is at index 3
+        # (buttons=0, input_modal=1, inputmodal=2, menu_bar=3)
+        case component_name do
+          "Menu Bar" -> 3  # menu_bar directory is 4th in alphabetical order (0-indexed)
+          "Buttons" -> 0
+          "Input Modal" -> 1
+          "Inputmodal" -> 2
+          "Scroll Bars" -> 4
+          "Side Nav" -> 5
+          "Tab Bar" -> 7
+          "Ubuntu Bar" -> 8
+          _ -> 3  # Default to Menu Bar position
+        end
+      else
+        4  # Default fallback
       end
       
-      IO.puts("🖱️  Clicking #{component_name} in modal at (#{modal_center_x}, #{component_y})")
+      # Calculate Y position for this component's button
+      button_y = modal_y + 60 + (button_height + button_margin) * component_index
       
-      viewport_pid = Process.whereis(:main_viewport)
-      send(viewport_pid, {:cursor_button, {:btn_left, 1, [], {modal_center_x, component_y}}})
-      Process.sleep(10)
-      send(viewport_pid, {:cursor_button, {:btn_left, 0, [], {modal_center_x, component_y}}})
+      # Calculate centroid of the button
+      centroid_x = round(button_x + button_width / 2)
+      centroid_y = round(button_y + button_height / 2)
+      
+      IO.puts("🖱️  Clicking #{component_name} button in modal")
+      IO.puts("     Button bounds: x=#{round(button_x)}, y=#{round(button_y)}, w=#{button_width}, h=#{button_height}")
+      IO.puts("     Clicking at centroid: (#{centroid_x}, #{centroid_y})")
+      
+      click_at_position(centroid_x, centroid_y)
       Process.sleep(1000)
       
       # Verify the component loaded
