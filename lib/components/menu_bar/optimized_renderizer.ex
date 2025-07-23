@@ -37,6 +37,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
     |> update_hover_states(old_state, new_state)
     |> update_active_dropdown(old_state, new_state)
     |> update_dropdown_hovers(old_state, new_state)
+    |> update_interaction_layer(old_state, new_state)
   end
   
   # Initial rendering functions
@@ -60,8 +61,9 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
   end
   
   defp render_menu_header(graph, menu_id, label, index, %State{} = state) do
-    x = state.frame.pin.x + (index * @item_width)
-    y = state.frame.pin.y
+    # Use relative positioning starting from 0,0
+    x = index * @item_width
+    y = 0
     
     graph
     # Header background (for hover effect)
@@ -78,12 +80,13 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
       translate: {x + 10, y + 26},
       id: {:menu_header_text, menu_id}
     )
-    # Invisible hit target for mouse events
+    # Hit target for mouse events - captures input for hover and clicks
     |> Primitives.rect(
       {@item_width, @menu_height},
       fill: :transparent,
       translate: {x, y},
-      id: {:menu_header_hit, menu_id}
+      id: {:menu_header_hit, menu_id},
+      input: [:cursor_pos, :cursor_button]
     )
   end
   
@@ -96,8 +99,9 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
   end
   
   defp render_dropdown_hidden(graph, menu_id, items, menu_index, %State{} = state) do
-    x = state.frame.pin.x + (menu_index * @item_width)
-    y = state.frame.pin.y + @menu_height
+    # Use relative positioning
+    x = menu_index * @item_width
+    y = @menu_height
     
     dropdown_height = length(items) * @dropdown_item_height + (2 * @dropdown_padding)
     
@@ -129,12 +133,13 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
       item_y = @dropdown_padding + (index * @dropdown_item_height)
       
       g
-      # Item background (for hover)
+      # Item background (for hover) - captures input for interaction
       |> Primitives.rect(
         {@item_width - 2 * @dropdown_padding, @dropdown_item_height},
         fill: state.theme.dropdown_bg,
         translate: {@dropdown_padding, item_y},
-        id: {:dropdown_item_bg, menu_id, item_id}
+        id: {:dropdown_item_bg, menu_id, item_id},
+        input: [:cursor_pos, :cursor_button]
       )
       # Item text
       |> Primitives.text(
@@ -146,15 +151,26 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
     end)
   end
   
-  defp add_interaction_layer(graph, %State{frame: frame}) do
-    # Add an invisible rect covering the menu area for capturing events
+  defp add_interaction_layer(graph, %State{frame: frame, active_menu: active_menu, menu_map: menu_map}) do
+    # Calculate height based on whether a dropdown is open
+    height = if active_menu do
+      # Get the items for the active menu
+      case Map.get(menu_map, active_menu) do
+        {_label, items} ->
+          dropdown_height = length(items) * @dropdown_item_height + (2 * @dropdown_padding)
+          @menu_height + dropdown_height
+        _ ->
+          frame.size.height
+      end
+    else
+      frame.size.height
+    end
+    
+    require Logger
+    Logger.debug("MenuBar interaction layer: translate={0, 0}, size={#{frame.size.width}, #{height}}")
+    
+    # Don't capture input - let the parent handle all input routing
     graph
-    |> Primitives.rect(
-      {frame.size.width, @menu_height},
-      fill: :transparent,
-      translate: {frame.pin.x, frame.pin.y},
-      id: :menubar_interaction_layer
-    )
   end
   
   # Update functions - these modify existing elements
@@ -213,11 +229,44 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
   end
   
   defp update_dropdown_item_hover(graph, nil, _, _), do: graph
+  defp update_dropdown_item_hover(graph, item_id, is_hovered, state) when is_atom(item_id) do
+    # Handle case where just item_id is passed (need to get menu_id from state)
+    if state.active_menu do
+      update_dropdown_item_hover(graph, {state.active_menu, item_id}, is_hovered, state)
+    else
+      graph
+    end
+  end
   defp update_dropdown_item_hover(graph, {menu_id, item_id}, is_hovered, state) do
     Graph.modify(graph, {:dropdown_item_bg, menu_id, item_id}, fn primitive ->
       Scenic.Primitive.put_style(primitive, :fill,
         if(is_hovered, do: state.theme.dropdown_hover_bg, else: state.theme.dropdown_bg)
       )
     end)
+  end
+  
+  defp update_interaction_layer(graph, old_state, new_state) do
+    if old_state.active_menu == new_state.active_menu do
+      graph  # No change needed
+    else
+      # Calculate new height
+      height = if new_state.active_menu do
+        case Map.get(new_state.menu_map, new_state.active_menu) do
+          {_label, items} ->
+            dropdown_height = length(items) * @dropdown_item_height + (2 * @dropdown_padding)
+            @menu_height + dropdown_height
+          _ ->
+            new_state.frame.size.height
+        end
+      else
+        new_state.frame.size.height
+      end
+      
+      # Update the interaction layer size
+      Graph.modify(graph, :menubar_interaction_layer, fn primitive ->
+        {width, _old_height} = primitive.data
+        Scenic.Primitive.put(primitive, {width, height})
+      end)
+    end
   end
 end

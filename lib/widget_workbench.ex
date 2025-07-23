@@ -36,7 +36,7 @@ defmodule WidgetWorkbench do
   
   defp start_viewport(size, title) do
     viewport_config = [
-      name: :widget_workbench_viewport,
+      name: :main_viewport,
       size: size,
       theme: :dark,
       default_scene: {WidgetWorkbench.Scene, []},
@@ -90,7 +90,7 @@ defmodule WidgetWorkbench do
   Stops the Widget Workbench viewport.
   """
   def stop do
-    case Process.whereis(:widget_workbench_viewport) do
+    case Process.whereis(:main_viewport) do
       nil ->
         IO.puts("Widget Workbench is not running")
         :ok
@@ -104,7 +104,7 @@ defmodule WidgetWorkbench do
   end
   
   defp wait_for_stop(timeout \\ 1000) do
-    case Process.whereis(:widget_workbench_viewport) do
+    case Process.whereis(:main_viewport) do
       nil -> :ok
       _pid when timeout <= 0 -> :timeout
       _pid ->
@@ -141,7 +141,7 @@ defmodule WidgetWorkbench do
     else
       Logger.info("❌ Scene process not found or not alive")
       # Fallback to set_root if we can't find the scene
-      case Scenic.ViewPort.info(:widget_workbench_viewport) do
+      case Scenic.ViewPort.info(:main_viewport) do
         {:ok, viewport} ->
           Logger.info("🔥 Hot-reloading scene (restarting)...")
           Scenic.ViewPort.set_root(viewport, WidgetWorkbench.Scene)
@@ -157,7 +157,7 @@ defmodule WidgetWorkbench do
   Checks if the Widget Workbench is running.
   """
   def running? do
-    case Process.whereis(:widget_workbench_viewport) do
+    case Process.whereis(:main_viewport) do
       nil -> false
       _pid -> true
     end

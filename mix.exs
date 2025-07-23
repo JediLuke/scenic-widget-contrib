@@ -7,7 +7,11 @@ defmodule ScenicWidgets.MixProject do
       version: "0.1.0",
       elixir: "~> 1.12",
       start_permanent: Mix.env() == :prod,
-      deps: deps()
+      elixirc_paths: elixirc_paths(Mix.env()),
+      deps: deps(),
+      preferred_cli_env: [
+        spex: :test
+      ]
     ]
   end
 
@@ -36,4 +40,8 @@ defmodule ScenicWidgets.MixProject do
       {:bandit, "~> 1.0", only: :dev}
     ]
   end
+
+  # Specifies which paths to compile per environment.
+  defp elixirc_paths(:test), do: ["lib", "test/test_helpers"]
+  defp elixirc_paths(_), do: ["lib"]
 end

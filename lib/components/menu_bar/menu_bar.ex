@@ -4,7 +4,7 @@ defmodule ScenicWidgets.MenuBar do
   This component avoids flickering by pre-rendering all dropdowns and toggling visibility.
   """
   
-  use Scenic.Component
+  use Scenic.Component, has_children: false
   require Logger
   
   alias ScenicWidgets.MenuBar.{State, OptimizedRenderizer, Reducer, Api}
@@ -45,8 +45,10 @@ defmodule ScenicWidgets.MenuBar do
     end)
   end
   
-  @impl Scenic.Scene
+  @impl Scenic.Component
   def init(scene, data, _opts) do
+    Logger.info("MenuBar init called with data: #{inspect(data)}")
+    
     # Initialize component state
     state = State.new(data)
     
@@ -59,8 +61,8 @@ defmodule ScenicWidgets.MenuBar do
         |> assign(state: state, graph: graph)
         |> push_graph(graph)
       
-      # Request input events
-      request_input(scene, [:cursor_pos, :cursor_button])
+      Logger.info("MenuBar initialized successfully")
+      # Components don't use request_input - input is captured by primitives
       
       {:ok, scene}
     rescue
@@ -72,14 +74,63 @@ defmodule ScenicWidgets.MenuBar do
   end
   
   @impl Scenic.Scene
-  def handle_input({:cursor_pos, coords}, _context, scene) do
+  def handle_put({:cursor_pos, coords}, scene) do
+    Logger.debug("MenuBar received cursor_pos via handle_put: #{inspect(coords)}")
     state = scene.assigns.state
     
     # Update hover state
     new_state = Reducer.handle_cursor_pos(state, coords)
     
-    if new_state != state do
+    scene = if new_state != state do
+      Logger.debug("MenuBar state changed: active_menu #{state.active_menu} -> #{new_state.active_menu}")
       # Update only changed elements
+      graph = OptimizedRenderizer.update_render(scene.assigns.graph, state, new_state)
+      
+      scene
+      |> assign(state: new_state, graph: graph)
+      |> push_graph(graph)
+    else
+      scene
+    end
+    
+    {:noreply, scene}
+  end
+  
+  def handle_put({:click, coords}, scene) do
+    Logger.debug("MenuBar received click via handle_put: #{inspect(coords)}")
+    state = scene.assigns.state
+    
+    # Handle click
+    scene = case Reducer.handle_click(state, coords) do
+      {:menu_item_clicked, item_id, new_state} ->
+        # Send event to parent
+        send_parent_event(scene, {:menu_item_clicked, item_id})
+        
+        graph = OptimizedRenderizer.update_render(scene.assigns.graph, state, new_state)
+        
+        scene
+        |> assign(state: new_state, graph: graph)
+        |> push_graph(graph)
+          
+      {:noop, new_state} ->
+        graph = OptimizedRenderizer.update_render(scene.assigns.graph, state, new_state)
+        
+        scene
+        |> assign(state: new_state, graph: graph)
+        |> push_graph(graph)
+    end
+    
+    {:noreply, scene}
+  end
+  
+  @impl Scenic.Scene
+  def handle_put(:close_all_menus, scene) do
+    Logger.debug("MenuBar received :close_all_menus via handle_put")
+    state = scene.assigns.state
+    
+    # Close all menus
+    if state.active_menu do
+      new_state = %{state | active_menu: nil, hovered_item: nil, hovered_dropdown: nil}
       graph = OptimizedRenderizer.update_render(scene.assigns.graph, state, new_state)
       
       scene =
@@ -91,35 +142,8 @@ defmodule ScenicWidgets.MenuBar do
     {:noreply, scene}
   end
   
-  def handle_input({:cursor_button, {:btn_left, 1, _, coords}}, _context, scene) do
-    state = scene.assigns.state
-    
-    # Handle click
-    case Reducer.handle_click(state, coords) do
-      {:menu_item_clicked, item_id, new_state} ->
-        # Send event to parent
-        send_parent_event(scene, {:menu_item_clicked, item_id})
-        
-        graph = OptimizedRenderizer.update_render(scene.assigns.graph, state, new_state)
-        
-        scene =
-          scene
-          |> assign(state: new_state, graph: graph)
-          |> push_graph(graph)
-          
-      {:noop, _state} ->
-        scene
-    end
-    
-    {:noreply, scene}
-  end
-  
-  def handle_input(_input, _context, scene) do
-    {:noreply, scene}
-  end
-  
-  @impl GenServer
-  def handle_cast({:set_active_menu, menu_id}, scene) do
+  def handle_put({:set_active_menu, menu_id}, scene) do
+    Logger.debug("MenuBar received {:set_active_menu, #{inspect(menu_id)}} via handle_put")
     state = scene.assigns.state
     new_state = Api.set_active_menu(state, menu_id)
     
@@ -133,21 +157,69 @@ defmodule ScenicWidgets.MenuBar do
     {:noreply, scene}
   end
   
-  def handle_cast({:close_all_menus}, scene) do
-    state = scene.assigns.state
-    new_state = Api.close_all_menus(state)
-    
-    graph = OptimizedRenderizer.update_render(scene.assigns.graph, state, new_state)
-    
-    scene =
-      scene
-      |> assign(state: new_state, graph: graph)
-      |> push_graph(graph)
-    
+  def handle_put(_value, scene) do
+    # Ignore unknown values
     {:noreply, scene}
   end
   
-  def handle_cast(_msg, scene) do
+  @impl Scenic.Component
+  def handle_input({:cursor_pos, coords}, _context, scene) do
+    state = scene.assigns.state
+    new_state = Reducer.handle_cursor_pos(state, coords)
+    
+    if new_state != state do
+      graph = OptimizedRenderizer.update_render(scene.assigns.graph, state, new_state)
+      scene = scene
+      |> assign(state: new_state, graph: graph)
+      |> push_graph(graph)
+      {:noreply, scene}
+    else
+      {:noreply, scene}
+    end
+  end
+  
+  @impl Scenic.Component  
+  def handle_input({:cursor_button, {:btn_left, 1, [], coords}}, _context, scene) do
+    state = scene.assigns.state
+    
+    case Reducer.handle_click(state, coords) do
+      {:menu_item_clicked, _item_id, new_state} ->
+        # Handle menu item clicked event here if needed
+        graph = OptimizedRenderizer.update_render(scene.assigns.graph, state, new_state)
+        scene = scene
+        |> assign(state: new_state, graph: graph)
+        |> push_graph(graph)
+        {:noreply, scene}
+        
+      {:noop, new_state} ->
+        graph = OptimizedRenderizer.update_render(scene.assigns.graph, state, new_state)
+        scene = scene
+        |> assign(state: new_state, graph: graph)
+        |> push_graph(graph)
+        {:noreply, scene}
+    end
+  end
+  
+  @impl Scenic.Component
+  def handle_input({:key, {:key_escape, 1, _}}, _context, scene) do
+    state = scene.assigns.state
+    new_state = Reducer.handle_escape(state)
+    
+    if new_state != state do
+      graph = OptimizedRenderizer.update_render(scene.assigns.graph, state, new_state)
+      scene = scene
+      |> assign(state: new_state, graph: graph)
+      |> push_graph(graph)
+      {:noreply, scene}
+    else
+      {:noreply, scene}
+    end
+  end
+  
+  @impl Scenic.Component
+  def handle_input(_input, _context, scene) do
     {:noreply, scene}
   end
+  
+  # Remove handle_cast - we're using handle_put for state updates now
 end

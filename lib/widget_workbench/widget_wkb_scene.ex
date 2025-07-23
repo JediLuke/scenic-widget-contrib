@@ -9,7 +9,6 @@ defmodule WidgetWorkbench.Scene do
   alias Widgex.Frame.Grid
   alias Scenic.ViewPort
   alias WidgetWorkbench.Components.Modal
-  alias WidgetWorkbench.Components.MenuBar
 
   @grid_color :light_gray
   # Customize the grid spacing
@@ -219,10 +218,10 @@ defmodule WidgetWorkbench.Scene do
   defp prepare_component_data(component_module, component_frame) do
     case component_module do
       ScenicWidgets.MenuBar ->
-        # MenuBar needs menu_map and frame with specific format - start at better position and smaller size
+        # MenuBar needs menu_map and frame - use (0,0) pin since translate handles positioning
         better_frame = Frame.new(%{
-          pin: {80, 80},  # Start away from top-left corner
-          size: {component_frame.size.width, 60}  # Make it only 60px high
+          pin: {0, 0},  # Start at origin - translate will position it
+          size: {component_frame.size.width, 40}  # Standard menubar height
         })
         
         %{
@@ -725,7 +724,7 @@ defmodule WidgetWorkbench.Scene do
     }
     
     graph
-    |> MenuBar.add_to_graph(menu_bar_data, id: :test_menu_bar)
+    |> ScenicWidgets.MenuBar.add_to_graph(menu_bar_data, id: :test_menu_bar)
   end
 
   # Function to render the tool palette
@@ -846,14 +845,14 @@ defmodule WidgetWorkbench.Scene do
   end
   
   # Keep the old handler in case the event name varies
-  @impl Scenic.Scene
-  def handle_input({:viewport, {:reshaped, {width, height}}}, _context, scene) do
+  @impl Scenic.Scene  
+  def handle_input({:viewport, {:reshaped, {width, height}}}, context, scene) do
     # Forward to the main handler
-    handle_input({:viewport, {:reshape, {width, height}}}, _context, scene)
-    
+    handle_input({:viewport, {:reshape, {width, height}}}, context, scene)
     {:noreply, scene}
   end
 
+  
   def handle_input(input, _context, scene) do
     # Handle other input events if necessary
     Logger.debug("Widget Workbench received input: #{inspect(input)}")
