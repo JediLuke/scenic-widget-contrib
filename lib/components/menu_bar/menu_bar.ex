@@ -9,8 +9,8 @@ defmodule ScenicWidgets.MenuBar do
 
   alias ScenicWidgets.MenuBar.{State, OptimizedRenderizer, Reducer, Api}
   alias Scenic.Graph
+  
 
-  @impl Scenic.Component
   def validate(data) when is_map(data) do
     # Required: frame and menu_map
     case {Map.get(data, :frame), Map.get(data, :menu_map)} do
@@ -53,7 +53,6 @@ defmodule ScenicWidgets.MenuBar do
     state = State.new(data)
 
     # Initial render with all elements pre-rendered
-
     graph = OptimizedRenderizer.initial_render(Graph.build(), state)
 
     scene =
@@ -62,8 +61,7 @@ defmodule ScenicWidgets.MenuBar do
       |> push_graph(graph)
 
     Logger.info("MenuBar initialized successfully")
-    # Components don't use request_input - input is captured by primitives
-
+    
     {:ok, scene}
 
   end
@@ -118,20 +116,20 @@ defmodule ScenicWidgets.MenuBar do
   #   {:noreply, scene}
   # end
 
-  @impl Scenic.Scene
   def handle_put(:close_all_menus, scene) do
     Logger.debug("MenuBar received :close_all_menus via handle_put")
     state = scene.assigns.state
 
     # Close all menus
-    if state.active_menu do
-      new_state = %{state | active_menu: nil, hovered_item: nil, hovered_dropdown: nil}
+    scene = if state.active_menu do
+      new_state = %{state | active_menu: nil, hovered_item: nil, hovered_dropdown: nil, active_sub_menus: %{}}
       graph = OptimizedRenderizer.update_render(scene.assigns.graph, state, new_state)
 
-      scene =
-        scene
-        |> assign(state: new_state, graph: graph)
-        |> push_graph(graph)
+      scene
+      |> assign(state: new_state, graph: graph)
+      |> push_graph(graph)
+    else
+      scene
     end
 
     {:noreply, scene}
@@ -157,7 +155,6 @@ defmodule ScenicWidgets.MenuBar do
     {:noreply, scene}
   end
 
-  @impl Scenic.Component
   def handle_input({:cursor_pos, coords}, _context, scene) do
     state = scene.assigns.state
     new_state = Reducer.handle_cursor_pos(state, coords)
@@ -173,8 +170,8 @@ defmodule ScenicWidgets.MenuBar do
     end
   end
 
-  @impl Scenic.Component
   def handle_input({:cursor_button, {:btn_left, 1, [], coords}}, _context, scene) do
+    Logger.debug("MenuBar handle_input click received at: #{inspect(coords)}")
     state = scene.assigns.state
 
     case Reducer.handle_click(state, coords) do
@@ -195,7 +192,6 @@ defmodule ScenicWidgets.MenuBar do
     end
   end
 
-  @impl Scenic.Component
   def handle_input({:key, {:key_escape, 1, _}}, _context, scene) do
     state = scene.assigns.state
     new_state = Reducer.handle_escape(state)
@@ -211,7 +207,6 @@ defmodule ScenicWidgets.MenuBar do
     end
   end
 
-  @impl Scenic.Component
   def handle_input(_input, _context, scene) do
     {:noreply, scene}
   end
