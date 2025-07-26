@@ -128,11 +128,21 @@ defmodule WidgetWorkbench.Scene do
     center_point = Frame.center(frame)
     
     # Create a reasonable default frame for the component
-    # We'll give it a 400x200 frame by default
+    # MenuBar needs more width for all menus, other components get 400x200
+    default_size = case component_module do
+      ScenicWidgets.MenuBar -> {600, 200}  # 4 menus * 150px each
+      _ -> {400, 200}
+    end
+    
     component_frame = Frame.new(%{
-      pin: {center_point.x - 200, center_point.y - 100},
-      size: {400, 200}
+      pin: {center_point.x - elem(default_size, 0) / 2, center_point.y - elem(default_size, 1) / 2},
+      size: default_size
     })
+    
+    Logger.info("🎯 MenuBar positioning debug:")
+    Logger.info("   Main area frame: pin=#{inspect(frame.pin)}, size=#{inspect(frame.size)}")
+    Logger.info("   Center point: #{inspect(center_point)}")
+    Logger.info("   Component frame: pin=#{inspect(component_frame.pin)}, size=#{inspect(component_frame.size)}")
     
     # Try different component loading strategies with better isolation
     try do
@@ -221,7 +231,7 @@ defmodule WidgetWorkbench.Scene do
         # MenuBar needs menu_map and frame - use (0,0) pin since translate handles positioning
         better_frame = Frame.new(%{
           pin: {0, 0},  # Start at origin - translate will position it
-          size: {component_frame.size.width, 40}  # Standard menubar height
+          size: {600, 40}  # 4 menus * 150px width, standard menubar height
         })
         
         %{
@@ -230,7 +240,26 @@ defmodule WidgetWorkbench.Scene do
             {:sub_menu, "File", [
               {"new_file", "New File"},     # Fix: use string labels, not atoms
               {"open_file", "Open File"},
+              {:sub_menu, "Recent Files", [
+                {"recent_1", "Document 1.txt"},
+                {"recent_2", "Project Notes.md"},
+                {:sub_menu, "By Project", [
+                  {"proj_a_file1", "Project A - README.md"},
+                  {"proj_a_file2", "Project A - main.ex"},
+                  {"proj_b_file1", "Project B - config.exs"}
+                ]}
+              ]},
               {"save_file", "Save"},
+              {"save_as", "Save As..."},
+              {:sub_menu, "Export", [
+                {"export_pdf", "Export as PDF"},
+                {"export_html", "Export as HTML"},
+                {:sub_menu, "Export Image", [
+                  {"export_png", "PNG"},
+                  {"export_jpg", "JPEG"},
+                  {"export_svg", "SVG"}
+                ]}
+              ]},
               {"quit", "Quit"}
             ]},
             {:sub_menu, "Edit", [
@@ -238,9 +267,38 @@ defmodule WidgetWorkbench.Scene do
               {"redo", "Redo"},
               {"cut", "Cut"},
               {"copy", "Copy"},
-              {"paste", "Paste"}
+              {"paste", "Paste"},
+              {:sub_menu, "Find", [
+                {"find", "Find..."},
+                {"find_replace", "Find and Replace..."},
+                {:sub_menu, "Find in", [
+                  {"find_project", "Current Project"},
+                  {"find_folder", "Current Folder"},
+                  {"find_all", "All Open Files"}
+                ]}
+              ]}
+            ]},
+            {:sub_menu, "View", [
+              {:sub_menu, "Appearance", [
+                {"theme_light", "Light Theme"},
+                {"theme_dark", "Dark Theme"},
+                {"theme_auto", "Auto"}
+              ]},
+              {:sub_menu, "Layout", [
+                {"layout_single", "Single Pane"},
+                {"layout_split", "Split Horizontal"},
+                {"layout_split_v", "Split Vertical"}
+              ]},
+              {"fullscreen", "Toggle Fullscreen"}
             ]},
             {:sub_menu, "Help", [
+              {"docs", "Documentation"},
+              {"shortcuts", "Keyboard Shortcuts"},
+              {:sub_menu, "Tutorials", [
+                {"tut_basics", "Getting Started"},
+                {"tut_advanced", "Advanced Features"},
+                {"tut_tips", "Tips & Tricks"}
+              ]},
               {"about", "About"}
             ]}
           ]
@@ -853,6 +911,41 @@ defmodule WidgetWorkbench.Scene do
   end
 
   
+  def handle_input({:cursor_button, {:btn_left, 1, [], coords}} = input, _context, scene) do
+    Logger.debug("Widget Workbench received input: #{inspect(input)}")
+    
+    # Check if we have a loaded MenuBar component and if the click is outside it
+    scene = if scene.assigns[:selected_component_name] == "Menu Bar" do
+      # Get the MenuBar's frame to check if click is outside
+      component_frame = scene.assigns[:component_frame]
+      
+      if component_frame do
+        {x, y} = coords
+        pin_x = component_frame.pin.x
+        pin_y = component_frame.pin.y
+        width = component_frame.size.width
+        height = component_frame.size.height
+        
+        # Check if click is outside MenuBar bounds
+        if x < pin_x || x > pin_x + width || y < pin_y || y > pin_y + height do
+          Logger.debug("Click outside MenuBar - sending close_all_menus")
+          # Send close message to MenuBar component
+          # put_child returns :ok, not a scene
+          put_child(scene, :loaded_component, :close_all_menus)
+          scene
+        else
+          scene
+        end
+      else
+        scene
+      end
+    else
+      scene
+    end
+    
+    {:noreply, scene}
+  end
+  
   def handle_input(input, _context, scene) do
     # Handle other input events if necessary
     Logger.debug("Widget Workbench received input: #{inspect(input)}")
@@ -1024,11 +1117,32 @@ defmodule WidgetWorkbench.Scene do
     
     Logger.info("Component selected: #{inspect(selected)}")
     
+    # Calculate component frame for click-outside detection
+    {component_name, _module} = selected || {nil, nil}
+    frame = scene.assigns.frame
+    main_area = Frame.new(%{
+      pin: {0, 0},
+      size: {frame.size.width * 2/3, frame.size.height}
+    })
+    center_point = Frame.center(main_area)
+    
+    default_size = case component_module do
+      ScenicWidgets.MenuBar -> {600, 200}
+      _ -> {400, 200}
+    end
+    
+    component_frame = Frame.new(%{
+      pin: {center_point.x - elem(default_size, 0) / 2, center_point.y - elem(default_size, 1) / 2},
+      size: default_size
+    })
+    
     # Re-render with the selected component and hide modal
     new_graph = render(scene.assigns.frame, selected, false)
     
     scene = scene
     |> assign(selected_component: selected)
+    |> assign(selected_component_name: component_name)
+    |> assign(component_frame: component_frame)
     |> assign(component_modal_visible: false)
     |> assign(graph: new_graph)
     |> push_graph(new_graph)
@@ -1063,6 +1177,16 @@ defmodule WidgetWorkbench.Scene do
     graph
     |> Graph.modify(:modal_container, fn primitive ->
       %{primitive | data: []}
+    end)
+  end
+  
+  # Helper to find the loaded component's PID
+  defp find_loaded_component_pid(scene) do
+    # Look for children with the :loaded_component id
+    scene.children
+    |> Enum.find_value(fn
+      {{_parent_id, :loaded_component}, {pid, _child_pid, _id, _data}} when is_pid(pid) -> pid
+      _ -> nil
     end)
   end
 end

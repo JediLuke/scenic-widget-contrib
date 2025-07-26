@@ -7,10 +7,12 @@ defmodule ScenicWidgets.MenuBar.State do
     :frame,
     :menu_map,
     :active_menu,      # Currently open dropdown menu ID
+    :active_sub_menus, # Map of open sub-menu IDs by level
     :hovered_item,     # Currently hovered menu item
     :hovered_dropdown, # Currently hovered dropdown item
     :dropdown_bounds,  # Pre-calculated bounds for each dropdown
-    :theme
+    :theme,
+    :hover_activate    # If true, hovering opens menus instead of clicking
   ]
   
   @default_theme %{
@@ -32,10 +34,12 @@ defmodule ScenicWidgets.MenuBar.State do
       frame: data.frame,
       menu_map: data.menu_map,
       active_menu: nil,
+      active_sub_menus: %{},
       hovered_item: nil,
       hovered_dropdown: nil,
       dropdown_bounds: calculate_dropdown_bounds(data.frame, data.menu_map),
-      theme: Map.get(data, :theme, @default_theme)
+      theme: Map.get(data, :theme, @default_theme),
+      hover_activate: Map.get(data, :hover_activate, false)
     }
   end
   
@@ -76,16 +80,34 @@ defmodule ScenicWidgets.MenuBar.State do
   defp calculate_item_bounds(items, dropdown_x, dropdown_y, width, item_height, padding) do
     items
     |> Enum.with_index()
-    |> Enum.map(fn {{item_id, _label}, index} ->
+    |> Enum.map(fn {item, index} ->
       # Each item starts at dropdown_y + padding, then offset by index * item_height
       item_y = dropdown_y + padding + (index * item_height)
       
-      {item_id, %{
-        x: dropdown_x + padding,  # Add padding for inner items
-        y: item_y,
-        width: width - (2 * padding),  # Account for padding on both sides
-        height: item_height
-      }}
+      case item do
+        {item_id, _label} when is_binary(item_id) ->
+          # Regular menu item
+          {item_id, %{
+            x: dropdown_x + padding,  # Add padding for inner items
+            y: item_y,
+            width: width - (2 * padding),  # Account for padding on both sides
+            height: item_height,
+            type: :item
+          }}
+        
+        {:sub_menu, label, sub_items} ->
+          # Sub-menu item - use label as the ID for now
+          sub_menu_id = "submenu_#{String.downcase(String.replace(label, " ", "_"))}"
+          {sub_menu_id, %{
+            x: dropdown_x + padding,
+            y: item_y,
+            width: width - (2 * padding),
+            height: item_height,
+            type: :sub_menu,
+            label: label,
+            items: sub_items
+          }}
+      end
     end)
     |> Enum.into(%{})
   end
@@ -125,7 +147,8 @@ defmodule ScenicWidgets.MenuBar.State do
     Enum.find_value(items, fn {item_id, bounds} ->
       if x >= bounds.x && x <= bounds.x + bounds.width &&
          y >= bounds.y && y <= bounds.y + bounds.height do
-        item_id
+        # Return both the item_id and its type
+        {item_id, bounds.type}
       end
     end)
   end
