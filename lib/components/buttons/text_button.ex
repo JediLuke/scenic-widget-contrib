@@ -47,7 +47,7 @@ defmodule ScenicWidgets.TextButton do
   end
 
   def render(id, args, theme) do
-    {width, height} = args.frame.size.box
+    {_width, height} = args.frame.size.box
 
     # https://github.com/boydm/scenic/blob/master/lib/scenic/component/button.ex#L200
     vpos = height / 2 + args.font.ascent / 2 + args.font.descent / 3

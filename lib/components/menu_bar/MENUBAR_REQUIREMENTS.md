@@ -14,41 +14,38 @@ We've made significant progress on the MenuBar component:
 
 ## Outstanding Issues (Defects)
 
-### 1. Text Alignment Issues
+### 1. ✅ Text Alignment Issues - FIXED
 - **Issue**: Text not vertically centered in dropdown menus
-- **Location**: Both menubar headers and dropdown items
-- **Fix needed**: Adjust text y-coordinates to center within item heights
+- **Fix**: Added `text_base: :middle` and proper y-coordinate calculations
 
-### 2. Sub-Sub-Menu Navigation
+### 2. ✅ Sub-Sub-Menu Navigation - FIXED
 - **Issue**: Cannot hover into sub-sub-menus (mouse movement breaks)
-- **Current**: Sub-sub-menus render but aren't accessible
-- **Fix needed**: Extend grace area logic for nested sub-menus
+- **Fix**: Extended grace area to 300px width and 200px height for diagonal movement
 
-### 3. Arrow Indicator Alignment
+### 3. ✅ Arrow Indicator Alignment - FIXED
 - **Issue**: Triangle arrows need vertical centering
-- **Location**: Sub-menu indicators in dropdowns
-- **Fix needed**: Adjust triangle y-coordinates
+- **Fix**: Adjusted triangle vertices to center vertically within item height
 
-### 4. Text Overflow Handling
+### 4. Text Overflow Handling - PENDING
 - **Issue**: Long menu text exceeds menu width
 - **Examples**: "My project" and other long labels
 - **Fix needed**: Implement text truncation or dynamic width adjustment
 
-### 5. Unrenderable Character
+### 5. Unrenderable Character - PENDING
 - **Issue**: "My project" item shows unrenderable character
 - **Fix needed**: Clean menu data or handle special characters
 
-### 6. Click Feedback
+### 6. ✅ Click Feedback - FIXED
 - **Issue**: No visual confirmation when menu item is clicked
-- **Fix needed**: Add indicator in test scene to show clicked items
+- **Fix**: Added blue text indicator showing clicked item ID for 2 seconds
 
-### 7. Mouse-Out Behavior
+### 7. Mouse-Out Behavior - PENDING
 - **Issue**: Moving mouse far outside doesn't reset menubar
 - **Fix needed**: Implement proper boundary detection
 
-### 8. Escape Key Support
+### 8. ✅ Escape Key Support - FIXED
 - **Issue**: Escape key doesn't close menus
-- **Fix needed**: Scene-level input handling to send :close_all_menus
+- **Fix**: Added escape key handler in Widget Workbench scene
 
 ## Configuration Options Needed
 

@@ -75,7 +75,10 @@ defmodule ScenicWidgets.IconButton do
             # )
           end,
           id: {:icon_button, id},
-          translate: args.frame.pin
+          translate: case args.frame.pin do
+            %Widgex.Structs.Coordinates{x: x, y: y} -> {x, y}
+            {x, y} -> {x, y}
+          end
         )
     end
 

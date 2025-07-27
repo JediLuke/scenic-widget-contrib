@@ -233,7 +233,7 @@ defmodule ScenicWidgets.SideNav do
   defp font do
     {:ok, ibm_plex_mono_metrics} = TruetypeMetrics.load("./assets/fonts/IBM_Plex_Mono/IBMPlexMono-Regular.ttf")
 
-    font = %{
+    %{
       name: :ibm_plex_mono,
       size: 24,
       metrics: ibm_plex_mono_metrics

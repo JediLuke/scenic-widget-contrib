@@ -47,6 +47,7 @@ defmodule ScenicWidgets.MenuBar do
 
   @impl Scenic.Component
   def init(scene, data, _opts) do
+    Logger.info("🎯 ScenicWidgets.MenuBar component initializing (regular MenuBar, NOT Enhanced)")
     Logger.info("MenuBar init called with data: #{inspect(data)}")
 
     # Initialize component state

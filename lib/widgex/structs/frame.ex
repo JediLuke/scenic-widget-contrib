@@ -85,10 +85,10 @@ defmodule Widgex.Frame do
 
   ## Examples
 
-      iex> alias Widgex.Structs.{Frame, Coordinates, Dimensions}
+      iex> alias Widgex.{Frame, Structs.Coordinates, Structs.Dimensions}
       iex> frame = %Frame{pin: %Coordinates{x: 10, y: 10}, size: %Dimensions{width: 100, height: 50}}
       iex> Frame.center(frame)
-      %Coordinates{x: 60.0, y: 35.0}
+      %Coordinates{x: 60.0, y: 35.0, point: {60.0, 35.0}}
 
   """
   def center(%__MODULE__{
@@ -122,10 +122,10 @@ defmodule Widgex.Frame do
 
   ## Examples
 
-      iex> alias Widgex.Structs.{Frame, Coordinates, Dimensions}
+      iex> alias Widgex.{Frame, Structs.Coordinates, Structs.Dimensions}
       iex> frame = %Frame{pin: %Coordinates{x: 10, y: 10}, size: %Dimensions{width: 100, height: 50}}
       iex> Frame.bottom_left(frame)
-      %Coordinates{x: 10, y: 60}
+      %Coordinates{x: 10, y: 60, point: {10, 60}}
 
   """
   def top_left(%__MODULE__{pin: %Coordinates{x: tl_x, y: tl_y}}) do
