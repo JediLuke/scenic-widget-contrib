@@ -175,8 +175,11 @@ defmodule ScenicWidgets.MenuBar do
     state = scene.assigns.state
 
     case Reducer.handle_click(state, coords) do
-      {:menu_item_clicked, _item_id, new_state} ->
-        # Handle menu item clicked event here if needed
+      {:menu_item_clicked, item_id, new_state} ->
+        # Send event to parent
+        send_parent_event(scene, {:menu_item_clicked, item_id})
+        
+        # Update the graph
         graph = OptimizedRenderizer.update_render(scene.assigns.graph, state, new_state)
         scene = scene
         |> assign(state: new_state, graph: graph)
