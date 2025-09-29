@@ -19,8 +19,8 @@ defmodule ScenicWidgets.Application do
       children ++
         if Application.get_env(:scenic_widget_contrib, :environment, :prod) == :dev and Code.ensure_loaded?(Tidewave) and Code.ensure_loaded?(Bandit) do
           require Logger
-          Logger.info("Starting Tidewave server on port 4000 for development")
-          [{Bandit, plug: Tidewave, port: 4000}]
+          Logger.info("Starting Tidewave server on port 4001 for development")
+          [{Bandit, plug: Tidewave, port: 4001}]
         else
           []
         end

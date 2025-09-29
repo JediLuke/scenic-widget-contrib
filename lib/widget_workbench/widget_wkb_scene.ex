@@ -23,6 +23,8 @@ defmodule WidgetWorkbench.Scene do
     # Register this process so hot reload can find it
     Process.register(self(), :_widget_workbench_scene_)
     
+    Logger.info("🚀 WidgetWorkbench.Scene init called!")
+    
     # Try to get stored window size first (from previous resize events)
     {width, height} = try do
       case :ets.lookup(:widget_workbench_state, :current_size) do
@@ -45,6 +47,8 @@ defmodule WidgetWorkbench.Scene do
         Logger.info("📐 Created ETS table with initial window size: #{inspect(size)}")
         size
     end
+    
+    Logger.info("📏 Using window size: #{width}x#{height}")
 
     # Create a frame for the scene
     frame = Frame.new(%{pin: {0, 0}, size: {width, height}})
@@ -103,10 +107,11 @@ defmodule WidgetWorkbench.Scene do
   # Render the main drawing area
   defp render_main_area(graph, %Frame{} = frame, selected_component) do
     graph
-    # Main area background
+    # Main area background - make it more visible
     |> Primitives.rect(
       {frame.size.width, frame.size.height}, 
-      fill: :white,
+      fill: {:color, {250, 250, 250}},
+      stroke: {2, :dark_gray},
       translate: frame.pin.point
     )
     # Draw grid background
@@ -322,6 +327,31 @@ defmodule WidgetWorkbench.Scene do
       ScenicWidgets.TextButton ->
         # TextButton might also need frame in a map
         %{frame: component_frame, text: "Text Button"}
+      
+      ScenicWidgets.Sidebar ->
+        # Sidebar needs frame with (0,0) pin since we position via translate
+        sidebar_frame = Frame.new(%{
+          pin: {0, 0},  # Start at origin - translate will position it
+          size: component_frame.size
+        })
+        %{
+          frame: sidebar_frame,
+          items: [
+            %{id: :file, label: "File", children: [
+              %{id: :new, label: "New", children: []},
+              %{id: :open, label: "Open", children: []}
+            ]},
+            %{id: :edit, label: "Edit", children: [
+              %{id: :copy, label: "Copy", children: []},
+              %{id: :paste, label: "Paste", children: []}
+            ]},
+            %{id: :view, label: "View", children: [
+              %{id: :zoom_in, label: "Zoom In", children: []},
+              %{id: :zoom_out, label: "Zoom Out", children: []},
+              %{id: :fullscreen, label: "Toggle Fullscreen", children: []}
+            ]}
+          ]
+        }
       
       _ ->
         # Default: try frame parameter
@@ -946,9 +976,10 @@ defmodule WidgetWorkbench.Scene do
     {:noreply, scene}
   end
   
-  def handle_input(input, _context, scene) do
+  def handle_input(input, context, scene) do
     # Handle other input events if necessary
     Logger.debug("Widget Workbench received input: #{inspect(input)}")
+    # For now, just ignore unhandled events
     {:noreply, scene}
   end
 
@@ -1152,6 +1183,11 @@ defmodule WidgetWorkbench.Scene do
 
   def handle_info(_msg, scene), do: {:noreply, scene}
   def handle_event(_event, _from, scene), do: {:noreply, scene}
+  
+  # Handle get_graph for scenic_mcp
+  def handle_call(:get_graph, _from, scene) do
+    {:reply, {:ok, scene.assigns.graph}, scene}
+  end
 
   # Function to show the modal
   defp show_modal(graph, frame) do

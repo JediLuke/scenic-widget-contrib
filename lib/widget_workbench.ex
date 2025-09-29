@@ -23,14 +23,36 @@ defmodule WidgetWorkbench do
     
     IO.puts("🎯 Starting Widget Workbench...")
     
-    # First, ensure we have the driver dependency
-    case Code.ensure_loaded(Scenic.Driver.Local) do
-      {:module, _} ->
-        start_viewport(size, title)
-      {:error, _} ->
-        IO.puts("❌ Error: scenic_driver_local is not available.")
-        IO.puts("   Add {:scenic_driver_local, \"~> 0.11\"} to your deps")
-        {:error, :missing_driver}
+    # Check if viewport already exists (e.g., from Flamelex)
+    case Process.whereis(:main_viewport) do
+      nil ->
+        # No viewport exists, create a new one
+        case Code.ensure_loaded(Scenic.Driver.Local) do
+          {:module, _} ->
+            start_viewport(size, title)
+          {:error, _} ->
+            IO.puts("❌ Error: scenic_driver_local is not available.")
+            IO.puts("   Add {:scenic_driver_local, \"~> 0.11\"} to your deps")
+            {:error, :missing_driver}
+        end
+        
+      viewport_pid ->
+        # Viewport exists, switch the scene
+        IO.puts("📱 Switching existing viewport to Widget Workbench...")
+        Scenic.ViewPort.set_root(viewport_pid, WidgetWorkbench.Scene, [])
+        
+        IO.puts("✅ Widget Workbench is running!")
+        IO.puts("")
+        IO.puts("   Controls:")
+        IO.puts("   - Click 'Load Component' to load a widget")
+        IO.puts("   - Click 'Reset Scene' to clear the current widget")
+        IO.puts("   - Use the UI to develop and test Scenic components")
+        IO.puts("")
+        
+        # Start the auto-reloader
+        start_auto_reloader()
+        
+        {:ok, viewport_pid}
     end
   end
   
