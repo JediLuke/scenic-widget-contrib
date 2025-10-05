@@ -953,40 +953,90 @@ defmodule WidgetWorkbench.Scene do
     Logger.info("🎨 Rendering click visualization at #{inspect(coords)}")
     {x, y} = coords
 
+    # Get current click sequence number and increment
+    click_history = scene.assigns[:click_history] || []
+    click_number = rem(length(click_history), 26)  # A-Z, then wrap
+    click_label = <<click_number + ?A>>  # Convert to letter A-Z
+
+    # Store this click with timestamp
+    timestamp = :os.system_time(:millisecond)
+    new_click = %{coords: coords, label: click_label, timestamp: timestamp}
+    updated_history = [new_click | click_history]
+
     # Add visualization directly to existing graph without re-rendering
     # This preserves button component state
+    click_id = String.to_atom("click_viz_#{timestamp}")
+
     new_graph = scene.assigns.graph
     |> Primitives.circle(
       30,
-      fill: {:color, {255, 0, 0, 50}},
-      stroke: {3, {:color, {255, 0, 0, 150}}},
+      fill: {:color, {255, 0, 0, 80}},
+      stroke: {3, {:color, {255, 0, 0, 200}}},
       translate: {x, y},
-      id: :click_viz_outer
+      id: String.to_atom("#{click_id}_outer")
     )
     |> Primitives.circle(
       8,
       fill: {:color, {255, 0, 0, 255}},
       translate: {x, y},
-      id: :click_viz_inner
+      id: String.to_atom("#{click_id}_inner")
     )
     |> Primitives.text(
-      "(#{trunc(x)}, #{trunc(y)})",
-      font_size: 14,
+      "#{click_label}: (#{trunc(x)}, #{trunc(y)})",
+      font_size: 16,
+      font: :roboto_mono,
       fill: {:color, {255, 0, 0, 255}},
       translate: {x + 35, y + 5},
-      id: :click_viz_text
+      id: String.to_atom("#{click_id}_text")
     )
 
     scene = scene
+    |> assign(click_history: updated_history)
     |> assign(graph: new_graph)
     |> push_graph(new_graph)
 
-    Logger.info("🎨 Click visualization pushed to graph")
+    Logger.info("🎨 Click #{click_label} visualization pushed to graph")
 
-    # Schedule removal of click visualization after 500ms
-    Process.send_after(self(), :clear_click_viz, 500)
+    # Schedule removal after 10 seconds
+    Process.send_after(self(), {:remove_click, click_id, timestamp}, 10_000)
 
     {:noreply, scene}
+  end
+
+  # Helper: Re-apply all active click visualizations to a graph
+  # This is called after rendering to preserve clicks across graph updates
+  defp apply_click_visualizations(graph, scene) do
+    click_history = scene.assigns[:click_history] || []
+
+    Enum.reduce(click_history, graph, fn click, g ->
+      {x, y} = click.coords
+      timestamp = click.timestamp
+      label = click.label
+      click_id = String.to_atom("click_viz_#{timestamp}")
+
+      g
+      |> Primitives.circle(
+        30,
+        fill: {:color, {255, 0, 0, 80}},
+        stroke: {3, {:color, {255, 0, 0, 200}}},
+        translate: {x, y},
+        id: String.to_atom("#{click_id}_outer")
+      )
+      |> Primitives.circle(
+        8,
+        fill: {:color, {255, 0, 0, 255}},
+        translate: {x, y},
+        id: String.to_atom("#{click_id}_inner")
+      )
+      |> Primitives.text(
+        "#{label}: (#{trunc(x)}, #{trunc(y)})",
+        font_size: 16,
+        font: :roboto_mono,
+        fill: {:color, {255, 0, 0, 255}},
+        translate: {x + 35, y + 5},
+        id: String.to_atom("#{click_id}_text")
+      )
+    end)
   end
 
 
@@ -1074,6 +1124,7 @@ defmodule WidgetWorkbench.Scene do
 
     # Hide the modal
     graph = hide_modal(scene.assigns.graph)
+    |> apply_click_visualizations(scene)
 
     scene =
       scene
@@ -1105,6 +1156,7 @@ defmodule WidgetWorkbench.Scene do
 
     # Show the component selection modal
     new_graph = render(scene.assigns.frame, scene.assigns.selected_component, true)
+    |> apply_click_visualizations(scene)
 
     scene = scene
     |> assign(component_modal_visible: true)
@@ -1119,6 +1171,7 @@ defmodule WidgetWorkbench.Scene do
 
     # Clear selected component and re-render
     new_graph = render(scene.assigns.frame, nil, false)
+    |> apply_click_visualizations(scene)
 
     scene = scene
     |> assign(selected_component: nil)
@@ -1139,6 +1192,7 @@ defmodule WidgetWorkbench.Scene do
 
     # Hide the modal
     new_graph = render(scene.assigns.frame, scene.assigns.selected_component, false)
+    |> apply_click_visualizations(scene)
 
     scene = scene
     |> assign(component_modal_visible: false)
@@ -1176,6 +1230,7 @@ defmodule WidgetWorkbench.Scene do
 
     # Re-render with the selected component and hide modal
     new_graph = render(scene.assigns.frame, selected, false)
+    |> apply_click_visualizations(scene)
 
     scene = scene
     |> assign(selected_component: selected)
@@ -1260,15 +1315,26 @@ defmodule WidgetWorkbench.Scene do
     )
   end
 
-  # Handle clearing click visualization
-  def handle_info(:clear_click_viz, scene) do
-    # Remove visualization primitives from graph
+  # Handle removing click visualization after 15 seconds
+  def handle_info({:remove_click, click_id, timestamp}, scene) do
+    outer_id = String.to_atom("#{click_id}_outer")
+    inner_id = String.to_atom("#{click_id}_inner")
+    text_id = String.to_atom("#{click_id}_text")
+
     new_graph = scene.assigns.graph
-    |> Graph.delete(:click_viz_outer)
-    |> Graph.delete(:click_viz_inner)
-    |> Graph.delete(:click_viz_text)
+    |> Graph.delete(outer_id)
+    |> Graph.delete(inner_id)
+    |> Graph.delete(text_id)
+
+    # Remove from history and reset if empty
+    click_history = scene.assigns[:click_history] || []
+    updated_history = Enum.reject(click_history, fn c -> c.timestamp == timestamp end)
+
+    # Reset history if all clicks have removed
+    updated_history = if Enum.empty?(updated_history), do: [], else: updated_history
 
     scene = scene
+    |> assign(click_history: updated_history)
     |> assign(graph: new_graph)
     |> push_graph(new_graph)
 
