@@ -997,8 +997,94 @@ defmodule WidgetWorkbench.Scene do
 
     Logger.info("🎨 Click #{click_label} visualization pushed to graph")
 
-    # Schedule removal after 10 seconds
-    Process.send_after(self(), {:remove_click, click_id, timestamp}, 10_000)
+    # Schedule first fade step after 200ms (smooth fade with 50 steps over 10 seconds)
+    Process.send_after(self(), {:fade_click_step, click_id, timestamp, 1}, 200)
+
+    {:noreply, scene}
+  end
+
+  # Handle smooth fade - fade from 100% to 35% over 10 seconds (50 steps of 200ms each)
+  # Smooth linear fade: 100% -> 35% over 50 steps
+  def handle_info({:fade_click_step, click_id, timestamp, step}, scene) when step < 50 do
+    # Calculate opacity: fade from 100% (1.0) to 35% (0.35) over 50 steps
+    # opacity = 1.0 - ((1.0 - 0.35) * step / 50)
+    opacity_percent = 1.0 - (0.65 * step / 50)
+
+    # Update the opacity for this specific click in history
+    click_history = scene.assigns[:click_history] || []
+    updated_history = Enum.map(click_history, fn click ->
+      if click.timestamp == timestamp do
+        Map.put(click, :opacity, opacity_percent)
+      else
+        click
+      end
+    end)
+
+    # Find the click coordinates
+    click = Enum.find(click_history, fn c -> c.timestamp == timestamp end)
+
+    if click do
+      {x, y} = click.coords
+      label = click.label
+
+      # Calculate alpha values based on opacity
+      outer_fill_alpha = trunc(80 * opacity_percent)
+      outer_stroke_alpha = trunc(200 * opacity_percent)
+      inner_alpha = trunc(255 * opacity_percent)
+      text_alpha = trunc(255 * opacity_percent)
+
+      # Update ONLY the click visualization primitives using Graph.modify
+      outer_id = String.to_atom("#{click_id}_outer")
+      inner_id = String.to_atom("#{click_id}_inner")
+      text_id = String.to_atom("#{click_id}_text")
+
+      new_graph = scene.assigns.graph
+      |> Graph.modify(outer_id, &Primitives.update_opts(&1,
+          fill: {:color, {255, 0, 0, outer_fill_alpha}},
+          stroke: {3, {:color, {255, 0, 0, outer_stroke_alpha}}}
+        ))
+      |> Graph.modify(inner_id, &Primitives.update_opts(&1,
+          fill: {:color, {255, 0, 0, inner_alpha}}
+        ))
+      |> Graph.modify(text_id, &Primitives.update_opts(&1,
+          fill: {:color, {255, 0, 0, text_alpha}}
+        ))
+
+      scene = scene
+      |> assign(click_history: updated_history)
+      |> assign(graph: new_graph)
+      |> push_graph(new_graph)
+
+      # Schedule next fade step in 200ms for smooth animation
+      Process.send_after(self(), {:fade_click_step, click_id, timestamp, step + 1}, 200)
+
+      {:noreply, scene}
+    else
+      # Click was removed, stop fading
+      {:noreply, scene}
+    end
+  end
+
+  # Final step - remove the click after fade completes
+  def handle_info({:fade_click_step, click_id, timestamp, _step}, scene) do
+    # Remove this click from history
+    click_history = scene.assigns[:click_history] || []
+    updated_history = Enum.reject(click_history, fn c -> c.timestamp == timestamp end)
+
+    # Delete the click visualization primitives from graph
+    outer_id = String.to_atom("#{click_id}_outer")
+    inner_id = String.to_atom("#{click_id}_inner")
+    text_id = String.to_atom("#{click_id}_text")
+
+    new_graph = scene.assigns.graph
+    |> Graph.delete(outer_id)
+    |> Graph.delete(inner_id)
+    |> Graph.delete(text_id)
+
+    scene = scene
+    |> assign(click_history: updated_history)
+    |> assign(graph: new_graph)
+    |> push_graph(new_graph)
 
     {:noreply, scene}
   end
@@ -1007,24 +1093,35 @@ defmodule WidgetWorkbench.Scene do
   # This is called after rendering to preserve clicks across graph updates
   defp apply_click_visualizations(graph, scene) do
     click_history = scene.assigns[:click_history] || []
+    apply_click_visualizations_with_opacity(graph, click_history)
+  end
 
+  # Helper: Apply click visualizations with specific opacity levels
+  defp apply_click_visualizations_with_opacity(graph, click_history) do
     Enum.reduce(click_history, graph, fn click, g ->
       {x, y} = click.coords
       timestamp = click.timestamp
       label = click.label
+      opacity = Map.get(click, :opacity, 1.0)  # Default to 100% if not specified
       click_id = String.to_atom("click_viz_#{timestamp}")
+
+      # Calculate alpha values based on opacity
+      outer_fill_alpha = trunc(80 * opacity)
+      outer_stroke_alpha = trunc(200 * opacity)
+      inner_alpha = trunc(255 * opacity)
+      text_alpha = trunc(255 * opacity)
 
       g
       |> Primitives.circle(
         30,
-        fill: {:color, {255, 0, 0, 80}},
-        stroke: {3, {:color, {255, 0, 0, 200}}},
+        fill: {:color, {255, 0, 0, outer_fill_alpha}},
+        stroke: {3, {:color, {255, 0, 0, outer_stroke_alpha}}},
         translate: {x, y},
         id: String.to_atom("#{click_id}_outer")
       )
       |> Primitives.circle(
         8,
-        fill: {:color, {255, 0, 0, 255}},
+        fill: {:color, {255, 0, 0, inner_alpha}},
         translate: {x, y},
         id: String.to_atom("#{click_id}_inner")
       )
@@ -1032,7 +1129,7 @@ defmodule WidgetWorkbench.Scene do
         "#{label}: (#{trunc(x)}, #{trunc(y)})",
         font_size: 16,
         font: :roboto_mono,
-        fill: {:color, {255, 0, 0, 255}},
+        fill: {:color, {255, 0, 0, text_alpha}},
         translate: {x + 35, y + 5},
         id: String.to_atom("#{click_id}_text")
       )
@@ -1315,31 +1412,6 @@ defmodule WidgetWorkbench.Scene do
     )
   end
 
-  # Handle removing click visualization after 15 seconds
-  def handle_info({:remove_click, click_id, timestamp}, scene) do
-    outer_id = String.to_atom("#{click_id}_outer")
-    inner_id = String.to_atom("#{click_id}_inner")
-    text_id = String.to_atom("#{click_id}_text")
-
-    new_graph = scene.assigns.graph
-    |> Graph.delete(outer_id)
-    |> Graph.delete(inner_id)
-    |> Graph.delete(text_id)
-
-    # Remove from history and reset if empty
-    click_history = scene.assigns[:click_history] || []
-    updated_history = Enum.reject(click_history, fn c -> c.timestamp == timestamp end)
-
-    # Reset history if all clicks have removed
-    updated_history = if Enum.empty?(updated_history), do: [], else: updated_history
-
-    scene = scene
-    |> assign(click_history: updated_history)
-    |> assign(graph: new_graph)
-    |> push_graph(new_graph)
-
-    {:noreply, scene}
-  end
 
   def handle_info(:hot_reload, scene) do
     # Get size from multiple sources to debug
