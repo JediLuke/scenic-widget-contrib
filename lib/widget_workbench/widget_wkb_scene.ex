@@ -22,9 +22,9 @@ defmodule WidgetWorkbench.Scene do
   def init(scene, _params, _opts) do
     # Register this process so hot reload can find it
     Process.register(self(), :_widget_workbench_scene_)
-    
+
     Logger.info("🚀 WidgetWorkbench.Scene init called!")
-    
+
     # Try to get stored window size first (from previous resize events)
     {width, height} = try do
       case :ets.lookup(:widget_workbench_state, :current_size) do
@@ -47,7 +47,7 @@ defmodule WidgetWorkbench.Scene do
         Logger.info("📐 Created ETS table with initial window size: #{inspect(size)}")
         size
     end
-    
+
     Logger.info("📏 Using window size: #{width}x#{height}")
 
     # Create a frame for the scene
@@ -67,6 +67,7 @@ defmodule WidgetWorkbench.Scene do
       |> assign(selected_component: nil)
       |> assign(selected_component_module: nil)
       |> assign(component_modal_visible: false)
+      |> assign(click_visualization: nil)
       |> push_graph(graph)
 
     # Request input events including viewport resize
@@ -76,40 +77,49 @@ defmodule WidgetWorkbench.Scene do
   end
 
   # Render function to build the graph using Widgex Grid
-  defp render(%Frame{} = frame, selected_component \\ nil, show_modal \\ false) do
+  defp render(%Frame{} = frame, selected_component \\ nil, show_modal \\ false, click_viz \\ nil) do
     # Create a grid with 2 columns: 2/3 for main area, 1/3 for constructor pane
     grid = Grid.new(frame)
     |> Grid.columns([2/3, 1/3])  # Two columns: main area (2/3) and constructor pane (1/3)
     |> Grid.rows([1.0])           # Single row that takes full height
-    
+
     # Calculate cell frames
     cell_frames = Grid.calculate(grid)
-    
+
     # Get the main area (left 2/3) and constructor pane (right 1/3)
     main_area = Grid.cell_frame(cell_frames, 0, 0)
     constructor_area = Grid.cell_frame(cell_frames, 0, 1)
-    
+
     # Build the graph
     graph = Graph.build()
     # Render the main drawing area
     |> render_main_area(main_area, selected_component)
     # Render the constructor pane
     |> render_constructor_pane(constructor_area)
-    
+
     # Add modal if needed
-    if show_modal do
+    graph = if show_modal do
       graph |> render_component_selection_modal(frame)
     else
       graph
     end
+
+    # Add click visualization if present
+    graph = if click_viz do
+      render_click_visualization(graph, click_viz)
+    else
+      graph
+    end
+
+    graph
   end
-  
+
   # Render the main drawing area
   defp render_main_area(graph, %Frame{} = frame, selected_component) do
     graph
     # Main area background - make it more visible
     |> Primitives.rect(
-      {frame.size.width, frame.size.height}, 
+      {frame.size.width, frame.size.height},
       fill: {:color, {250, 250, 250}},
       stroke: {2, :dark_gray},
       translate: frame.pin.point
@@ -119,7 +129,7 @@ defmodule WidgetWorkbench.Scene do
     # Render content based on selection
     |> render_main_content(frame, selected_component)
   end
-  
+
   # Render content in the main area
   defp render_main_content(graph, frame, nil) do
     # No component selected - show the yellow circle
@@ -127,28 +137,28 @@ defmodule WidgetWorkbench.Scene do
     graph
     |> Primitives.circle(30, fill: :green, translate: {center_point.x, center_point.y})
   end
-  
+
   defp render_main_content(graph, frame, {component_name, component_module}) do
     # Component selected - render it centered in the frame
     center_point = Frame.center(frame)
-    
+
     # Create a reasonable default frame for the component
     # MenuBar needs more width for all menus, other components get 400x200
     default_size = case component_module do
       ScenicWidgets.MenuBar -> {600, 200}  # 4 menus * 150px each
       _ -> {400, 200}
     end
-    
+
     component_frame = Frame.new(%{
       pin: {center_point.x - elem(default_size, 0) / 2, center_point.y - elem(default_size, 1) / 2},
       size: default_size
     })
-    
+
     Logger.info("🎯 MenuBar positioning debug:")
     Logger.info("   Main area frame: pin=#{inspect(frame.pin)}, size=#{inspect(frame.size)}")
     Logger.info("   Center point: #{inspect(center_point)}")
     Logger.info("   Component frame: pin=#{inspect(component_frame.pin)}, size=#{inspect(component_frame.size)}")
-    
+
     # Try different component loading strategies with better isolation
     try do
       # Strategy 1: Check if it has add_to_graph function
@@ -159,13 +169,13 @@ defmodule WidgetWorkbench.Scene do
         # Strategy 2: Use standard Scenic.Component pattern with timeout and isolation
         component_data = prepare_component_data(component_module, component_frame)
         Logger.info("Loading component #{component_name} with data: #{inspect(component_data)}")
-        
+
         # Convert pin to tuple for Scenic compatibility
         translate_pin = case component_frame.pin do
           %Widgex.Structs.Coordinates{x: x, y: y} -> {x, y}
           {x, y} -> {x, y}
         end
-        
+
         graph
         |> component_module.add_to_graph(
           component_data,
@@ -177,14 +187,14 @@ defmodule WidgetWorkbench.Scene do
       error ->
         Logger.warn("Failed to load component #{component_name}: #{Exception.message(error)}")
         Logger.warn("Error details: #{inspect(error)}")
-        
+
         # Show detailed error message
         error_text = case error do
           %FunctionClauseError{} -> "Invalid component format"
           %ArgumentError{} -> "Invalid arguments"
           _ -> Exception.message(error)
         end
-        
+
         graph
         |> Primitives.text(
           "Failed to load: #{component_name}",
@@ -210,7 +220,7 @@ defmodule WidgetWorkbench.Scene do
     catch
       :exit, reason ->
         Logger.warn("Component #{component_name} exited: #{inspect(reason)}")
-        
+
         graph
         |> Primitives.text(
           "Component crashed: #{component_name}",
@@ -228,7 +238,7 @@ defmodule WidgetWorkbench.Scene do
         )
     end
   end
-  
+
   # Prepare component data based on the component type
   defp prepare_component_data(component_module, component_frame) do
     case component_module do
@@ -238,7 +248,7 @@ defmodule WidgetWorkbench.Scene do
           pin: {0, 0},  # Start at origin - translate will position it
           size: {600, 40}  # 4 menus * 150px width, standard menubar height
         })
-        
+
         %{
           frame: better_frame,
           menu_map: [
@@ -308,26 +318,26 @@ defmodule WidgetWorkbench.Scene do
             ]}
           ]
         }
-      
+
       ScenicWidgets.IconButton ->
-        # Convert Coordinates struct to tuple format for IconButton  
+        # Convert Coordinates struct to tuple format for IconButton
         {pin_x, pin_y} = case component_frame.pin do
           %Widgex.Structs.Coordinates{x: x, y: y} -> {x, y}
           {x, y} -> {x, y}
         end
-        
+
         # Create a new frame with tuple pin for IconButton
         icon_frame = Frame.new(%{
           pin: {pin_x, pin_y},
           size: component_frame.size
         })
-        
+
         %{frame: icon_frame, text: "Icon Button"}
-      
+
       ScenicWidgets.TextButton ->
         # TextButton might also need frame in a map
         %{frame: component_frame, text: "Text Button"}
-      
+
       ScenicWidgets.Sidebar ->
         # Sidebar needs frame with (0,0) pin since we position via translate
         sidebar_frame = Frame.new(%{
@@ -352,13 +362,13 @@ defmodule WidgetWorkbench.Scene do
             ]}
           ]
         }
-      
+
       _ ->
         # Default: try frame parameter
         component_frame
     end
   end
-  
+
   # Render the constructor pane on the right side
   defp render_constructor_pane(graph, %Frame{} = frame) do
     # Create a grid layout for the constructor pane
@@ -372,14 +382,14 @@ defmodule WidgetWorkbench.Scene do
       new_button: {6, 1, 1, 1},
       load_button: {8, 1, 1, 1}
     })
-    
+
     cell_frames = Grid.calculate(pane_grid)
     title_frame = Grid.area_frame(pane_grid, cell_frames, :title)
     subtitle_frame = Grid.area_frame(pane_grid, cell_frames, :subtitle)
     reset_button_frame = Grid.area_frame(pane_grid, cell_frames, :reset_button)
     new_button_frame = Grid.area_frame(pane_grid, cell_frames, :new_button)
     load_button_frame = Grid.area_frame(pane_grid, cell_frames, :load_button)
-    
+
     graph
     # Grey background for constructor pane
     |> Primitives.rect(
@@ -453,7 +463,7 @@ defmodule WidgetWorkbench.Scene do
       }
     )
   end
-  
+
   # Render the component selection modal
   defp render_component_selection_modal(graph, %Frame{} = frame) do
     # Create a centered modal frame
@@ -461,10 +471,10 @@ defmodule WidgetWorkbench.Scene do
     modal_height = 500
     modal_x = (frame.size.width - modal_width) / 2
     modal_y = (frame.size.height - modal_height) / 2
-    
+
     # Dynamically discover components from /lib/components
     components = discover_components()
-    
+
     graph
     # Semi-transparent overlay
     |> Primitives.rect(
@@ -506,17 +516,17 @@ defmodule WidgetWorkbench.Scene do
       }
     )
   end
-  
+
   # Render the list of components as buttons
   defp render_component_list(graph, components, x, start_y, width) do
     button_height = 40
     button_margin = 5
-    
+
     components
     |> Enum.with_index()
     |> Enum.reduce(graph, fn {{name, id}, index}, acc_graph ->
       y = start_y + (button_height + button_margin) * index
-      
+
       acc_graph
       |> Components.button(
         name,
@@ -535,7 +545,7 @@ defmodule WidgetWorkbench.Scene do
       )
     end)
   end
-  
+
   # Render UI elements using the grid
   defp render_grid_layout(graph, grid, cell_frames) do
     # Define named areas for better organization
@@ -546,12 +556,12 @@ defmodule WidgetWorkbench.Scene do
       sidebar: {1, 0, 7, 2},    # Rows 1-7, columns 0-1 (2 columns wide)
       content: {1, 2, 7, 10}    # Rows 1-7, columns 2-11 (10 columns wide)
     })
-    
+
     # Get frames for each area using the passed cell_frames
     header_frame = Grid.area_frame(grid_with_areas, cell_frames, :header)
     sidebar_frame = Grid.area_frame(grid_with_areas, cell_frames, :sidebar)
     content_frame = Grid.area_frame(grid_with_areas, cell_frames, :content)
-    
+
     graph
     # Render the header area with menu bar
     |> render_test_menu_bar(header_frame)
@@ -575,7 +585,7 @@ defmodule WidgetWorkbench.Scene do
   # Discover components dynamically from /lib/components directory
   defp discover_components do
     components_dir = Path.join([File.cwd!(), "lib", "components"])
-    
+
     if File.dir?(components_dir) do
       components_dir
       |> File.ls!()
@@ -592,29 +602,29 @@ defmodule WidgetWorkbench.Scene do
       ]
     end
   end
-  
+
   # Try to discover a component from a directory
   defp discover_component_from_dir(dir_name, dir_path) do
     # Look for the main component file (same name as directory)
     main_file = "#{dir_name}.ex"
     main_file_path = Path.join(dir_path, main_file)
-    
+
     cond do
       File.exists?(main_file_path) ->
         # Convert directory name to module name
         module_name = dir_name |> Macro.camelize()
         display_name = dir_name |> String.replace("_", " ") |> String.split(" ") |> Enum.map(&String.capitalize/1) |> Enum.join(" ")
-        
+
         # Try to build the module atom - this might fail for non-standard modules
         try do
           module_atom = Module.concat([ScenicWidgets, module_name])
           {display_name, module_atom}
         rescue
-          _ -> 
+          _ ->
             # If module creation fails, still include it but mark it specially
             {display_name <> " (experimental)", String.to_atom("Elixir.ScenicWidgets.#{module_name}")}
         end
-        
+
       true ->
         # Look for any .ex file in the directory
         case File.ls(dir_path) do
@@ -625,12 +635,12 @@ defmodule WidgetWorkbench.Scene do
               file_name = List.first(ex_files) |> String.replace(".ex", "")
               module_name = file_name |> Macro.camelize()
               display_name = dir_name |> String.replace("_", " ") |> String.split(" ") |> Enum.map(&String.capitalize/1) |> Enum.join(" ")
-              
+
               try do
                 module_atom = Module.concat([ScenicWidgets, module_name])
                 {display_name, module_atom}
               rescue
-                _ -> 
+                _ ->
                   {display_name <> " (experimental)", String.to_atom("Elixir.ScenicWidgets.#{module_name}")}
               end
             else
@@ -641,39 +651,12 @@ defmodule WidgetWorkbench.Scene do
     end
   end
 
-  # Handle hot-reload message to re-render with updated code
-  def handle_info(:hot_reload, scene) do
-    # Get size from multiple sources to debug
-    stored_frame = scene.assigns.frame
-    scene_viewport_size = scene.viewport.size
-    
-    {:ok, viewport_info} = Scenic.ViewPort.info(:main_viewport)
-    vp_info_size = viewport_info.size
-    
-    Logger.info("Hot reload debug:")
-    Logger.info("  - Stored frame size: #{inspect(stored_frame.size.box)}")
-    Logger.info("  - scene.viewport.size: #{inspect(scene_viewport_size)}")
-    Logger.info("  - ViewPort.info size: #{inspect(vp_info_size)}")
-    
-    # Use the stored frame size since that's what was last set by resize event
-    current_frame = stored_frame
-    
-    # Re-render with current dimensions and selected component
-    new_graph = render(current_frame, scene.assigns[:selected_component], scene.assigns[:component_modal_visible] || false)
-    
-    scene = scene
-    |> assign(graph: new_graph)
-    |> push_graph(new_graph)
-    
-    {:noreply, scene}
-  end
-
   # Function to draw a pseudo-grid background of "+"
   defp draw_grid_background(graph, %Frame{} = frame) do
     # Ensure we have integers by flooring the division results
     width_count = :math.floor(frame.size.width / @grid_spacing) |> trunc()
     height_count = :math.floor(frame.size.height / @grid_spacing) |> trunc()
-    
+
     # Get frame origin position
     {frame_x, frame_y} = frame.pin.point
 
@@ -689,7 +672,7 @@ defmodule WidgetWorkbench.Scene do
       end)
     end)
   end
-  
+
   # Function to render the tools pane
   defp render_tools_pane(graph, %Frame{} = frame) do
     # Create a grid for the tools pane layout
@@ -697,12 +680,12 @@ defmodule WidgetWorkbench.Scene do
     padding = 20
     padded_width = max(frame.size.width - (padding * 2), 10)
     padded_height = max(frame.size.height - (padding * 2), 10)
-    
+
     padded_frame = Frame.new(%{
       pin: {padding, padding},
       size: {padded_width, padded_height}
     })
-    
+
     tools_grid = Grid.new(padded_frame)
     |> Grid.rows([60, 20, 50, 50, 1])  # Title, gap, button1, button2, remaining space
     |> Grid.columns([1])
@@ -713,13 +696,13 @@ defmodule WidgetWorkbench.Scene do
       open_button: {2, 0, 1, 1},
       create_button: {3, 0, 1, 1}
     })
-    
+
     cell_frames = Grid.calculate(tools_grid)
     title_frame = Grid.area_frame(tools_grid, cell_frames, :title)
     divider_frame = Grid.area_frame(tools_grid, cell_frames, :divider)
     open_button_frame = Grid.area_frame(tools_grid, cell_frames, :open_button)
     create_button_frame = Grid.area_frame(tools_grid, cell_frames, :create_button)
-    
+
     graph
     # Title
     |> Primitives.text(
@@ -731,7 +714,7 @@ defmodule WidgetWorkbench.Scene do
     )
     # Divider line
     |> Primitives.line(
-      {{frame.pin.x + 20, divider_frame.pin.y + 10}, 
+      {{frame.pin.x + 20, divider_frame.pin.y + 10},
        {frame.pin.x + frame.size.width - 20, divider_frame.pin.y + 10}},
       stroke: {1, {:color, {220, 220, 220, 255}}}
     )
@@ -798,11 +781,11 @@ defmodule WidgetWorkbench.Scene do
         {:about, "About"}
       ]}
     }
-    
+
     # Position menubar at top of canvas with some margin
     # Ensure positive dimensions
     menubar_width = max(frame.size.width - 40, 100)
-    
+
     menu_bar_data = %{
       frame: Frame.new(%{
         pin: {20, 20},
@@ -810,7 +793,7 @@ defmodule WidgetWorkbench.Scene do
       }),
       menu_map: test_menu_map
     }
-    
+
     graph
     |> ScenicWidgets.MenuBar.add_to_graph(menu_bar_data, id: :test_menu_bar)
   end
@@ -914,74 +897,98 @@ defmodule WidgetWorkbench.Scene do
   @impl Scenic.Scene
   def handle_input({:viewport, {:reshape, {width, height}}}, _context, scene) do
     Logger.info("Viewport resized to #{width}x#{height}")
-    
+
     # Store the new size in ETS for hot reload
     :ets.insert(:widget_workbench_state, {:current_size, {width, height}})
-    
+
     # Update frame with new dimensions
     new_frame = Frame.new(%{pin: {0, 0}, size: {width, height}})
-    
+
     # Re-render with new frame and selected component
     graph = render(new_frame, scene.assigns[:selected_component], scene.assigns[:component_modal_visible] || false)
-    
+
     scene = scene
     |> assign(frame: new_frame)
     |> assign(graph: graph)
     |> push_graph(graph)
-    
+
     {:noreply, scene}
   end
-  
+
   # Keep the old handler in case the event name varies
-  @impl Scenic.Scene  
+  @impl Scenic.Scene
   def handle_input({:viewport, {:reshaped, {width, height}}}, context, scene) do
     # Forward to the main handler
     handle_input({:viewport, {:reshape, {width, height}}}, context, scene)
     {:noreply, scene}
   end
 
-  
-  def handle_input({:cursor_button, {:btn_left, 1, [], coords}} = input, _context, scene) do
-    Logger.debug("Widget Workbench received input: #{inspect(input)}")
-    
-    # Check if we have a loaded MenuBar component and if the click is outside it
-    scene = if scene.assigns[:selected_component_name] == "Menu Bar" do
-      # Get the MenuBar's frame to check if click is outside
-      component_frame = scene.assigns[:component_frame]
-      
-      if component_frame do
-        {x, y} = coords
-        pin_x = component_frame.pin.x
-        pin_y = component_frame.pin.y
-        width = component_frame.size.width
-        height = component_frame.size.height
-        
-        # Check if click is outside MenuBar bounds
-        if x < pin_x || x > pin_x + width || y < pin_y || y > pin_y + height do
-          Logger.debug("Click outside MenuBar - sending close_all_menus")
-          # Send close message to MenuBar component
-          # put_child returns :ok, not a scene
-          put_child(scene, :loaded_component, :close_all_menus)
-          scene
-        else
-          scene
-        end
-      else
-        scene
-      end
-    else
-      scene
-    end
-    
+  # Catch-all: don't handle other inputs at scene level
+  # Return {:noreply, scene} to allow Scenic's default child routing
+  def handle_input(_input, _context, scene) do
     {:noreply, scene}
   end
-  
-  def handle_input(input, context, scene) do
-    # Handle other input events if necessary
-    Logger.debug("Widget Workbench received input: #{inspect(input)}")
-    # For now, just ignore unhandled events
+
+  # observe_input - called BEFORE handle_input, allows observation without consuming
+  @impl Scenic.Scene
+  def observe_input({:cursor_button, {:btn_left, 1, [], coords}}, _id, scene) do
+    # Visualize on button press (state 1)
+    {x, y} = coords
+    Logger.info("🖱️  Widget Workbench CLICK at (#{x}, #{y})")
+
+    # Send visualization message to self
+    send(self(), {:visualize_click, coords})
+
     {:noreply, scene}
   end
+
+  def observe_input(_input, _id, scene), do: {:noreply, scene}
+
+  # NOTE: We deliberately DON'T implement a catch-all handle_input
+  # This allows Scenic's default behavior to route inputs to child components (buttons)
+  # The specific viewport handlers above are kept for window resize events
+
+  # Handle async visualization message
+  def handle_info({:visualize_click, coords}, scene) do
+    Logger.info("🎨 Rendering click visualization at #{inspect(coords)}")
+    {x, y} = coords
+
+    # Add visualization directly to existing graph without re-rendering
+    # This preserves button component state
+    new_graph = scene.assigns.graph
+    |> Primitives.circle(
+      30,
+      fill: {:color, {255, 0, 0, 50}},
+      stroke: {3, {:color, {255, 0, 0, 150}}},
+      translate: {x, y},
+      id: :click_viz_outer
+    )
+    |> Primitives.circle(
+      8,
+      fill: {:color, {255, 0, 0, 255}},
+      translate: {x, y},
+      id: :click_viz_inner
+    )
+    |> Primitives.text(
+      "(#{trunc(x)}, #{trunc(y)})",
+      font_size: 14,
+      fill: {:color, {255, 0, 0, 255}},
+      translate: {x + 35, y + 5},
+      id: :click_viz_text
+    )
+
+    scene = scene
+    |> assign(graph: new_graph)
+    |> push_graph(new_graph)
+
+    Logger.info("🎨 Click visualization pushed to graph")
+
+    # Schedule removal of click visualization after 500ms
+    Process.send_after(self(), :clear_click_viz, 500)
+
+    {:noreply, scene}
+  end
+
 
   @impl Scenic.Scene
   def handle_event({:click, :open_widget_button}, _from, scene) do
@@ -1076,10 +1083,10 @@ defmodule WidgetWorkbench.Scene do
 
     {:noreply, scene}
   end
-  
+
   def handle_event({:menu_item_clicked, item_id}, _from, scene) do
     Logger.info("Menu item clicked: #{inspect(item_id)}")
-    
+
     # Handle different menu actions
     case item_id do
       :new_file ->
@@ -1089,65 +1096,65 @@ defmodule WidgetWorkbench.Scene do
       _ ->
         Logger.info("Menu action: #{item_id}")
     end
-    
+
     {:noreply, scene}
   end
 
   def handle_event({:click, :load_component_button}, _from, scene) do
     Logger.info("Load Component button clicked - showing component selection modal")
-    
+
     # Show the component selection modal
     new_graph = render(scene.assigns.frame, scene.assigns.selected_component, true)
-    
+
     scene = scene
     |> assign(component_modal_visible: true)
     |> assign(graph: new_graph)
     |> push_graph(new_graph)
-    
+
     {:noreply, scene}
   end
-  
+
   def handle_event({:click, :reset_scene_button}, _from, scene) do
     Logger.info("Reset Scene button clicked - clearing component and reloading")
-    
+
     # Clear selected component and re-render
     new_graph = render(scene.assigns.frame, nil, false)
-    
+
     scene = scene
     |> assign(selected_component: nil)
     |> assign(component_modal_visible: false)
     |> assign(graph: new_graph)
     |> push_graph(new_graph)
-    
+
     {:noreply, scene}
   end
-  
+
   def handle_event({:click, :new_widget_button}, _from, scene) do
     Logger.info("New Widget button clicked")
     {:noreply, scene}
   end
-  
+
   def handle_event({:click, :cancel_component_selection}, _from, scene) do
     Logger.info("Component selection cancelled")
-    
+
     # Hide the modal
     new_graph = render(scene.assigns.frame, scene.assigns.selected_component, false)
-    
+
     scene = scene
     |> assign(component_modal_visible: false)
     |> assign(graph: new_graph)
     |> push_graph(new_graph)
-    
+
     {:noreply, scene}
   end
-  
+
   def handle_event({:click, {:select_component, component_module}}, _from, scene) do
     # Find the component info from our discovered list
     components = discover_components()
     selected = Enum.find(components, fn {_name, module} -> module == component_module end)
-    
+
     Logger.info("Component selected: #{inspect(selected)}")
-    
+
     # Calculate component frame for click-outside detection
     {component_name, _module} = selected || {nil, nil}
     frame = scene.assigns.frame
@@ -1156,20 +1163,20 @@ defmodule WidgetWorkbench.Scene do
       size: {frame.size.width * 2/3, frame.size.height}
     })
     center_point = Frame.center(main_area)
-    
+
     default_size = case component_module do
       ScenicWidgets.MenuBar -> {600, 200}
       _ -> {400, 200}
     end
-    
+
     component_frame = Frame.new(%{
       pin: {center_point.x - elem(default_size, 0) / 2, center_point.y - elem(default_size, 1) / 2},
       size: default_size
     })
-    
+
     # Re-render with the selected component and hide modal
     new_graph = render(scene.assigns.frame, selected, false)
-    
+
     scene = scene
     |> assign(selected_component: selected)
     |> assign(selected_component_name: component_name)
@@ -1177,13 +1184,12 @@ defmodule WidgetWorkbench.Scene do
     |> assign(component_modal_visible: false)
     |> assign(graph: new_graph)
     |> push_graph(new_graph)
-    
+
     {:noreply, scene}
   end
 
-  def handle_info(_msg, scene), do: {:noreply, scene}
   def handle_event(_event, _from, scene), do: {:noreply, scene}
-  
+
   # Handle get_graph for scenic_mcp
   def handle_call(:get_graph, _from, scene) do
     {:reply, {:ok, scene.assigns.graph}, scene}
@@ -1215,7 +1221,7 @@ defmodule WidgetWorkbench.Scene do
       %{primitive | data: []}
     end)
   end
-  
+
   # Helper to find the loaded component's PID
   defp find_loaded_component_pid(scene) do
     # Look for children with the :loaded_component id
@@ -1225,4 +1231,81 @@ defmodule WidgetWorkbench.Scene do
       _ -> nil
     end)
   end
+
+  # Render click visualization - a pulsing circle at click location
+  defp render_click_visualization(graph, %{coords: {x, y}}) do
+    graph
+    # Outer pulse circle
+    |> Primitives.circle(
+      30,
+      fill: {:color, {255, 0, 0, 50}},
+      stroke: {3, {:color, {255, 0, 0, 150}}},
+      translate: {x, y},
+      id: :click_viz_outer
+    )
+    # Inner dot
+    |> Primitives.circle(
+      8,
+      fill: {:color, {255, 0, 0, 255}},
+      translate: {x, y},
+      id: :click_viz_inner
+    )
+    # Coordinates text
+    |> Primitives.text(
+      "(#{trunc(x)}, #{trunc(y)})",
+      font_size: 14,
+      fill: {:color, {255, 0, 0, 255}},
+      translate: {x + 35, y + 5},
+      id: :click_viz_text
+    )
+  end
+
+  # Handle clearing click visualization
+  def handle_info(:clear_click_viz, scene) do
+    # Remove visualization primitives from graph
+    new_graph = scene.assigns.graph
+    |> Graph.delete(:click_viz_outer)
+    |> Graph.delete(:click_viz_inner)
+    |> Graph.delete(:click_viz_text)
+
+    scene = scene
+    |> assign(graph: new_graph)
+    |> push_graph(new_graph)
+
+    {:noreply, scene}
+  end
+
+  def handle_info(:hot_reload, scene) do
+    # Get size from multiple sources to debug
+    stored_frame = scene.assigns.frame
+    scene_viewport_size = scene.viewport.size
+
+    {:ok, viewport_info} = Scenic.ViewPort.info(:main_viewport)
+    vp_info_size = viewport_info.size
+
+    Logger.info("Hot reload debug:")
+    Logger.info("  - Stored frame size: #{inspect(stored_frame.size.box)}")
+    Logger.info("  - scene.viewport.size: #{inspect(scene_viewport_size)}")
+    Logger.info("  - ViewPort.info size: #{inspect(vp_info_size)}")
+
+    # Use the stored frame size since that's what was last set by resize event
+    current_frame = stored_frame
+
+    # Re-render with current dimensions and selected component
+    new_graph = render(current_frame, scene.assigns[:selected_component], scene.assigns[:component_modal_visible] || false, scene.assigns[:click_visualization])
+
+    scene = scene
+    |> assign(graph: new_graph)
+    |> push_graph(new_graph)
+
+    {:noreply, scene}
+  end
+
+  # Delegate :_input messages to Scenic.Scene's handle_info (for observe_input/handle_input)
+  def handle_info({:_input, input, raw_input, id}, scene) do
+    # Call Scenic.Scene's implementation directly
+    Scenic.Scene.handle_info({:_input, input, raw_input, id}, scene)
+  end
+
+  def handle_info(_msg, scene), do: {:noreply, scene}
 end

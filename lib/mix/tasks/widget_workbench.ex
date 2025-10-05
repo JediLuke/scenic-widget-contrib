@@ -16,9 +16,13 @@ defmodule Mix.Tasks.WidgetWorkbench do
   
   def run(_args) do
     Mix.Task.run("app.start")
-    
+
     IO.puts("🎯 Starting Widget Workbench...")
-    
+
+    # Start the MCP server for remote control
+    {:ok, _mcp_pid} = ScenicMcp.Server.start_link(port: 9999, viewport: :main_viewport)
+    IO.puts("🔌 MCP Server started on port 9999")
+
     # Configure viewport with proper list format
     viewport_config = [
       name: :main_viewport,
@@ -46,15 +50,15 @@ defmodule Mix.Tasks.WidgetWorkbench do
         ]
       ]
     ]
-    
+
     # Start the viewport
     {:ok, _pid} = Scenic.ViewPort.start_link(viewport_config)
-    
+
     IO.puts("✅ Widget Workbench is running!")
     IO.puts("   - Press 'n' to create a new component")
     IO.puts("   - Click '+' button to add widgets")
     IO.puts("   - Use the UI to develop and test Scenic components")
-    
+
     # Keep the task running
     Process.sleep(:infinity)
   end
