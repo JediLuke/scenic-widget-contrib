@@ -538,15 +538,23 @@ defmodule WidgetWorkbench.Scene do
       text_align: :center
     )
     # Scrollable component list (with scissor for clipping)
-    # Components render at natural positions (0, 45, 90...), group translate handles scroll
+    # Outer group: Fixed position with scissor box
+    # Inner group: Translates for scrolling
     |> Primitives.group(
       fn g ->
         g
-        |> render_component_list(components, 0, 0, modal_width - scrollbar_width - 5)
+        |> Primitives.group(
+          fn inner_g ->
+            inner_g
+            |> render_component_list(components, 0, 0, modal_width - scrollbar_width - 5)
+          end,
+          id: :component_list_scroll_group,
+          translate: {0, -clamped_scroll}
+        )
       end,
-      id: :component_list_group,
+      id: :component_list_container,
       scissor: {modal_width - scrollbar_width - 5, list_height},
-      translate: {modal_x, list_top - clamped_scroll}
+      translate: {modal_x, list_top}
     )
     # Scrollbar background (if needed)
     |> then(fn g ->
@@ -1040,8 +1048,8 @@ defmodule WidgetWorkbench.Scene do
 
       # Update graph transform without re-rendering everything
       new_graph = scene.assigns.graph
-      |> Graph.modify(:component_list_group, fn p ->
-        Primitives.update_opts(p, translate: {modal_x, list_top - clamped_scroll})
+      |> Graph.modify(:component_list_scroll_group, fn p ->
+        Primitives.update_opts(p, translate: {0, -clamped_scroll})
       end)
       |> Graph.modify(:scrollbar_thumb, fn p ->
         scrollbar_height = if total_content_height > list_height do
@@ -1120,8 +1128,8 @@ defmodule WidgetWorkbench.Scene do
 
     # Update graph transform without re-rendering everything
     new_graph = scene.assigns.graph
-    |> Graph.modify(:component_list_group, fn p ->
-      Primitives.update_opts(p, translate: {modal_x, list_top - clamped_scroll})
+    |> Graph.modify(:component_list_scroll_group, fn p ->
+      Primitives.update_opts(p, translate: {0, -clamped_scroll})
     end)
     |> Graph.modify(:scrollbar_thumb, fn p ->
       scrollbar_height = if total_content_height > list_height do
