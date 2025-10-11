@@ -57,11 +57,16 @@ scenic-widget-contrib/
 - Input flows: Scenic → Scene → Input Handler → Reducer → Components
 
 **Component Selection Modal**:
-- Scrollable list with visual scrollbar
+- **Transform-based scrolling** (no re-rendering entire scene)
+- **Nested group structure**:
+  - Outer container: Fixed position with scissor box (ID: `:component_list_container`)
+  - Inner scroll group: Translates for scrolling (ID: `:component_list_scroll_group`)
 - Mouse wheel scrolling: `cursor_scroll` input handler
-- Keyboard scrolling: Arrow up/down keys
-- Scissor clipping for proper list viewport
-- All components registered with MCP semantic IDs for automation
+- Keyboard scrolling: Arrow up/down keys (physical keyboard only)
+- Visual scrollbar with proportional thumb
+- Scissor clipping keeps content inside modal boundaries
+- All components registered with MCP semantic IDs (format: `component_#{name}`)
+- Scroll updates via `Graph.modify()` - only updates transforms, preserves all other UI elements
 
 **Key State Fields** (in `widget_wkb_scene.ex`):
 - `selected_component` - Currently loaded component module

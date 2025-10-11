@@ -61,7 +61,7 @@ defmodule ScenicWidgets.IconButton do
             |> Scenic.Primitives.rect(args.frame.size,
               id: :background,
             #   fill: if(args.hover_highlight?, do: theme.highlight, else: theme.active)
-              fill: if(args.hover_highlight?, do: theme.highlight, else: :green)
+              fill: if(Map.get(args, :hover_highlight?, false), do: theme.highlight, else: :green)
             )
             # graph
             # |> Scenic.Primitives.rect({32, 32}, fill: {:image, "ionicons_32_black/add.png"}, translate: {(50-32)/2, (50-32)/2}) 
