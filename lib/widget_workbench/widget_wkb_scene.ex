@@ -538,14 +538,15 @@ defmodule WidgetWorkbench.Scene do
       text_align: :center
     )
     # Scrollable component list (with scissor for clipping)
+    # Components render at natural positions (0, 45, 90...), group translate handles scroll
     |> Primitives.group(
       fn g ->
         g
-        |> render_component_list(components, 0, -clamped_scroll, modal_width - scrollbar_width - 5)
+        |> render_component_list(components, 0, 0, modal_width - scrollbar_width - 5)
       end,
       id: :component_list_group,
       scissor: {modal_width - scrollbar_width - 5, list_height},
-      translate: {modal_x, list_top}
+      translate: {modal_x, list_top - clamped_scroll}
     )
     # Scrollbar background (if needed)
     |> then(fn g ->
@@ -1012,7 +1013,7 @@ defmodule WidgetWorkbench.Scene do
 
   # Handle cursor_scroll for mouse wheel scrolling in modal
   @impl Scenic.Scene
-  def handle_input({:cursor_scroll, {_dx, dy}}, _context, scene) do
+  def handle_input({:cursor_scroll, {{_dx, dy}, _coords}}, _context, scene) do
     # Only handle scroll if modal is visible
     if scene.assigns[:component_modal_visible] do
       # Scroll speed multiplier
@@ -1020,18 +1021,45 @@ defmodule WidgetWorkbench.Scene do
       current_offset = scene.assigns[:modal_scroll_offset] || 0
       new_offset = current_offset - (dy * scroll_speed)
 
-      # Re-render with new scroll offset
-      new_graph = render(
-        scene.assigns.frame,
-        scene.assigns.selected_component,
-        true,
-        nil,
-        new_offset
-      )
-      |> apply_click_visualizations(scene)
+      # Calculate modal dimensions (same as render function)
+      frame = scene.assigns.frame
+      modal_width = 400
+      modal_height = 500
+      modal_x = (frame.size.width - modal_width) / 2
+      modal_y = (frame.size.height - modal_height) / 2
+      list_top = modal_y + 60
+      list_height = modal_height - 60 - 55
+      button_height = 40
+      button_margin = 5
+
+      # Get component count to calculate max scroll
+      components = discover_components()
+      total_content_height = length(components) * (button_height + button_margin)
+      max_scroll = max(0, total_content_height - list_height)
+      clamped_scroll = max(0, min(new_offset, max_scroll))
+
+      # Update graph transform without re-rendering everything
+      new_graph = scene.assigns.graph
+      |> Graph.modify(:component_list_group, fn p ->
+        Primitives.update_opts(p, translate: {modal_x, list_top - clamped_scroll})
+      end)
+      |> Graph.modify(:scrollbar_thumb, fn p ->
+        scrollbar_height = if total_content_height > list_height do
+          max(30, list_height * list_height / total_content_height)
+        else
+          0
+        end
+        scrollbar_y_offset = if total_content_height > list_height and max_scroll > 0 do
+          (list_height - scrollbar_height) * (clamped_scroll / max_scroll)
+        else
+          0
+        end
+        scrollbar_width = 15
+        Primitives.update_opts(p, translate: {modal_x + modal_width - scrollbar_width - 10, list_top + scrollbar_y_offset})
+      end)
 
       scene = scene
-      |> assign(modal_scroll_offset: new_offset)
+      |> assign(modal_scroll_offset: clamped_scroll)
       |> assign(graph: new_graph)
       |> push_graph(new_graph)
 
@@ -1075,18 +1103,43 @@ defmodule WidgetWorkbench.Scene do
     current_offset = scene.assigns[:modal_scroll_offset] || 0
     new_offset = current_offset + (lines * line_height)
 
-    # Re-render with new scroll offset
-    new_graph = render(
-      scene.assigns.frame,
-      scene.assigns.selected_component,
-      true,
-      nil,
-      new_offset
-    )
-    |> apply_click_visualizations(scene)
+    # Calculate modal dimensions (same as render function)
+    frame = scene.assigns.frame
+    modal_width = 400
+    modal_height = 500
+    modal_x = (frame.size.width - modal_width) / 2
+    modal_y = (frame.size.height - modal_height) / 2
+    list_top = modal_y + 60
+    list_height = modal_height - 60 - 55
+
+    # Get component count to calculate max scroll
+    components = discover_components()
+    total_content_height = length(components) * (button_height + button_margin)
+    max_scroll = max(0, total_content_height - list_height)
+    clamped_scroll = max(0, min(new_offset, max_scroll))
+
+    # Update graph transform without re-rendering everything
+    new_graph = scene.assigns.graph
+    |> Graph.modify(:component_list_group, fn p ->
+      Primitives.update_opts(p, translate: {modal_x, list_top - clamped_scroll})
+    end)
+    |> Graph.modify(:scrollbar_thumb, fn p ->
+      scrollbar_height = if total_content_height > list_height do
+        max(30, list_height * list_height / total_content_height)
+      else
+        0
+      end
+      scrollbar_y_offset = if total_content_height > list_height and max_scroll > 0 do
+        (list_height - scrollbar_height) * (clamped_scroll / max_scroll)
+      else
+        0
+      end
+      scrollbar_width = 15
+      Primitives.update_opts(p, translate: {modal_x + modal_width - scrollbar_width - 10, list_top + scrollbar_y_offset})
+    end)
 
     scene = scene
-    |> assign(modal_scroll_offset: new_offset)
+    |> assign(modal_scroll_offset: clamped_scroll)
     |> assign(graph: new_graph)
     |> push_graph(new_graph)
 

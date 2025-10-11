@@ -56,11 +56,19 @@ scenic-widget-contrib/
 - Components register callbacks for state updates
 - Input flows: Scenic → Scene → Input Handler → Reducer → Components
 
+**Component Selection Modal**:
+- Scrollable list with visual scrollbar
+- Mouse wheel scrolling: `cursor_scroll` input handler
+- Keyboard scrolling: Arrow up/down keys
+- Scissor clipping for proper list viewport
+- All components registered with MCP semantic IDs for automation
+
 **Key State Fields** (in `widget_wkb_scene.ex`):
 - `selected_component` - Currently loaded component module
-- `show_modal` - Boolean for component selection modal
-- `click_viz` - Click visualization state (for debugging)
-- `window_size` - Current viewport dimensions
+- `component_modal_visible` - Boolean for component selection modal
+- `modal_scroll_offset` - Current scroll position in modal (pixels)
+- `click_visualization` - Click visualization state (for debugging)
+- `frame` - Current viewport dimensions and layout
 
 ### Development Workflow
 
@@ -109,6 +117,17 @@ take_screenshot()
 - Coordinate systems: global coords → parent coords → local coords via transforms
 
 ### Recent Fixes
+
+**Scrollable Component Modal (Implemented 2025-10-11)**:
+- **Feature**: Added full scrolling support to component selection modal
+- **Implementation**:
+  - Mouse wheel scrolling via `cursor_scroll` input handler
+  - Keyboard arrow key scrolling (up/down)
+  - Visual scrollbar with proportional thumb
+  - Scissor clipping for proper viewport boundaries
+  - Scroll offset clamping to prevent over-scrolling
+- **MCP Support**: All component buttons registered with semantic IDs for automation
+- **Location**: `lib/widget_workbench/widget_wkb_scene.ex` lines 1015-1094, 488-587
 
 **Button Click Issue (Fixed 2025-10-11)**:
 - **Problem**: Buttons with custom IDs weren't receiving click events
