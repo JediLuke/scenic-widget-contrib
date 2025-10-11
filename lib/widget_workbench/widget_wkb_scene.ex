@@ -9,6 +9,7 @@ defmodule WidgetWorkbench.Scene do
   alias Widgex.Frame.Grid
   alias Scenic.ViewPort
   alias WidgetWorkbench.Components.Modal
+  use ScenicWidgets.ScenicEventsDefinitions
 
   @grid_color :light_gray
   # Customize the grid spacing
@@ -68,20 +69,21 @@ defmodule WidgetWorkbench.Scene do
       |> assign(selected_component_module: nil)
       |> assign(component_modal_visible: false)
       |> assign(click_visualization: nil)
+      |> assign(modal_scroll_offset: 0)
       |> push_graph(graph)
 
     # Register buttons for semantic MCP clicking
     register_buttons_for_mcp(scene, frame)
 
-    # Request input events including cursor events
+    # Request input events including cursor events and scroll
     # We need to request cursor_button to receive it, but we won't consume it in handle_input
-    request_input(scene, [:cursor_pos, :cursor_button, :key, :viewport])
+    request_input(scene, [:cursor_pos, :cursor_button, :cursor_scroll, :key, :viewport])
 
     {:ok, scene}
   end
 
   # Render function to build the graph using Widgex Grid
-  defp render(%Frame{} = frame, selected_component \\ nil, show_modal \\ false, click_viz \\ nil) do
+  defp render(%Frame{} = frame, selected_component \\ nil, show_modal \\ false, click_viz \\ nil, modal_scroll_offset \\ 0) do
     # Create a grid with 2 columns: 2/3 for main area, 1/3 for constructor pane
     grid = Grid.new(frame)
     |> Grid.columns([2/3, 1/3])  # Two columns: main area (2/3) and constructor pane (1/3)
@@ -103,7 +105,7 @@ defmodule WidgetWorkbench.Scene do
 
     # Add modal if needed
     graph = if show_modal do
-      graph |> render_component_selection_modal(frame)
+      graph |> render_component_selection_modal(frame, modal_scroll_offset)
     else
       graph
     end
@@ -473,7 +475,7 @@ defmodule WidgetWorkbench.Scene do
   end
 
   # Render the component selection modal
-  defp render_component_selection_modal(graph, %Frame{} = frame) do
+  defp render_component_selection_modal(graph, %Frame{} = frame, scroll_offset) do
     # Create a centered modal frame
     modal_width = 400
     modal_height = 500
@@ -483,19 +485,49 @@ defmodule WidgetWorkbench.Scene do
     # Dynamically discover components from /lib/components
     components = discover_components()
 
+    # Calculate scrollable area dimensions
+    list_top = modal_y + 60
+    list_height = modal_height - 60 - 55  # Space for title and cancel button
+    button_height = 40
+    button_margin = 5
+    total_content_height = length(components) * (button_height + button_margin)
+    scrollbar_width = 15
+
+    # Calculate max scroll (prevent scrolling past content)
+    max_scroll = max(0, total_content_height - list_height)
+    clamped_scroll = max(0, min(scroll_offset, max_scroll))
+
+    # Calculate scrollbar dimensions if needed
+    show_scrollbar = total_content_height > list_height
+    scrollbar_height = if show_scrollbar do
+      # Scrollbar thumb height proportional to visible content
+      max(30, list_height * list_height / total_content_height)
+    else
+      0
+    end
+
+    # Calculate scrollbar position
+    scrollbar_y_offset = if show_scrollbar and max_scroll > 0 do
+      (list_height - scrollbar_height) * (clamped_scroll / max_scroll)
+    else
+      0
+    end
+
     graph
     # Semi-transparent overlay
     |> Primitives.rect(
       {frame.size.width, frame.size.height},
       fill: {:color, {0, 0, 0, 128}},
-      translate: {0, 0}
+      translate: {0, 0},
+      id: :modal_overlay
     )
     # Modal background
     |> Primitives.rect(
       {modal_width, modal_height},
       fill: :white,
       stroke: {2, {:color, {100, 100, 100}}},
-      translate: {modal_x, modal_y}
+      translate: {modal_x, modal_y},
+      id: :modal_background
     )
     # Modal title
     |> Primitives.text(
@@ -505,8 +537,38 @@ defmodule WidgetWorkbench.Scene do
       translate: {modal_x + modal_width / 2, modal_y + 30},
       text_align: :center
     )
-    # Render component list
-    |> render_component_list(components, modal_x, modal_y + 60, modal_width)
+    # Scrollable component list (with scissor for clipping)
+    |> Primitives.group(
+      fn g ->
+        g
+        |> render_component_list(components, 0, -clamped_scroll, modal_width - scrollbar_width - 5)
+      end,
+      id: :component_list_group,
+      scissor: {modal_width - scrollbar_width - 5, list_height},
+      translate: {modal_x, list_top}
+    )
+    # Scrollbar background (if needed)
+    |> then(fn g ->
+      if show_scrollbar do
+        g
+        |> Primitives.rect(
+          {scrollbar_width, list_height},
+          fill: {:color, {230, 230, 230}},
+          translate: {modal_x + modal_width - scrollbar_width - 10, list_top},
+          id: :scrollbar_track
+        )
+        # Scrollbar thumb
+        |> Primitives.rect(
+          {scrollbar_width, scrollbar_height},
+          fill: {:color, {150, 150, 150}},
+          stroke: {1, {:color, {120, 120, 120}}},
+          translate: {modal_x + modal_width - scrollbar_width - 10, list_top + scrollbar_y_offset},
+          id: :scrollbar_thumb
+        )
+      else
+        g
+      end
+    end)
     # Cancel button
     |> Components.button(
       "Cancel",
@@ -526,6 +588,7 @@ defmodule WidgetWorkbench.Scene do
   end
 
   # Render the list of components as buttons
+  # x and start_y are in local coordinates (relative to group translate)
   defp render_component_list(graph, components, x, start_y, width) do
     button_height = 40
     button_margin = 5
@@ -913,7 +976,7 @@ defmodule WidgetWorkbench.Scene do
     new_frame = Frame.new(%{pin: {0, 0}, size: {width, height}})
 
     # Re-render with new frame and selected component
-    graph = render(new_frame, scene.assigns[:selected_component], scene.assigns[:component_modal_visible] || false)
+    graph = render(new_frame, scene.assigns[:selected_component], scene.assigns[:component_modal_visible] || false, nil, scene.assigns[:modal_scroll_offset] || 0)
 
     scene = scene
     |> assign(frame: new_frame)
@@ -947,9 +1010,86 @@ defmodule WidgetWorkbench.Scene do
     {:noreply, scene}
   end
 
+  # Handle cursor_scroll for mouse wheel scrolling in modal
+  @impl Scenic.Scene
+  def handle_input({:cursor_scroll, {_dx, dy}}, _context, scene) do
+    # Only handle scroll if modal is visible
+    if scene.assigns[:component_modal_visible] do
+      # Scroll speed multiplier
+      scroll_speed = 30
+      current_offset = scene.assigns[:modal_scroll_offset] || 0
+      new_offset = current_offset - (dy * scroll_speed)
+
+      # Re-render with new scroll offset
+      new_graph = render(
+        scene.assigns.frame,
+        scene.assigns.selected_component,
+        true,
+        nil,
+        new_offset
+      )
+      |> apply_click_visualizations(scene)
+
+      scene = scene
+      |> assign(modal_scroll_offset: new_offset)
+      |> assign(graph: new_graph)
+      |> push_graph(new_graph)
+
+      {:noreply, scene}
+    else
+      {:noreply, scene}
+    end
+  end
+
+  # Handle arrow key scrolling in modal
+  @impl Scenic.Scene
+  def handle_input(@up_arrow, _context, scene) do
+    if scene.assigns[:component_modal_visible] do
+      scroll_by_lines(scene, -1)
+    else
+      {:noreply, scene}
+    end
+  end
+
+  @impl Scenic.Scene
+  def handle_input(@down_arrow, _context, scene) do
+    if scene.assigns[:component_modal_visible] do
+      scroll_by_lines(scene, 1)
+    else
+      {:noreply, scene}
+    end
+  end
+
   # Handle key input (we request it, so we must handle it)
   @impl Scenic.Scene
   def handle_input({:key, _}, _context, scene) do
+    {:noreply, scene}
+  end
+
+  # Helper function to scroll by a number of lines (buttons)
+  defp scroll_by_lines(scene, lines) do
+    button_height = 40
+    button_margin = 5
+    line_height = button_height + button_margin
+
+    current_offset = scene.assigns[:modal_scroll_offset] || 0
+    new_offset = current_offset + (lines * line_height)
+
+    # Re-render with new scroll offset
+    new_graph = render(
+      scene.assigns.frame,
+      scene.assigns.selected_component,
+      true,
+      nil,
+      new_offset
+    )
+    |> apply_click_visualizations(scene)
+
+    scene = scene
+    |> assign(modal_scroll_offset: new_offset)
+    |> assign(graph: new_graph)
+    |> push_graph(new_graph)
+
     {:noreply, scene}
   end
 
@@ -1281,12 +1421,16 @@ defmodule WidgetWorkbench.Scene do
   def handle_event({:click, :load_component_button}, _from, scene) do
     Logger.info("Load Component button clicked - showing component selection modal")
 
-    # Show the component selection modal
-    new_graph = render(scene.assigns.frame, scene.assigns.selected_component, true)
+    # Show the component selection modal (reset scroll to top)
+    new_graph = render(scene.assigns.frame, scene.assigns.selected_component, true, nil, 0)
     |> apply_click_visualizations(scene)
+
+    # Register component list buttons for MCP
+    register_modal_components_for_mcp(scene)
 
     scene = scene
     |> assign(component_modal_visible: true)
+    |> assign(modal_scroll_offset: 0)
     |> assign(graph: new_graph)
     |> push_graph(new_graph)
 
@@ -1297,12 +1441,13 @@ defmodule WidgetWorkbench.Scene do
     Logger.info("Reset Scene button clicked - clearing component and reloading")
 
     # Clear selected component and re-render
-    new_graph = render(scene.assigns.frame, nil, false)
+    new_graph = render(scene.assigns.frame, nil, false, nil, 0)
     |> apply_click_visualizations(scene)
 
     scene = scene
     |> assign(selected_component: nil)
     |> assign(component_modal_visible: false)
+    |> assign(modal_scroll_offset: 0)
     |> assign(graph: new_graph)
     |> push_graph(new_graph)
 
@@ -1313,7 +1458,7 @@ defmodule WidgetWorkbench.Scene do
     Logger.info("Component selection cancelled")
 
     # Hide the modal
-    new_graph = render(scene.assigns.frame, scene.assigns.selected_component, false)
+    new_graph = render(scene.assigns.frame, scene.assigns.selected_component, false, nil, scene.assigns[:modal_scroll_offset] || 0)
     |> apply_click_visualizations(scene)
 
     scene = scene
@@ -1351,7 +1496,7 @@ defmodule WidgetWorkbench.Scene do
     })
 
     # Re-render with the selected component and hide modal
-    new_graph = render(scene.assigns.frame, selected, false)
+    new_graph = render(scene.assigns.frame, selected, false, nil, 0)
     |> apply_click_visualizations(scene)
 
     scene = scene
@@ -1359,6 +1504,7 @@ defmodule WidgetWorkbench.Scene do
     |> assign(selected_component_name: component_name)
     |> assign(component_frame: component_frame)
     |> assign(component_modal_visible: false)
+    |> assign(modal_scroll_offset: 0)
     |> assign(graph: new_graph)
     |> push_graph(new_graph)
 
@@ -1455,7 +1601,7 @@ defmodule WidgetWorkbench.Scene do
     current_frame = stored_frame
 
     # Re-render with current dimensions and selected component
-    new_graph = render(current_frame, scene.assigns[:selected_component], scene.assigns[:component_modal_visible] || false, scene.assigns[:click_visualization])
+    new_graph = render(current_frame, scene.assigns[:selected_component], scene.assigns[:component_modal_visible] || false, scene.assigns[:click_visualization], scene.assigns[:modal_scroll_offset] || 0)
 
     scene = scene
     |> assign(graph: new_graph)
@@ -1525,5 +1671,94 @@ defmodule WidgetWorkbench.Scene do
     )
 
     Logger.info("🎯 Registered Load Component button for MCP at {#{left}, #{top}, #{width}x#{height}}")
+  end
+
+  # Register all component buttons in the modal for MCP clicking
+  defp register_modal_components_for_mcp(scene) do
+    viewport = scene.viewport
+    frame = scene.assigns.frame
+
+    # Calculate modal dimensions (same as in render_component_selection_modal)
+    modal_width = 400
+    modal_height = 500
+    modal_x = (frame.size.width - modal_width) / 2
+    modal_y = (frame.size.height - modal_height) / 2
+    list_top = modal_y + 60
+    scrollbar_width = 15
+
+    button_height = 40
+    button_margin = 5
+    button_width = modal_width - scrollbar_width - 5 - 40  # Account for padding
+
+    components = discover_components()
+
+    # Register each component button (global coordinates)
+    components
+    |> Enum.with_index()
+    |> Enum.each(fn {{name, module}, index} ->
+      # Calculate global position (group is translated to modal_x, list_top)
+      y = list_top + (button_height + button_margin) * index
+      x = modal_x + 20  # modal_x from group translate + 20 from local offset
+
+      # Create a semantic ID from the module name
+      semantic_id = module
+      |> to_string()
+      |> String.split(".")
+      |> List.last()
+      |> Macro.underscore()
+      |> then(&"component_#{&1}")
+      |> String.to_atom()
+
+      Scenic.ViewPort.register_semantic(
+        viewport,
+        :_root_,
+        semantic_id,
+        %{
+          type: :button,
+          label: name,
+          clickable: true,
+          bounds: %{
+            left: x,
+            top: y,
+            width: button_width,
+            height: button_height
+          },
+          semantic: %{
+            type: :component_selector,
+            module: module,
+            label: name
+          }
+        }
+      )
+
+      Logger.info("🎯 Registered component button '#{name}' for MCP at {#{x}, #{y}, #{button_width}x#{button_height}}")
+    end)
+
+    # Also register the cancel button
+    cancel_x = modal_x + modal_width - 90
+    cancel_y = modal_y + modal_height - 45
+
+    Scenic.ViewPort.register_semantic(
+      viewport,
+      :_root_,
+      :cancel_component_selection,
+      %{
+        type: :button,
+        label: "Cancel",
+        clickable: true,
+        bounds: %{
+          left: cancel_x,
+          top: cancel_y,
+          width: 80,
+          height: 35
+        },
+        semantic: %{
+          type: :button,
+          label: "Cancel"
+        }
+      }
+    )
+
+    Logger.info("🎯 Registered Cancel button for MCP at {#{cancel_x}, #{cancel_y}, 80x35}")
   end
 end
