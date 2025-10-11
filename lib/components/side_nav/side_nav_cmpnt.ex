@@ -231,12 +231,13 @@ defmodule ScenicWidgets.SideNav do
   end
 
   defp font do
-    {:ok, ibm_plex_mono_metrics} = TruetypeMetrics.load("./assets/fonts/IBM_Plex_Mono/IBMPlexMono-Regular.ttf")
+    # Use Scenic's built-in roboto_mono font with its metrics
+    {:ok, {_type, roboto_mono_metrics}} = Scenic.Assets.Static.meta(:roboto_mono)
 
     %{
-      name: :ibm_plex_mono,
+      name: :roboto_mono,
       size: 24,
-      metrics: ibm_plex_mono_metrics
+      metrics: roboto_mono_metrics
     }
   end
 end

@@ -47,7 +47,7 @@
 #                     fill: background)
 #             |> Scenic.Primitives.text(args.label,
 #                     id: :label,
-#                     font: :ibm_plex_mono,
+#                     font: :roboto_mono,
 #                     font_size: args.font.size,
 #                     translate: {args.margin, vpos},
 #                     fill: theme.text)

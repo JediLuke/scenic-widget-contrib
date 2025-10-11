@@ -227,7 +227,7 @@
 # #   def render(%__MODULE__{text: text} = state, %Frame{} = frame) when is_binary(text) do
 # #     text_box_sub_frame = Dimensions.box(frame.size)
 
-# #     Scenic.Graph.build(font: :ibm_plex_mono)
+# #     Scenic.Graph.build(font: :roboto_mono)
 # #     |> Scenic.Primitives.group(
 # #       fn graph ->
 # #         graph

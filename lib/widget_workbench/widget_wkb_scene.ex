@@ -70,7 +70,11 @@ defmodule WidgetWorkbench.Scene do
       |> assign(click_visualization: nil)
       |> push_graph(graph)
 
-    # Request input events including viewport resize
+    # Register buttons for semantic MCP clicking
+    register_buttons_for_mcp(scene, frame)
+
+    # Request input events including cursor events
+    # We need to request cursor_button to receive it, but we won't consume it in handle_input
     request_input(scene, [:cursor_pos, :cursor_button, :key, :viewport])
 
     {:ok, scene}
@@ -110,6 +114,10 @@ defmodule WidgetWorkbench.Scene do
     else
       graph
     end
+
+    # Add an empty modal container group for later use
+    graph = graph
+    |> Primitives.group(fn g -> g end, id: :modal_container)
 
     graph
   end
@@ -923,8 +931,30 @@ defmodule WidgetWorkbench.Scene do
     {:noreply, scene}
   end
 
-  # Catch-all: don't handle other inputs at scene level
-  # Return {:noreply, scene} to allow Scenic's default child routing
+  # Handle cursor_button - requested but we don't consume it
+  # It will still be routed to child buttons via do_listed_input
+  @impl Scenic.Scene
+  def handle_input({:cursor_button, {button, state, mods, coords}} = input, _context, scene) do
+    Logger.info("🎯 Parent handle_input received cursor_button: #{inspect(input)}")
+    # Don't consume - but Scenic requires us to return {:noreply, scene}
+    # The input routing has ALREADY happened before this is called
+    {:noreply, scene}
+  end
+
+  # Handle cursor_pos - requested but we don't consume it
+  @impl Scenic.Scene
+  def handle_input({:cursor_pos, _}, _context, scene) do
+    {:noreply, scene}
+  end
+
+  # Handle key input (we request it, so we must handle it)
+  @impl Scenic.Scene
+  def handle_input({:key, _}, _context, scene) do
+    {:noreply, scene}
+  end
+
+  # Catch-all for other inputs
+  @impl Scenic.Scene
   def handle_input(_input, _context, scene) do
     {:noreply, scene}
   end
@@ -1279,11 +1309,6 @@ defmodule WidgetWorkbench.Scene do
     {:noreply, scene}
   end
 
-  def handle_event({:click, :new_widget_button}, _from, scene) do
-    Logger.info("New Widget button clicked")
-    {:noreply, scene}
-  end
-
   def handle_event({:click, :cancel_component_selection}, _from, scene) do
     Logger.info("Component selection cancelled")
 
@@ -1446,4 +1471,59 @@ defmodule WidgetWorkbench.Scene do
   end
 
   def handle_info(_msg, scene), do: {:noreply, scene}
+
+  # ============================================================================
+  # Semantic MCP Registration - Makes buttons clickable via semantic IDs
+  # ============================================================================
+
+  defp register_buttons_for_mcp(scene, frame) do
+    viewport = scene.viewport
+
+    # Calculate button frames (same logic as render_constructor_pane)
+    pane_width = frame.size.width / 3
+    pane_height = frame.size.height
+    pane_frame = Frame.new(%{pin: {frame.size.width - pane_width, 0}, size: {pane_width, pane_height}})
+
+    pane_grid = Grid.new(pane_frame)
+    |> Grid.rows([20, 35, 30, 15, 50, 20, 50, 20, 50, 1])
+    |> Grid.columns([0.1, 0.8, 0.1])
+    |> Grid.define_areas(%{
+      title: {1, 1, 1, 1},
+      subtitle: {2, 1, 1, 1},
+      reset_button: {4, 1, 1, 1},
+      new_button: {6, 1, 1, 1},
+      load_button: {8, 1, 1, 1}
+    })
+
+    cell_frames = Grid.calculate(pane_grid)
+    load_button_frame = Grid.area_frame(pane_grid, cell_frames, :load_button)
+
+    # Register Load Component button
+    {left, top} = load_button_frame.pin.point
+    width = load_button_frame.size.width
+    height = load_button_frame.size.height
+
+    Scenic.ViewPort.register_semantic(
+      viewport,
+      :_root_,
+      :load_component_button,
+      %{
+        type: :button,
+        label: "Load Component",
+        clickable: true,
+        bounds: %{
+          left: left,
+          top: top,
+          width: width,
+          height: height
+        },
+        semantic: %{
+          type: :button,
+          label: "Load Component"
+        }
+      }
+    )
+
+    Logger.info("🎯 Registered Load Component button for MCP at {#{left}, #{top}, #{width}x#{height}}")
+  end
 end

@@ -70,7 +70,7 @@
 #     char_width = FontMetrics.width(glyph.glyph, font_size, glyph.font.metrics)
 #     excess_width = glyph.size - char_width
 
-#     Scenic.Graph.build(font: :ibm_plex_mono)
+#     Scenic.Graph.build(font: :roboto_mono)
 #     # |> Scenic.Primitives.rect(icon_size, fill: {:image, args.icon}, translate: translate)
 #     |> Scenic.Primitives.rect({glyph.size, glyph.size}, fill: glyph.tile.color)
 #     |> Scenic.Primitives.text(glyph.glyph,

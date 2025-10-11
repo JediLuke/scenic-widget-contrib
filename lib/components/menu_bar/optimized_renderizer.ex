@@ -77,7 +77,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
     |> Primitives.text(
       label,
       fill: Map.get(state.theme, :text, :white),
-      font: :ibm_plex_mono,
+      font: :roboto_mono,
       translate: {x + 10, y + 26},
       id: {:menu_header_text, menu_id}
     )
@@ -151,7 +151,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
           |> Primitives.text(
             label,
             fill: Map.get(state.theme, :dropdown_text, :black),
-            font: :ibm_plex_mono,
+            font: :roboto_mono,
             translate: {@dropdown_padding + 10, item_y + 20},
             id: {:dropdown_item_text, menu_id, item_id}
           )
@@ -172,7 +172,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
           |> Primitives.text(
             label,
             fill: Map.get(state.theme, :dropdown_text, :black),
-            font: :ibm_plex_mono,
+            font: :roboto_mono,
             translate: {@dropdown_padding + 10, item_y + 20},
             id: {:dropdown_item_text, menu_id, sub_menu_id}
           )
@@ -529,7 +529,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
           |> Primitives.text(
             label,
             fill: Map.get(state.theme, :dropdown_text, :black),
-            font: :ibm_plex_mono,
+            font: :roboto_mono,
             translate: {@dropdown_padding + 10, item_y + 20},
             id: {:sub_dropdown_item_text, sub_menu_id, item_id}
           )
@@ -550,7 +550,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
           |> Primitives.text(
             label,
             fill: Map.get(state.theme, :dropdown_text, :black),
-            font: :ibm_plex_mono,
+            font: :roboto_mono,
             translate: {@dropdown_padding + 10, item_y + 20},
             id: {:sub_dropdown_item_text, sub_menu_id, sub_sub_menu_id}
           )
@@ -558,7 +558,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
           |> Primitives.text(
             "►",
             fill: Map.get(state.theme, :dropdown_text, :black),
-            font: :ibm_plex_mono,
+            font: :roboto_mono,
             translate: {@item_width - @dropdown_padding - 20, item_y + 20},
             id: {:sub_dropdown_item_arrow, sub_menu_id, sub_sub_menu_id}
           )
