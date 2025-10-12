@@ -30,8 +30,8 @@ defmodule ScenicWidgets.TestHelpers.ScriptInspector do
   """
   def get_rendered_text_string() do
     try do
-      script_data = ScenicMcp.Probes.script_table()
-      
+      script_data = get_script_table_directly()
+
       # Flatten all script entries to get all draw commands
       all_commands = script_data
       |> Enum.flat_map(fn
@@ -39,7 +39,7 @@ defmodule ScenicWidgets.TestHelpers.ScriptInspector do
         commands when is_list(commands) -> commands
         _ -> []
       end)
-      
+
       all_commands
       |> extract_text_primitives()
       |> Enum.map(&extract_text_content/1)
@@ -53,21 +53,39 @@ defmodule ScenicWidgets.TestHelpers.ScriptInspector do
   end
 
   @doc """
+  Get the script table directly from the viewport without going through ScenicMcp.Probes.
+  This works in test environments where ScenicMcp may not be fully available.
+  """
+  def get_script_table_directly() do
+    case Scenic.ViewPort.info(:main_viewport) do
+      {:ok, vp_info} ->
+        # Get the script table reference from viewport info
+        script_table = vp_info.script_table
+
+        # Read all entries from the ETS table
+        :ets.tab2list(script_table)
+
+      _error ->
+        []
+    end
+  end
+
+  @doc """
   Debug function to dump the script table contents.
   """
   def debug_script_table() do
     try do
-      script_data = ScenicMcp.Probes.script_table()
-      
+      script_data = get_script_table_directly()
+
       IO.puts("\n=== SCRIPT TABLE DEBUG ===")
       IO.puts("Total script entries: #{length(script_data)}")
-      
+
       script_data
       |> Enum.with_index()
       |> Enum.each(fn {entry, index} ->
         IO.puts("Entry #{index}: #{inspect(entry, limit: :infinity)}")
       end)
-      
+
       IO.puts("=== END SCRIPT TABLE ===\n")
     rescue
       error ->
@@ -80,11 +98,11 @@ defmodule ScenicWidgets.TestHelpers.ScriptInspector do
   """
   def get_render_stats() do
     try do
-      script_data = ScenicMcp.Probes.script_table()
-      
+      script_data = get_script_table_directly()
+
       text_primitives = extract_text_primitives(script_data)
       rect_primitives = extract_rect_primitives(script_data)
-      
+
       %{
         total_script_entries: length(script_data),
         text_primitives_count: length(text_primitives),
