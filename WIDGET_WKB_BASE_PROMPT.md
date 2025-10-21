@@ -11,7 +11,7 @@ Widget Workbench is a visual development tool for designing and testing Scenic G
 ### MCP Servers
 
 **Scenic MCP Server**:
-- **Port**: 9996 (Widget Workbench runs Scenic MCP on port 9996)
+- **Port**: 9996 (Widget Workbench runs Scenic MCP on port 9996 in dev environment, port 9998 in test, so we can run spex or other tests without conflict)
 - **Purpose**: Enables programmatic control and testing of the GUI via Model Context Protocol
 - **Connection**: Use `mcp__scenic-mcp__connect_scenic(port: 9996)` to connect
 - **Key Tools**:
@@ -22,31 +22,13 @@ Widget Workbench is a visual development tool for designing and testing Scenic G
   - `find_clickable_elements()` - Discover all clickable elements
 
 **Tidewave MCP Server**:
-- **Port**: 4000 (Elixir project evaluation and introspection)
+- **Port**: 4067 (Elixir project evaluation and introspection)
 - **Purpose**: Provides Elixir code evaluation, documentation lookup, and project introspection
 - **Key Tools**:
   - `project_eval(code)` - Evaluate Elixir code in project context
   - `get_docs(reference)` - Get documentation for modules/functions
   - `get_source_location(reference)` - Find source file locations
   - `get_logs(tail, grep)` - Retrieve application logs
-
-### Project Structure
-```
-scenic-widget-contrib/
-├── lib/
-│   ├── widget_workbench/
-│   │   ├── widget_wkb_scene.ex    # Main scene (root GUI state)
-│   │   └── components/
-│   │       └── modal.ex           # Component selection modal
-│   ├── components/                # Reusable widget library
-│   │   ├── buttons/
-│   │   ├── menu_bar/
-│   │   ├── side_nav/
-│   │   └── ...
-│   └── layout_components/
-├── test/spex/                     # Executable specifications
-└── mix.exs
-```
 
 ### Architecture
 
@@ -120,25 +102,6 @@ take_screenshot()
 - Components in parent's input_list have empty types `[]` - this is intentional
 - Parent scenes requesting cursor input should not consume it in `handle_input`
 - Coordinate systems: global coords → parent coords → local coords via transforms
-
-### Recent Fixes
-
-**Scrollable Component Modal (Implemented 2025-10-11)**:
-- **Feature**: Added full scrolling support to component selection modal
-- **Implementation**:
-  - Mouse wheel scrolling via `cursor_scroll` input handler
-  - Keyboard arrow key scrolling (up/down)
-  - Visual scrollbar with proportional thumb
-  - Scissor clipping for proper viewport boundaries
-  - Scroll offset clamping to prevent over-scrolling
-- **MCP Support**: All component buttons registered with semantic IDs for automation
-- **Location**: `lib/widget_workbench/widget_wkb_scene.ex` lines 1015-1094, 488-587
-
-**Button Click Issue (Fixed 2025-10-11)**:
-- **Problem**: Buttons with custom IDs weren't receiving click events
-- **Root Cause**: `Scenic.Component.Button.handle_input` hardcoded pattern match on `id: :btn`
-- **Fix**: Changed pattern match to accept any ID matching the button's assigned ID
-- **Location**: `/Users/luke/workbench/flx/scenic_local/lib/scenic/component/button.ex` lines 319, 360
 
 ### Key Files
 
