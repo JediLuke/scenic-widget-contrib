@@ -55,9 +55,13 @@ defmodule ScenicWidgets.TestHelpers.ScriptInspector do
   @doc """
   Get the script table directly from the viewport without going through ScenicMcp.Probes.
   This works in test environments where ScenicMcp may not be fully available.
+  Uses configured viewport name from scenic_mcp config.
   """
   def get_script_table_directly() do
-    case Scenic.ViewPort.info(:main_viewport) do
+    # Get viewport name from config (allows test and dev to run simultaneously)
+    viewport_name = Application.get_env(:scenic_mcp, :viewport_name, :main_viewport)
+
+    case Scenic.ViewPort.info(viewport_name) do
       {:ok, vp_info} ->
         # Get the script table reference from viewport info
         script_table = vp_info.script_table

@@ -3,13 +3,12 @@ defmodule ScenicWidgets.MenuBar do
   A menu bar component with dropdown menus, following the renderizer pattern.
   This component avoids flickering by pre-rendering all dropdowns and toggling visibility.
   """
-
   use Scenic.Component, has_children: false
   require Logger
 
   alias ScenicWidgets.MenuBar.{State, OptimizedRenderizer, Reducer, Api}
   alias Scenic.Graph
-  
+
 
   def validate(data) when is_map(data) do
     # Required: frame and menu_map
@@ -62,7 +61,7 @@ defmodule ScenicWidgets.MenuBar do
       |> push_graph(graph)
 
     Logger.info("MenuBar initialized successfully")
-    
+
     {:ok, scene}
 
   end
@@ -179,7 +178,7 @@ defmodule ScenicWidgets.MenuBar do
       {:menu_item_clicked, item_id, new_state} ->
         # Send event to parent
         send_parent_event(scene, {:menu_item_clicked, item_id})
-        
+
         # Update the graph
         graph = OptimizedRenderizer.update_render(scene.assigns.graph, state, new_state)
         scene = scene

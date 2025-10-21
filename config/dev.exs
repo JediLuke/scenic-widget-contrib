@@ -6,3 +6,9 @@ config :scenic_mcp, :port, 9996
 
 # Enable tidewave for development
 config :scenic_widget_contrib, :environment, :dev
+
+# Configure exsync for auto-reloading
+config :exsync,
+  src_monitor: true,
+  reload_timeout: 75,
+  logging_enabled: true

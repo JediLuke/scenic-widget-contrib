@@ -133,20 +133,23 @@ take_screenshot()
 
 **Running Specifications**:
 ```bash
+# IMPORTANT: Always use MIX_ENV=test when running spex!
+# This ensures test config is used (port 9998 instead of dev port 9996)
+
 # Run all spex
-mix spex
+MIX_ENV=test mix spex
 
 # Run specific spex file
-mix spex test/spex/widgets/button_spex.exs
+MIX_ENV=test mix spex test/spex/menu_bar/01_basic_load_spex.exs
 
 # Run with verbose output
-mix spex --verbose
+MIX_ENV=test mix spex --verbose
 
 # Watch mode (auto-run on file changes)
-mix spex.watch
+MIX_ENV=test mix spex.watch
 
 # Run only failing specs
-mix spex --failed
+MIX_ENV=test mix spex --failed
 ```
 
 **Writing Effective Spex**:
@@ -155,6 +158,7 @@ mix spex --failed
 - Include both happy path and edge cases
 - Test accessibility features (semantic IDs, keyboard nav)
 - Verify visual states with screenshots when needed
+- Use `use SexySpex` (not `use Spex`) - the framework is called SexySpex
 
 ## Common Tasks
 
@@ -192,42 +196,106 @@ mix spex --failed
 
 ## Spex Patterns for Widget Development
 
-**Component Initialization Spex**:
+**Standard Setup Pattern** (viewport initialization):
 ```elixir
-spec "Widget initializes with default state" do
-  connect_scenic(port: 9996)
-  load_component("MyWidget")
-  
-  state = get_component_state()
-  assert state.initialized == true
-  assert state.visible == true
+defmodule MyWidget.LoadSpex do
+  use SexySpex  # Note: SexySpex, not Spex!
+
+  alias ScenicWidgets.TestHelpers.{ScriptInspector, SemanticUI}
+
+  setup_all do
+    # 1. Get environment-specific names (allows dev/test to coexist)
+    viewport_name = Application.get_env(:scenic_mcp, :viewport_name, :test_viewport)
+    driver_name = Application.get_env(:scenic_mcp, :driver_name, :test_driver)
+
+    # 2. Kill any existing viewport (prevents naming conflicts)
+    if viewport_pid = Process.whereis(viewport_name) do
+      Process.exit(viewport_pid, :kill)
+      Process.sleep(100)
+    end
+
+    # 3. Start application
+    Application.ensure_all_started(:scenic_widget_contrib)
+
+    # 4. Configure viewport with ALL required driver options
+    viewport_config = [
+      name: viewport_name,
+      size: {1200, 800},
+      theme: :dark,
+      default_scene: {WidgetWorkbench.Scene, []},
+      drivers: [[
+        module: Scenic.Driver.Local,
+        name: driver_name,
+        window: [resizeable: true, title: "Test Window"],
+        on_close: :stop_viewport,
+        debug: false,
+        cursor: true,
+        antialias: true,
+        layer: 0,           # Required by driver
+        opacity: 255,       # Required by driver
+        position: [         # Required by driver
+          scaled: false,
+          centered: false,
+          orientation: :normal
+        ]
+      ]]
+    ]
+
+    # 5. Start viewport and wait for initialization
+    {:ok, viewport_pid} = Scenic.ViewPort.start_link(viewport_config)
+    Process.sleep(1500)
+
+    # 6. Cleanup on exit
+    on_exit(fn ->
+      if pid = Process.whereis(viewport_name) do
+        Process.exit(pid, :normal)
+        Process.sleep(100)
+      end
+    end)
+
+    {:ok, %{viewport_pid: viewport_pid}}
+  end
 end
 ```
 
-**Input Handling Spex**:
+**Component Loading Spex**:
 ```elixir
-spec "Widget handles keyboard navigation" do
-  connect_scenic(port: 9996)
-  load_component("ListWidget")
-  
-  send_keys(:arrow_down)
-  assert get_selected_index() == 1
-  
-  send_keys(:arrow_down)
-  assert get_selected_index() == 2
+spex "Widget loads successfully" do
+  scenario "Load MyWidget component", context do
+    given_ "Widget Workbench is running", context do
+      case SemanticUI.verify_widget_workbench_loaded() do
+        {:ok, state} -> {:ok, Map.put(context, :workbench, state)}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+
+    when_ "we load MyWidget", context do
+      case SemanticUI.load_component("My Widget") do
+        {:ok, result} -> {:ok, Map.put(context, :result, result)}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+
+    then_ "widget should be visible", context do
+      assert context.result.loaded == true
+      :ok
+    end
+  end
 end
 ```
 
-**State Transition Spex**:
+**Semantic UI Interaction**:
 ```elixir
-spec "Modal opens and closes correctly" do
-  connect_scenic(port: 9996)
-  
-  click_element(element_id: "open_modal_button")
-  assert element_visible?("modal_container")
-  
-  send_keys(:escape)
-  refute element_visible?("modal_container")
+# Use semantic helpers instead of manual coordinate calculations
+when_ "we interact with the widget", context do
+  # Good: Using semantic helpers
+  SemanticUI.load_component("Menu Bar")
+  SemanticUI.click_component_in_modal("Menu Bar")
+
+  # Avoid: Manual coordinate calculations (brittle)
+  # click_at_position(350, 425)  # Don't do this!
+
+  {:ok, context}
 end
 ```
 
@@ -269,12 +337,18 @@ end
 - `scenic_driver_local` - Graphics driver
 - `scenic_live_reload` - Hot reloading support
 - `tidewave` - MCP tools for Elixir evaluation
-- `spex` - Specification framework (https://github.com/JediLuke/spex)
+- `sexy_spex` - Specification framework (https://github.com/JediLuke/spex)
+  - Note: Package name is `sexy_spex` but GitHub repo is called "spex"
+  - Use `use SexySpex` in test files (not `use Spex`)
+  - Provides `SexySpex.Helpers.start_scenic_app/2` for application startup
+  - **Runs tests synchronously** (`async: false`) - safe for shared viewport usage
 
 **Scenic MCP** (for AI control):
-- Lives in `../scenic_mcp` (sibling project)
+- Lives in `../scenic_mcp_experimental` (sibling project)
 - TypeScript MCP server → TCP bridge → Elixir GenServer → ViewPort
 - Enables Puppeteer-like automation for Scenic apps
+- Configurable via `config :scenic_mcp, port: 9999, viewport_name: :main_viewport, driver_name: :scenic_driver`
+- Default names `:main_viewport` and `:scenic_driver` are expected for auto-discovery
 
 ## Development Tips
 
@@ -314,9 +388,20 @@ Scenic.ViewPort.register_semantic(
 
 ## Troubleshooting
 
+**Spex tests fail with "GenServer :scenic_driver terminating"**:
+- **Error**: `(MatchError) no match of right hand side value: :error` at driver.ex:221
+- **Cause**: Missing required driver options in viewport config (`layer`, `opacity`, `position`)
+- **Solution**: Use complete driver config from Standard Setup Pattern above
+- **Required options**: `layer: 0`, `opacity: 255`, `position: [scaled: false, centered: false, orientation: :normal]`
+
+**Viewport naming conflicts**:
+- **Cause**: Trying to start viewport when one already exists with name `:main_viewport`
+- **Solution**: Kill existing viewport before starting new one (see setup pattern above)
+- ScenicMCP requires specific names: `:main_viewport` and `:scenic_driver`
+
 **App won't start**:
-- Check port 9996 isn't in use: `lsof -i :9996`
-- Ensure scenic_driver_local compiled: `cd ../scenic_driver_local && make`
+- Check port isn't in use: `lsof -i :9996` (dev) or `lsof -i :9998` (test)
+- Ensure scenic_driver_local compiled: `cd deps/scenic_driver_local && make`
 - Check Elixir version: `elixir --version` (needs 1.12+)
 
 **Clicks not working**:
