@@ -1,11 +1,9 @@
 defmodule ScenicWidgets.TestHelpers.ScriptInspector do
   @moduledoc """
   Test helper for inspecting rendered Scenic content in Widget Workbench.
-  
+
   Provides utilities to examine what's actually rendered to the screen,
   enabling true black-box testing of GUI components.
-  
-  This is adapted from Quillex's ScriptInspector for use with Widget Workbench.
   """
 
   require Logger

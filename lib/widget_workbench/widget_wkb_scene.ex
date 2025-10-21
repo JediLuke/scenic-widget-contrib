@@ -149,7 +149,12 @@ defmodule WidgetWorkbench.Scene do
   end
 
   defp render_main_content(graph, frame, {component_name, component_module}) do
-    # Component selected - render it centered in the frame
+    # Component selected - render it at a consistent ANCHOR POINT
+    # ANCHOR POINT: Always position components at (100, 100) for predictable testing
+    anchor_x = 100
+    anchor_y = 100
+
+    # Also calculate center for error messages
     center_point = Frame.center(frame)
 
     # Create a reasonable default frame for the component
@@ -160,31 +165,38 @@ defmodule WidgetWorkbench.Scene do
     end
 
     component_frame = Frame.new(%{
-      pin: {center_point.x - elem(default_size, 0) / 2, center_point.y - elem(default_size, 1) / 2},
+      pin: {anchor_x, anchor_y},
       size: default_size
     })
 
-    Logger.info("🎯 MenuBar positioning debug:")
+    Logger.info("🎯 Component positioning (ANCHORED at #{anchor_x}, #{anchor_y}):")
     Logger.info("   Main area frame: pin=#{inspect(frame.pin)}, size=#{inspect(frame.size)}")
-    Logger.info("   Center point: #{inspect(center_point)}")
     Logger.info("   Component frame: pin=#{inspect(component_frame.pin)}, size=#{inspect(component_frame.size)}")
 
     # Try different component loading strategies with better isolation
     try do
+      # Convert pin to tuple for Scenic compatibility
+      translate_pin = case component_frame.pin do
+        %Widgex.Structs.Coordinates{x: x, y: y} -> {x, y}
+        {x, y} -> {x, y}
+      end
+
+      # Draw anchor point indicator UNDER the component (rendered first, so it appears below)
+      graph = graph
+      |> Primitives.circle(15, fill: {:color, {100, 149, 237, 128}}, id: :anchor_point_indicator, translate: translate_pin)  # Cornflower blue with 50% opacity
+
       # Strategy 1: Check if it has add_to_graph function
       if function_exported?(component_module, :add_to_graph, 3) do
         graph
-        |> component_module.add_to_graph(prepare_component_data(component_module, component_frame), id: :loaded_component)
+        |> component_module.add_to_graph(
+          prepare_component_data(component_module, component_frame),
+          id: :loaded_component,
+          translate: translate_pin
+        )
       else
         # Strategy 2: Use standard Scenic.Component pattern with timeout and isolation
         component_data = prepare_component_data(component_module, component_frame)
         Logger.info("Loading component #{component_name} with data: #{inspect(component_data)}")
-
-        # Convert pin to tuple for Scenic compatibility
-        translate_pin = case component_frame.pin do
-          %Widgex.Structs.Coordinates{x: x, y: y} -> {x, y}
-          {x, y} -> {x, y}
-        end
 
         graph
         |> component_module.add_to_graph(
