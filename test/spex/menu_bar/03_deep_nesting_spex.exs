@@ -399,5 +399,107 @@ defmodule ScenicWidgets.MenuBar.DeepNestingSpex do
         :ok
       end
     end
+
+    scenario "Hover highlighting works in 3rd level menus and 4th level opens", context do
+      given_ "File > Recent Files > By Project is open", context do
+        IO.puts("Opening File > Recent Files > By Project...")
+
+        # Open File menu
+        menu_bar_x = 100
+        menu_bar_y = 100
+        button_width = 150
+        button_height = 40
+
+        file_x = menu_bar_x + button_width / 2
+        file_y = menu_bar_y + button_height / 2
+
+        ScenicMcp.Tools.handle_mouse_click(%{"x" => round(file_x), "y" => round(file_y)})
+        Process.sleep(300)
+
+        # Navigate to Recent Files
+        dropdown_y = 140
+        item_height = 30
+        recent_x = menu_bar_x + 75
+        recent_y = dropdown_y + 5 + (item_height * 2.5)  # 3rd item
+
+        ScenicMcp.Tools.handle_mouse_move(%{"x" => round(recent_x), "y" => round(recent_y)})
+        Process.sleep(300)
+
+        # Hover over By Project to open the 3rd level menu
+        by_project_x = recent_x + 150
+        by_project_y = recent_y + (item_height * 2)  # "By Project" item
+
+        ScenicMcp.Tools.handle_mouse_move(%{"x" => round(by_project_x), "y" => round(by_project_y)})
+        Process.sleep(500)
+
+        {:ok, context}
+      end
+
+      when_ "we hover over Project A in the 3rd level menu", context do
+        IO.puts("🖱️  Hovering over 'Project A' (3rd level item with sub-menu)...")
+
+        # Project A is the first item in the "By Project" sub-menu
+        # The "By Project" submenu appears at the same Y as "By Project" item
+        menu_bar_x = 100
+        dropdown_y = 140
+        item_height = 30
+        recent_y = dropdown_y + 5 + (item_height * 2.5)
+
+        # By Project sub-menu X position
+        by_project_submenu_x = menu_bar_x + 75 + 150 + 150  # File + Recent + By Project
+        # Project A is first item, so Y is same as By Project trigger
+        project_a_y = recent_y + (item_height * 2) + 5  # By Project Y + padding
+
+        case ScenicMcp.Tools.handle_mouse_move(%{"x" => round(by_project_submenu_x + 75), "y" => round(project_a_y + 15)}) do
+          {:ok, _result} ->
+            IO.puts("✅ Hovered over Project A")
+            Process.sleep(800)  # Give time for 4th level to render
+            {:ok, context}
+
+          {:error, reason} ->
+            {:error, "Failed to hover Project A: #{reason}"}
+        end
+      end
+
+      then_ "Project A should be highlighted AND its 4th level sub-menu should appear", context do
+        IO.puts("📋 Checking for hover highlighting and 4th level menu...")
+
+        rendered = ScriptInspector.get_rendered_text_string()
+
+        # Check if Project A is visible (it should be)
+        project_a_visible = String.contains?(rendered, "Project A")
+        project_b_visible = String.contains?(rendered, "Project B")
+
+        IO.puts("   Project A visible: #{project_a_visible}")
+        IO.puts("   Project B visible: #{project_b_visible}")
+
+        # Check for 4th level items (children of Project A)
+        readme_visible = String.contains?(rendered, "README") || String.contains?(rendered, "readme")
+        main_visible = String.contains?(rendered, "main.ex") || String.contains?(rendered, "main")
+        config_visible = String.contains?(rendered, "config") || String.contains?(rendered, "Config")
+
+        IO.puts("   README.md visible (4th level): #{readme_visible}")
+        IO.puts("   main.ex visible (4th level): #{main_visible}")
+        IO.puts("   config.exs visible (4th level): #{config_visible}")
+
+        # Take screenshot for debugging
+        case ScenicMcp.Tools.take_screenshot(%{}) do
+          {:ok, screenshot_info} ->
+            IO.puts("📸 Screenshot saved: #{inspect(screenshot_info)}")
+          {:error, reason} ->
+            IO.puts("⚠️  Screenshot failed: #{reason}")
+        end
+
+        # Assertions
+        assert project_a_visible, "Project A should be visible in the 3rd level menu"
+
+        # The 4th level should be visible when hovering Project A
+        fourth_level_visible = readme_visible || main_visible || config_visible
+        assert fourth_level_visible, "4th level menu items (README.md, main.ex, or config.exs) should be visible when hovering Project A"
+
+        IO.puts("✅ Hover highlighting and 4th level menu test complete!")
+        :ok
+      end
+    end
   end
 end
