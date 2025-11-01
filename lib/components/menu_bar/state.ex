@@ -196,6 +196,7 @@ defmodule ScenicWidgets.MenuBar.State do
   def point_in_sub_menu?(_state, _coords), do: :not_in_sub_menu
 
   defp check_point_in_specific_sub_menu(state, parent_id, sub_menu_id, {x, y}) do
+    require Logger
     # Calculate sub-menu position based on parent position
     # Sub-menus are positioned 150px to the right of their parent item
 
@@ -205,19 +206,25 @@ defmodule ScenicWidgets.MenuBar.State do
 
     # Find the position of the parent (either a menu or another sub-menu)
     case calculate_sub_menu_position(state, parent_id, sub_menu_id) do
-      nil -> :not_in_sub_menu
+      nil ->
+        Logger.debug("calculate_sub_menu_position returned nil for parent=#{inspect(parent_id)}, sub=#{inspect(sub_menu_id)}")
+        :not_in_sub_menu
       {sub_x, sub_y, sub_items} ->
         # Calculate sub-menu bounds
         sub_width = item_width
         sub_height = length(sub_items) * dropdown_item_height + (2 * dropdown_padding)
+
+        Logger.debug("Checking sub-menu #{inspect(sub_menu_id)}: bounds=[#{sub_x}, #{sub_y}, #{sub_x + sub_width}, #{sub_y + sub_height}], point=[#{x}, #{y}]")
 
         # Check if point is within sub-menu bounds
         if x >= sub_x && x <= sub_x + sub_width &&
            y >= sub_y && y <= sub_y + sub_height do
           # Find which item is hovered
           hovered_item = find_hovered_sub_menu_item(sub_items, {x, y}, sub_x, sub_y, dropdown_item_height, dropdown_padding)
+          Logger.debug("Point IS in sub-menu #{inspect(sub_menu_id)}, hovered_item=#{inspect(hovered_item)}")
           {:ok, {parent_id, sub_menu_id, hovered_item}}
         else
+          Logger.debug("Point NOT in sub-menu #{inspect(sub_menu_id)}")
           :not_in_sub_menu
         end
     end
@@ -299,8 +306,10 @@ defmodule ScenicWidgets.MenuBar.State do
           sub_menu_id = "submenu_#{String.downcase(String.replace(label, " ", "_"))}"
 
           if sub_menu_id == target_id do
-            # Found it! Return its position
-            {base_x, item_y, sub_items}
+            # Found it! Return the position where this submenu will appear
+            # Sub-menus appear to the right of their parent
+            sub_x = base_x + item_width - dropdown_padding
+            {sub_x, item_y, sub_items}
           else
             # Not this one, but maybe it's nested deeper - search recursively
             # Sub-menus appear to the right of their parent

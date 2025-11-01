@@ -299,29 +299,50 @@ defmodule ScenicWidgets.MenuBar.Reducer do
   """
   defp is_sub_menu_item?(_state, _sub_menu_id, nil), do: false
   defp is_sub_menu_item?(state, sub_menu_id, hovered_item) do
+    require Logger
     # Find the sub-menu's items in dropdown bounds
     case find_sub_menu_items(state, sub_menu_id) do
-      nil -> false
+      nil ->
+        Logger.debug("is_sub_menu_item?: find_sub_menu_items returned nil for sub_menu_id=#{inspect(sub_menu_id)}")
+        false
       items ->
         # Check if this item has type :sub_menu or starts with "submenu_"
-        String.starts_with?(to_string(hovered_item), "submenu_")
+        result = String.starts_with?(to_string(hovered_item), "submenu_")
+        Logger.debug("is_sub_menu_item?: sub_menu_id=#{inspect(sub_menu_id)}, hovered_item=#{inspect(hovered_item)}, result=#{result}")
+        result
     end
   end
 
-  defp find_sub_menu_items(%State{dropdown_bounds: bounds, active_menu: active_menu}, sub_menu_id) do
-    # Get the parent dropdown
-    case Map.get(bounds, active_menu) do
-      nil -> nil
-      parent_dropdown ->
-        # Find the sub-menu item in the parent dropdown
-        case Enum.find(parent_dropdown.items, fn {item_id, item_bounds} ->
-          item_bounds.type == :sub_menu &&
-          "submenu_#{String.downcase(String.replace(item_bounds.label || "", " ", "_"))}" == sub_menu_id
-        end) do
-          nil -> nil
-          {_item_id, item_bounds} -> item_bounds.items
-        end
+  defp find_sub_menu_items(%State{menu_map: menu_map, active_menu: active_menu}, sub_menu_id) do
+    require Logger
+    # Search recursively through the menu structure starting from active menu
+    case Map.get(menu_map, active_menu) do
+      nil ->
+        Logger.debug("find_sub_menu_items: active_menu #{inspect(active_menu)} not found in menu_map")
+        nil
+      {_label, items} ->
+        result = search_items_for_sub_menu(items, sub_menu_id)
+        Logger.debug("find_sub_menu_items: searching for #{inspect(sub_menu_id)} in active_menu #{inspect(active_menu)}, result=#{inspect(result != nil)}")
+        result
     end
+  end
+
+  defp search_items_for_sub_menu(items, target_sub_menu_id) do
+    Enum.find_value(items, fn item ->
+      case item do
+        {:sub_menu, label, sub_items} ->
+          sub_menu_id = "submenu_#{String.downcase(String.replace(label, " ", "_"))}"
+          if sub_menu_id == target_sub_menu_id do
+            # Found it! Return the items
+            sub_items
+          else
+            # Search deeper
+            search_items_for_sub_menu(sub_items, target_sub_menu_id)
+          end
+        _ ->
+          nil
+      end
+    end)
   end
 
   @doc """

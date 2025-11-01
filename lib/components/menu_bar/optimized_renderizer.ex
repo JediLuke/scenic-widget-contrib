@@ -398,11 +398,17 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
 
     Logger.debug("Updating hover for {#{inspect(id_prefix)}, #{inspect(parent_id)}, #{inspect(item_id)}} - hovered: #{is_hovered}")
 
-    Graph.modify(graph, {id_prefix, parent_id, item_id}, fn primitive ->
-      Scenic.Primitive.put_style(primitive, :fill,
-        if(is_hovered, do: state.theme.dropdown_hover_bg, else: state.theme.dropdown_bg)
-      )
-    end)
+    try do
+      Graph.modify(graph, {id_prefix, parent_id, item_id}, fn primitive ->
+        Scenic.Primitive.put_style(primitive, :fill,
+          if(is_hovered, do: state.theme.dropdown_hover_bg, else: state.theme.dropdown_bg)
+        )
+      end)
+    rescue
+      e ->
+        Logger.warning("Failed to update hover for {#{inspect(id_prefix)}, #{inspect(parent_id)}, #{inspect(item_id)}}: #{inspect(e)}")
+        graph
+    end
   end
   
   defp update_interaction_layer(graph, old_state, new_state) do
