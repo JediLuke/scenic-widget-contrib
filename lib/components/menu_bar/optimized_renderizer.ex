@@ -136,8 +136,28 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
       item_y = @dropdown_padding + (index * @dropdown_item_height)
       
       case item do
+        {item_id, label, _action} when is_binary(item_id) ->
+          # Regular menu item with action callback (3-tuple format)
+          g
+          # Item background (for hover) - captures input for interaction
+          |> Primitives.rect(
+            {@item_width - 2 * @dropdown_padding, @dropdown_item_height},
+            fill: state.theme.dropdown_bg,
+            translate: {@dropdown_padding, item_y},
+            id: {:dropdown_item_bg, menu_id, item_id},
+            input: [:cursor_pos, :cursor_button]
+          )
+          # Item text
+          |> Primitives.text(
+            label,
+            fill: Map.get(state.theme, :dropdown_text, :black),
+            font: :roboto_mono,
+            translate: {@dropdown_padding + 10, item_y + 20},
+            id: {:dropdown_item_text, menu_id, item_id}
+          )
+
         {item_id, label} when is_binary(item_id) ->
-          # Regular menu item
+          # Regular menu item (2-tuple format)
           g
           # Item background (for hover) - captures input for interaction
           |> Primitives.rect(
@@ -343,8 +363,22 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
       graph
     end
   end
-  defp update_dropdown_item_hover(graph, {menu_id, item_id}, is_hovered, state) do
-    Graph.modify(graph, {:dropdown_item_bg, menu_id, item_id}, fn primitive ->
+  defp update_dropdown_item_hover(graph, {parent_id, item_id}, is_hovered, state) do
+    require Logger
+    # Try both regular dropdown items and sub-menu items
+    # For regular dropdowns, use :dropdown_item_bg
+    # For sub-menus, use :sub_dropdown_item_bg
+
+    # Check if parent_id is the active menu (regular dropdown) or a sub-menu
+    id_prefix = if parent_id == state.active_menu do
+      :dropdown_item_bg
+    else
+      :sub_dropdown_item_bg
+    end
+
+    Logger.debug("Updating hover for {#{inspect(id_prefix)}, #{inspect(parent_id)}, #{inspect(item_id)}} - hovered: #{is_hovered}")
+
+    Graph.modify(graph, {id_prefix, parent_id, item_id}, fn primitive ->
       Scenic.Primitive.put_style(primitive, :fill,
         if(is_hovered, do: state.theme.dropdown_hover_bg, else: state.theme.dropdown_bg)
       )
@@ -379,26 +413,37 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
   # Sub-menu update functions
   
   defp update_sub_menus(graph, old_state, new_state) do
-    # Hide old sub-menus that are no longer active
+    # Hide old sub-menus that are no longer active OR have changed values
     old_sub_menus = Map.keys(old_state.active_sub_menus)
     new_sub_menus = Map.keys(new_state.active_sub_menus)
-    
-    to_hide = old_sub_menus -- new_sub_menus
-    to_show = new_sub_menus -- old_sub_menus
-    
-    to_hide
-    |> Enum.reduce(graph, fn menu_id, g ->
+
+    # Find keys that were removed
+    removed_keys = old_sub_menus -- new_sub_menus
+
+    # Find keys that exist in both but have different values (sibling switch)
+    changed_keys = Enum.filter(old_sub_menus, fn key ->
+      key in new_sub_menus &&
+      Map.get(old_state.active_sub_menus, key) != Map.get(new_state.active_sub_menus, key)
+    end)
+
+    # Find keys that were added
+    added_keys = new_sub_menus -- old_sub_menus
+
+    # Hide removed sub-menus and old values of changed sub-menus
+    graph = Enum.reduce(removed_keys ++ changed_keys, graph, fn menu_id, g ->
       case Map.get(old_state.active_sub_menus, menu_id) do
         nil -> g
         sub_menu_id -> hide_sub_menu(g, menu_id, sub_menu_id)
       end
     end)
-    |> (fn g -> Enum.reduce(to_show, g, fn menu_id, g ->
+
+    # Show new sub-menus and new values of changed sub-menus
+    Enum.reduce(added_keys ++ changed_keys, graph, fn menu_id, g ->
       case Map.get(new_state.active_sub_menus, menu_id) do
         nil -> g
         sub_menu_id -> show_sub_menu(g, menu_id, sub_menu_id, new_state)
       end
-    end) end).()
+    end)
   end
   
   defp hide_sub_menu(graph, _menu_id, sub_menu_id) do
@@ -514,8 +559,28 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
       item_y = @dropdown_padding + (index * @dropdown_item_height)
       
       case item do
+        {item_id, label, _action} when is_binary(item_id) ->
+          # Regular sub-menu item with action callback (3-tuple format)
+          g
+          # Item background (for hover)
+          |> Primitives.rect(
+            {@item_width - 2 * @dropdown_padding, @dropdown_item_height},
+            fill: state.theme.dropdown_bg,
+            translate: {@dropdown_padding, item_y},
+            id: {:sub_dropdown_item_bg, sub_menu_id, item_id},
+            input: [:cursor_pos, :cursor_button]
+          )
+          # Item text
+          |> Primitives.text(
+            label,
+            fill: Map.get(state.theme, :dropdown_text, :black),
+            font: :roboto_mono,
+            translate: {@dropdown_padding + 10, item_y + 20},
+            id: {:sub_dropdown_item_text, sub_menu_id, item_id}
+          )
+
         {item_id, label} when is_binary(item_id) ->
-          # Regular sub-menu item
+          # Regular sub-menu item (2-tuple format)
           g
           # Item background (for hover)
           |> Primitives.rect(

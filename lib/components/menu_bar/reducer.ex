@@ -42,28 +42,96 @@ defmodule ScenicWidgets.MenuBar.Reducer do
       
       # Check if cursor is in active dropdown
       state.active_menu != nil ->
-        case State.point_in_dropdown?(state, coords) do
-          {true, {item_id, :sub_menu}} ->
-            # Hovering over a sub-menu item
-            Logger.debug("Hovering over sub-menu: #{inspect(item_id)}")
-            %{state | 
-              hovered_dropdown: {state.active_menu, item_id}, 
-              hovered_item: state.active_menu,
-              active_sub_menus: Map.put(state.active_sub_menus, state.active_menu, item_id)
-            }
-          {true, {item_id, :item}} ->
-            # Regular menu item
-            %{state | 
-              hovered_dropdown: {state.active_menu, item_id}, 
-              hovered_item: state.active_menu,
-              active_sub_menus: %{}
-            }
-          {false, _} ->
-            # Mouse left dropdown area - check if we should close it
-            if outside_menu_area?(state, coords) do
-              %{state | active_menu: nil, hovered_item: nil, hovered_dropdown: nil, active_sub_menus: %{}}
+        # First check if we're in a sub-menu
+        case State.point_in_sub_menu?(state, coords) do
+          {:ok, {parent_menu, sub_menu_id, hovered_item}} ->
+            # Mouse is in an active sub-menu!
+            Logger.debug("In sub-menu #{inspect(sub_menu_id)}, hovering item: #{inspect(hovered_item)}")
+
+            # Get the currently active child of this sub-menu (if any)
+            old_child = Map.get(state.active_sub_menus, sub_menu_id)
+
+            # If the hovered item is itself a sub-menu, open it
+            new_sub_menus = if is_sub_menu_item?(state, sub_menu_id, hovered_item) do
+              # Check if we're switching to a different sub-sub-menu
+              base_menus = if old_child && old_child != hovered_item do
+                # Different sub-sub-menu - close the old one and its children
+                close_sub_menu_and_children(state.active_sub_menus, old_child)
+              else
+                state.active_sub_menus
+              end
+
+              # Add both the current sub-menu AND the nested one
+              base_menus
+              |> Map.put(parent_menu, sub_menu_id)
+              |> Map.put(sub_menu_id, hovered_item)
             else
-              %{state | hovered_dropdown: nil}
+              # Just keep the current sub-menu open, close any nested ones
+              base_menus = if old_child do
+                close_sub_menu_and_children(state.active_sub_menus, old_child)
+              else
+                state.active_sub_menus
+              end
+
+              base_menus
+              |> Map.put(parent_menu, sub_menu_id)
+            end
+
+            %{state |
+              hovered_dropdown: if(hovered_item, do: {sub_menu_id, hovered_item}, else: nil),
+              hovered_item: state.active_menu,
+              active_sub_menus: new_sub_menus
+            }
+
+          :not_in_sub_menu ->
+            # Not in sub-menu, check main dropdown
+            case State.point_in_dropdown?(state, coords) do
+              {true, {item_id, :sub_menu}} ->
+                # Hovering over a sub-menu item in main dropdown
+                Logger.debug("Hovering over sub-menu trigger: #{inspect(item_id)}")
+
+                # Get the currently active sub-menu for this dropdown (if any)
+                old_sub_menu = Map.get(state.active_sub_menus, state.active_menu)
+
+                # Close any nested sub-menus from the old sub-menu, but keep the new one
+                new_sub_menus = if old_sub_menu && old_sub_menu != item_id do
+                  # Different sub-menu - close the old one and its children
+                  close_sub_menu_and_children(state.active_sub_menus, old_sub_menu)
+                  |> Map.put(state.active_menu, item_id)
+                else
+                  # Same sub-menu or no previous sub-menu - just update
+                  Map.put(state.active_sub_menus, state.active_menu, item_id)
+                end
+
+                %{state |
+                  hovered_dropdown: {state.active_menu, item_id},
+                  hovered_item: state.active_menu,
+                  active_sub_menus: new_sub_menus
+                }
+              {true, {item_id, :item}} ->
+                # Regular menu item (not a sub-menu)
+                # Close any sub-menus for the current active menu
+                Logger.debug("Hovering over regular item: #{inspect(item_id)}, clearing sub-menus for #{inspect(state.active_menu)}")
+                %{state |
+                  hovered_dropdown: {state.active_menu, item_id},
+                  hovered_item: state.active_menu,
+                  active_sub_menus: Map.delete(state.active_sub_menus, state.active_menu)
+                }
+              {true, nil} ->
+                # In dropdown area but not over a specific item
+                # Clear sub-menus for this dropdown
+                %{state |
+                  hovered_dropdown: nil,
+                  active_sub_menus: Map.delete(state.active_sub_menus, state.active_menu)
+                }
+              {false, _} ->
+                # Mouse left dropdown area - check if we should close it
+                if outside_menu_area?(state, coords) do
+                  %{state | active_menu: nil, hovered_item: nil, hovered_dropdown: nil, active_sub_menus: %{}}
+                else
+                  # Mouse might be in grace area between dropdown and sub-menu
+                  %{state | hovered_dropdown: nil}
+                end
             end
         end
       
@@ -112,7 +180,19 @@ defmodule ScenicWidgets.MenuBar.Reducer do
             new_state = %{state | active_sub_menus: Map.put(state.active_sub_menus, state.active_menu, item_id)}
             {:noop, new_state}
           {true, {item_id, :item}} ->
-            # Regular menu item clicked - close menu and notify parent
+            # Regular menu item clicked
+            Logger.debug("Clicked on menu item: #{inspect(item_id)}")
+
+            # Check if this item has an action callback
+            action = get_item_action(state, item_id)
+
+            # Execute the action if it exists
+            if is_function(action, 0) do
+              Logger.debug("Executing action callback for #{inspect(item_id)}")
+              action.()
+            end
+
+            # Close menu and notify parent
             new_state = %{state | active_menu: nil, hovered_item: nil, hovered_dropdown: nil, active_sub_menus: %{}}
             {:menu_item_clicked, item_id, new_state}
           _ ->
@@ -167,5 +247,73 @@ defmodule ScenicWidgets.MenuBar.Reducer do
     else
       state
     end
+  end
+
+  @doc """
+  Get the action callback for a menu item by traversing the dropdown bounds.
+  Returns nil if no action is found.
+  """
+  defp get_item_action(%State{dropdown_bounds: bounds, active_menu: active_menu}, item_id) do
+    case Map.get(bounds, active_menu) do
+      nil -> nil
+      dropdown ->
+        case get_in(dropdown, [:items, item_id, :action]) do
+          action when is_function(action, 0) -> action
+          _ -> nil
+        end
+    end
+  end
+
+  @doc """
+  Check if an item within a sub-menu is itself a sub-menu (for nesting).
+  Returns true if the hovered_item is a sub-menu within the parent sub_menu.
+  """
+  defp is_sub_menu_item?(_state, _sub_menu_id, nil), do: false
+  defp is_sub_menu_item?(state, sub_menu_id, hovered_item) do
+    # Find the sub-menu's items in dropdown bounds
+    case find_sub_menu_items(state, sub_menu_id) do
+      nil -> false
+      items ->
+        # Check if this item has type :sub_menu or starts with "submenu_"
+        String.starts_with?(to_string(hovered_item), "submenu_")
+    end
+  end
+
+  defp find_sub_menu_items(%State{dropdown_bounds: bounds, active_menu: active_menu}, sub_menu_id) do
+    # Get the parent dropdown
+    case Map.get(bounds, active_menu) do
+      nil -> nil
+      parent_dropdown ->
+        # Find the sub-menu item in the parent dropdown
+        case Enum.find(parent_dropdown.items, fn {item_id, item_bounds} ->
+          item_bounds.type == :sub_menu &&
+          "submenu_#{String.downcase(String.replace(item_bounds.label || "", " ", "_"))}" == sub_menu_id
+        end) do
+          nil -> nil
+          {_item_id, item_bounds} -> item_bounds.items
+        end
+    end
+  end
+
+  @doc """
+  Recursively close a sub-menu and all its children.
+  Removes the sub_menu_id and any entries where sub_menu_id is a key (its children).
+  """
+  defp close_sub_menu_and_children(active_sub_menus, sub_menu_id) do
+    # Find all children of this sub-menu (entries where this sub_menu_id is a key)
+    children = Map.get(active_sub_menus, sub_menu_id)
+
+    # Recursively close children first
+    active_sub_menus = if children do
+      close_sub_menu_and_children(active_sub_menus, children)
+    else
+      active_sub_menus
+    end
+
+    # Remove this sub-menu from the map (both as a value and as a key)
+    active_sub_menus
+    |> Enum.reject(fn {_k, v} -> v == sub_menu_id end)
+    |> Enum.into(%{})
+    |> Map.delete(sub_menu_id)
   end
 end

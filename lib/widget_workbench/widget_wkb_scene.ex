@@ -271,74 +271,12 @@ defmodule WidgetWorkbench.Scene do
           size: {600, 40}  # 4 menus * 150px width, standard menubar height
         })
 
+        # Build menu_map with optional action callbacks for testing
+        menu_map = build_menu_map()
+
         %{
           frame: better_frame,
-          menu_map: [
-            {:sub_menu, "File", [
-              {"new_file", "New File"},     # Fix: use string labels, not atoms
-              {"open_file", "Open File"},
-              {:sub_menu, "Recent Files", [
-                {"recent_1", "Document 1.txt"},
-                {"recent_2", "Project Notes.md"},
-                {:sub_menu, "By Project", [
-                  {"proj_a_file1", "Project A - README.md"},
-                  {"proj_a_file2", "Project A - main.ex"},
-                  {"proj_b_file1", "Project B - config.exs"}
-                ]}
-              ]},
-              {"save_file", "Save"},
-              {"save_as", "Save As..."},
-              {:sub_menu, "Export", [
-                {"export_pdf", "Export as PDF"},
-                {"export_html", "Export as HTML"},
-                {:sub_menu, "Export Image", [
-                  {"export_png", "PNG"},
-                  {"export_jpg", "JPEG"},
-                  {"export_svg", "SVG"}
-                ]}
-              ]},
-              {"quit", "Quit"}
-            ]},
-            {:sub_menu, "Edit", [
-              {"undo", "Undo"},
-              {"redo", "Redo"},
-              {"cut", "Cut"},
-              {"copy", "Copy"},
-              {"paste", "Paste"},
-              {:sub_menu, "Find", [
-                {"find", "Find..."},
-                {"find_replace", "Find and Replace..."},
-                {:sub_menu, "Find in", [
-                  {"find_project", "Current Project"},
-                  {"find_folder", "Current Folder"},
-                  {"find_all", "All Open Files"}
-                ]}
-              ]}
-            ]},
-            {:sub_menu, "View", [
-              {:sub_menu, "Appearance", [
-                {"theme_light", "Light Theme"},
-                {"theme_dark", "Dark Theme"},
-                {"theme_auto", "Auto"}
-              ]},
-              {:sub_menu, "Layout", [
-                {"layout_single", "Single Pane"},
-                {"layout_split", "Split Horizontal"},
-                {"layout_split_v", "Split Vertical"}
-              ]},
-              {"fullscreen", "Toggle Fullscreen"}
-            ]},
-            {:sub_menu, "Help", [
-              {"docs", "Documentation"},
-              {"shortcuts", "Keyboard Shortcuts"},
-              {:sub_menu, "Tutorials", [
-                {"tut_basics", "Getting Started"},
-                {"tut_advanced", "Advanced Features"},
-                {"tut_tips", "Tips & Tricks"}
-              ]},
-              {"about", "About"}
-            ]}
-          ]
+          menu_map: menu_map
         }
 
       ScenicWidgets.IconButton ->
@@ -1185,13 +1123,19 @@ defmodule WidgetWorkbench.Scene do
     {:noreply, scene}
   end
 
+  def observe_input({:cursor_pos, coords}, _id, scene) do
+    # Visualize cursor movement with blue dots
+    send(self(), {:visualize_hover, coords})
+    {:noreply, scene}
+  end
+
   def observe_input(_input, _id, scene), do: {:noreply, scene}
 
   # NOTE: We deliberately DON'T implement a catch-all handle_input
   # This allows Scenic's default behavior to route inputs to child components (buttons)
   # The specific viewport handlers above are kept for window resize events
 
-  # Handle async visualization message
+  # Handle async visualization message for clicks
   def handle_info({:visualize_click, coords}, scene) do
     Logger.info("🎨 Rendering click visualization at #{inspect(coords)}")
     {x, y} = coords
@@ -1242,6 +1186,37 @@ defmodule WidgetWorkbench.Scene do
 
     # Schedule first fade step after 200ms (smooth fade with 50 steps over 10 seconds)
     Process.send_after(self(), {:fade_click_step, click_id, timestamp, 1}, 200)
+
+    {:noreply, scene}
+  end
+
+  # Handle async visualization message for hovers
+  def handle_info({:visualize_hover, coords}, scene) do
+    {x, y} = coords
+
+    # Use a single persistent hover indicator that follows the cursor
+    hover_id = :hover_viz
+
+    new_graph = scene.assigns.graph
+    |> Graph.delete(:hover_viz_outer)
+    |> Graph.delete(:hover_viz_inner)
+    |> Primitives.circle(
+      15,
+      fill: {:color, {30, 144, 255, 60}},   # Dodger blue, semi-transparent
+      stroke: {2, {:color, {30, 144, 255, 180}}},
+      translate: {x, y},
+      id: :hover_viz_outer
+    )
+    |> Primitives.circle(
+      4,
+      fill: {:color, {30, 144, 255, 255}},  # Solid blue center
+      translate: {x, y},
+      id: :hover_viz_inner
+    )
+
+    scene = scene
+    |> assign(graph: new_graph)
+    |> push_graph(new_graph)
 
     {:noreply, scene}
   end
@@ -1833,5 +1808,101 @@ defmodule WidgetWorkbench.Scene do
     )
 
     Logger.info("🎯 Registered Cancel button for MCP at {#{cancel_x}, #{cancel_y}, 80x35}")
+  end
+
+  # Helper to build menu_map with optional action callbacks for testing
+  defp build_menu_map do
+    # Check if we're in test mode and get test PID
+    test_pid = Application.get_env(:scenic_widget_contrib, :test_pid)
+
+    # Base menu structure
+    base_menu = [
+      {:sub_menu, "File", [
+        {"new_file", "New File"},
+        {"open_file", "Open File"},
+        {:sub_menu, "Recent Files", [
+          {"recent_1", "Document 1.txt"},
+          {"recent_2", "Project Notes.md"},
+          {:sub_menu, "By Project", [
+            {"proj_a_file1", "Project A - README.md"},
+            {"proj_a_file2", "Project A - main.ex"},
+            {"proj_b_file1", "Project B - config.exs"}
+          ]}
+        ]},
+        {"save_file", "Save"},
+        {"save_as", "Save As..."},
+        {:sub_menu, "Export", [
+          {"export_pdf", "Export as PDF"},
+          {"export_html", "Export as HTML"},
+          {:sub_menu, "Export Image", [
+            {"export_png", "PNG"},
+            {"export_jpg", "JPEG"},
+            {"export_svg", "SVG"}
+          ]}
+        ]},
+        {"quit", "Quit"}
+      ]},
+      {:sub_menu, "Edit", [
+        {"undo", "Undo"},
+        {"redo", "Redo"},
+        {"cut", "Cut"},
+        {"copy", "Copy"},
+        {"paste", "Paste"},
+        {:sub_menu, "Find", [
+          {"find", "Find..."},
+          {"find_replace", "Find and Replace..."},
+          {:sub_menu, "Find in", [
+            {"find_project", "Current Project"},
+            {"find_folder", "Current Folder"},
+            {"find_all", "All Open Files"}
+          ]}
+        ]}
+      ]},
+      {:sub_menu, "View", [
+        {:sub_menu, "Appearance", [
+          {"theme_light", "Light Theme"},
+          {"theme_dark", "Dark Theme"},
+          {"theme_auto", "Auto"}
+        ]},
+        {:sub_menu, "Layout", [
+          {"layout_single", "Single Pane"},
+          {"layout_split", "Split Horizontal"},
+          {"layout_split_v", "Split Vertical"}
+        ]},
+        {"fullscreen", "Toggle Fullscreen"}
+      ]},
+      {:sub_menu, "Help", [
+        {"docs", "Documentation"},
+        {"shortcuts", "Keyboard Shortcuts"},
+        {:sub_menu, "Tutorials", [
+          {"tut_basics", "Getting Started"},
+          {"tut_advanced", "Advanced Features"},
+          {"tut_tips", "Tips & Tricks"}
+        ]},
+        {"about", "About"}
+      ]}
+    ]
+
+    # If we're in test mode with a test PID, add action callbacks
+    if test_pid do
+      add_action_callbacks(base_menu, test_pid)
+    else
+      base_menu
+    end
+  end
+
+  # Recursively add action callbacks to menu items
+  defp add_action_callbacks(menu_list, test_pid) do
+    Enum.map(menu_list, fn
+      {:sub_menu, label, items} ->
+        {:sub_menu, label, add_action_callbacks(items, test_pid)}
+
+      {item_id, label} when is_binary(item_id) ->
+        # Add action callback that sends message to test process
+        {item_id, label, fn -> send(test_pid, {:action_executed, item_id}) end}
+
+      other ->
+        other
+    end)
   end
 end

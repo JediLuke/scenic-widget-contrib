@@ -2,6 +2,89 @@ defmodule ScenicWidgets.MenuBar do
   @moduledoc """
   A menu bar component with dropdown menus, following the renderizer pattern.
   This component avoids flickering by pre-rendering all dropdowns and toggling visibility.
+
+  ## Features
+  - Click to open/close dropdowns
+  - Hover-to-switch between open menus
+  - Nested sub-menus with smooth navigation
+  - Keyboard support (Escape to close)
+  - Action callbacks for deterministic testing
+  - MCP semantic element registration for automation
+
+  ## Usage
+
+      menu_map = [
+        {:sub_menu, "File", [
+          {"new_file", "New File"},
+          {"open_file", "Open File"},
+          {:sub_menu, "Recent Files", [
+            {"recent_1", "Document 1.txt"},
+            {"recent_2", "Project Notes.md"}
+          ]},
+          {"save", "Save"}
+        ]},
+        {:sub_menu, "Edit", [
+          {"undo", "Undo"},
+          {"redo", "Redo"}
+        ]}
+      ]
+
+      graph
+      |> MenuBar.add_to_graph(
+        %{
+          frame: frame,
+          menu_map: menu_map
+        },
+        id: :my_menu_bar
+      )
+
+  ## Menu Item Formats
+
+  Menu items support two formats:
+
+  ### 2-tuple format (Event-based)
+      {"item_id", "Label"}
+
+  When clicked, sends `{:menu_item_clicked, "item_id"}` event to parent scene.
+
+  ### 3-tuple format (Action callback)
+      {"item_id", "Label", fn -> IO.puts("Action!") end}
+
+  When clicked, executes the function immediately AND sends the event to parent.
+  This is useful for:
+  - Deterministic testing (send message to test process)
+  - Direct state updates
+  - Logging/analytics
+
+  Example with action callbacks:
+
+      test_pid = self()
+      menu_map = [
+        {:sub_menu, "File", [
+          {"new_file", "New File", fn ->
+            send(test_pid, {:action, :new_file})
+          end},
+          {"save", "Save", fn ->
+            save_document()
+          end}
+        ]}
+      ]
+
+  ## Events
+
+  MenuBar sends these events to the parent scene:
+  - `{:menu_item_clicked, item_id}` - When a menu item is clicked
+
+  The parent scene handles these via `handle_event/3`:
+
+      def handle_event({:menu_item_clicked, item_id}, _from, scene) do
+        case item_id do
+          "new_file" -> # Handle new file action
+          "save" -> # Handle save action
+          _ -> :ok
+        end
+        {:noreply, scene}
+      end
   """
   use Scenic.Component, has_children: false
   require Logger
@@ -59,6 +142,13 @@ defmodule ScenicWidgets.MenuBar do
       scene
       |> assign(state: state, graph: graph)
       |> push_graph(graph)
+
+    # DON'T request input - we get it through hit testing on our primitives
+    # Requesting it here causes duplicate input delivery!
+    # request_input(scene, [:cursor_button, :cursor_pos, :key])
+
+    # Register semantic elements for MCP interaction
+    register_semantic_elements(scene, state)
 
     Logger.info("MenuBar initialized successfully")
 
@@ -212,6 +302,43 @@ defmodule ScenicWidgets.MenuBar do
 
   def handle_input(_input, _context, scene) do
     {:noreply, scene}
+  end
+
+  # Helper to register semantic elements for MCP
+  defp register_semantic_elements(scene, %State{} = state) do
+    viewport = scene.viewport
+    graph_key = scene.assigns[:id] || :menu_bar
+
+    # Register each menu header button as a clickable semantic element
+    state.menu_map
+    |> Enum.with_index()
+    |> Enum.each(fn {{menu_id, {label, _items}}, index} ->
+      # Calculate bounds for this menu header
+      x = index * 150  # @item_width from optimized_renderizer
+      y = 0
+      width = 150
+      height = 40
+
+      # Create semantic ID like "menu_button_file"
+      semantic_id = String.to_atom("menu_button_#{Atom.to_string(menu_id) |> String.replace("menu_", "") |> String.replace("_", "")}")
+
+      Scenic.ViewPort.register_semantic(
+        viewport,
+        graph_key,
+        semantic_id,
+        %{
+          type: :button,
+          label: label,
+          clickable: true,
+          bounds: %{left: x, top: y, width: width, height: height}
+        }
+      )
+
+      require Logger
+      Logger.info("🎯 Registered MenuBar button '#{label}' with ID #{inspect(semantic_id)} at {#{x}, #{y}, #{width}x#{height}}")
+    end)
+
+    :ok
   end
 
   # Remove handle_cast - we're using handle_put for state updates now
