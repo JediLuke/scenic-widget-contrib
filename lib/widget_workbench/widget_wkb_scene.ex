@@ -1825,8 +1825,26 @@ defmodule WidgetWorkbench.Scene do
           {"recent_2", "Project Notes.md"},
           {:sub_menu, "By Project", [
             {:sub_menu, "Project A", [
+              {:sub_menu, "Source Code", [
+                {:sub_menu, "Core Modules", [
+                  {:sub_menu, "Authentication", [
+                    {"auth_user", "user.ex"},
+                    {"auth_session", "session.ex"},
+                    {"auth_token", "token.ex"},
+                    {"auth_middleware", "middleware.ex"}
+                  ]},
+                  {:sub_menu, "Database", [
+                    {"db_schema", "schema.ex"},
+                    {"db_repo", "repo.ex"},
+                    {"db_migration", "migration.ex"}
+                  ]},
+                  {"core_app", "application.ex"},
+                  {"core_supervisor", "supervisor.ex"}
+                ]},
+                {"src_main", "main.ex"},
+                {"src_utils", "utils.ex"}
+              ]},
               {"proj_a_readme", "README.md"},
-              {"proj_a_main", "main.ex"},
               {"proj_a_config", "config.exs"}
             ]},
             {:sub_menu, "Project B", [
