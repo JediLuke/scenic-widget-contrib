@@ -17,6 +17,7 @@ defmodule ScenicWidgets.MenuBar.State do
   ]
   
   @default_theme %{
+    # Colors
     background: :dark_gray,
     text: :white,
     hover_bg: :steel_blue,
@@ -24,13 +25,31 @@ defmodule ScenicWidgets.MenuBar.State do
     dropdown_bg: :light_gray,
     dropdown_text: :black,
     dropdown_hover_bg: :dodger_blue,
-    dropdown_hover_text: :white
+    dropdown_hover_text: :white,
+
+    # Dimensions
+    menu_height: 40,
+    item_width: 150,
+    item_height: 30,
+    padding: 5,
+
+    # Typography
+    font: :roboto_mono,
+    font_size: 16,
+
+    # Text Overflow
+    text_overflow: :ellipsis,  # :ellipsis, :truncate, or :none
+    max_text_width: 120,  # Max width for text before overflow handling (leaves room for arrows, padding)
+    ellipsis_char: "..."
   }
   
   @doc """
   Create a new MenuBar state from initialization data.
   """
   def new(data) do
+    # Merge default theme with provided theme
+    theme = Map.merge(@default_theme, Map.get(data, :theme, %{}))
+
     %__MODULE__{
       frame: data.frame,
       menu_map: data.menu_map,
@@ -38,8 +57,8 @@ defmodule ScenicWidgets.MenuBar.State do
       active_sub_menus: %{},
       hovered_item: nil,
       hovered_dropdown: nil,
-      dropdown_bounds: calculate_dropdown_bounds(data.frame, data.menu_map),
-      theme: Map.get(data, :theme, @default_theme),
+      dropdown_bounds: calculate_dropdown_bounds(data.frame, data.menu_map, theme),
+      theme: theme,
       hover_activate: Map.get(data, :hover_activate, false)
     }
   end
@@ -48,11 +67,11 @@ defmodule ScenicWidgets.MenuBar.State do
   Calculate and cache the bounds for all dropdown menus.
   This allows us to pre-render them and just toggle visibility.
   """
-  def calculate_dropdown_bounds(frame, menu_map) do
-    menu_height = 40
-    item_width = 150
-    dropdown_item_height = 30  # Height of each dropdown item
-    dropdown_padding = 5
+  def calculate_dropdown_bounds(_frame, menu_map, theme) do
+    menu_height = Map.get(theme, :menu_height, 40)
+    item_width = Map.get(theme, :item_width, 150)
+    dropdown_item_height = Map.get(theme, :item_height, 30)
+    dropdown_padding = Map.get(theme, :padding, 5)
     
     menu_map
     |> Enum.with_index()
@@ -129,12 +148,13 @@ defmodule ScenicWidgets.MenuBar.State do
   @doc """
   Check if a point is within the menu bar area.
   """
-  def point_in_menu_bar?(%{frame: frame}, {x, y}) do
+  def point_in_menu_bar?(%{frame: frame, theme: theme}, {x, y}) do
+    menu_height = Map.get(theme, :menu_height, 40)
     # Check relative to component origin (0,0)
     x >= 0 &&
     x <= frame.size.width &&
     y >= 0 &&
-    y <= 40
+    y <= menu_height
   end
   
   @doc """
@@ -179,7 +199,7 @@ defmodule ScenicWidgets.MenuBar.State do
     # Check each active sub-menu (at any level)
     # The map contains parent_id => sub_menu_id pairs at all levels
     result = Enum.find_value(sub_menus, :not_in_sub_menu, fn {parent_id, sub_menu_id} ->
-      case check_point_in_specific_sub_menu(state, parent_id, sub_menu_id, {x, y}) do
+      case check_point_in_specific_sub_menu(state, parent_id, sub_menu_id, {x, y}, state.theme) do
         {:ok, result} ->
           Logger.debug("Found point in sub-menu: parent=#{inspect(parent_id)}, sub=#{inspect(sub_menu_id)}, result=#{inspect(result)}")
           {:ok, result}
@@ -195,17 +215,17 @@ defmodule ScenicWidgets.MenuBar.State do
   end
   def point_in_sub_menu?(_state, _coords), do: :not_in_sub_menu
 
-  defp check_point_in_specific_sub_menu(state, parent_id, sub_menu_id, {x, y}) do
+  defp check_point_in_specific_sub_menu(state, parent_id, sub_menu_id, {x, y}, theme) do
     require Logger
     # Calculate sub-menu position based on parent position
-    # Sub-menus are positioned 150px to the right of their parent item
+    # Sub-menus are positioned to the right of their parent item
 
-    item_width = 150
-    dropdown_item_height = 30
-    dropdown_padding = 5
+    item_width = Map.get(theme, :item_width, 150)
+    dropdown_item_height = Map.get(theme, :item_height, 30)
+    dropdown_padding = Map.get(theme, :padding, 5)
 
     # Find the position of the parent (either a menu or another sub-menu)
-    case calculate_sub_menu_position(state, parent_id, sub_menu_id) do
+    case calculate_sub_menu_position(state, parent_id, sub_menu_id, theme) do
       nil ->
         Logger.debug("calculate_sub_menu_position returned nil for parent=#{inspect(parent_id)}, sub=#{inspect(sub_menu_id)}")
         :not_in_sub_menu
@@ -220,7 +240,7 @@ defmodule ScenicWidgets.MenuBar.State do
         if x >= sub_x && x <= sub_x + sub_width &&
            y >= sub_y && y <= sub_y + sub_height do
           # Find which item is hovered
-          hovered_item = find_hovered_sub_menu_item(sub_items, {x, y}, sub_x, sub_y, dropdown_item_height, dropdown_padding)
+          hovered_item = find_hovered_sub_menu_item(sub_items, {x, y}, sub_x, sub_y, dropdown_item_height, dropdown_padding, item_width)
           Logger.debug("Point IS in sub-menu #{inspect(sub_menu_id)}, hovered_item=#{inspect(hovered_item)}")
           {:ok, {parent_id, sub_menu_id, hovered_item}}
         else
@@ -230,11 +250,7 @@ defmodule ScenicWidgets.MenuBar.State do
     end
   end
 
-  defp calculate_sub_menu_position(%{menu_map: menu_map, dropdown_bounds: bounds, active_menu: active_menu}, parent_id, sub_menu_id) do
-    item_width = 150
-    dropdown_item_height = 30
-    dropdown_padding = 5
-
+  defp calculate_sub_menu_position(%{menu_map: menu_map, dropdown_bounds: bounds, active_menu: active_menu}, parent_id, sub_menu_id, theme) do
     # Check if parent is the main menu dropdown
     if parent_id == active_menu do
       # Find the sub-menu item in the main dropdown
@@ -258,18 +274,18 @@ defmodule ScenicWidgets.MenuBar.State do
     else
       # Parent is another sub-menu, need to find it recursively
       # For now, we'll need to traverse the menu structure
-      find_nested_sub_menu_position(menu_map, active_menu, parent_id, sub_menu_id)
+      find_nested_sub_menu_position(menu_map, active_menu, parent_id, sub_menu_id, theme)
     end
   end
 
-  defp find_nested_sub_menu_position(menu_map, active_menu, parent_sub_menu_id, target_sub_menu_id) do
+  defp find_nested_sub_menu_position(menu_map, active_menu, parent_sub_menu_id, target_sub_menu_id, theme) do
     # We need to find where the parent sub-menu is, then find the target within it
     # This is a recursive problem: parent_sub_menu_id could itself be nested multiple levels deep
 
-    item_width = 150
-    menu_height = 40  # Standard menu bar height
-    dropdown_item_height = 30
-    dropdown_padding = 5
+    item_width = Map.get(theme, :item_width, 150)
+    menu_height = Map.get(theme, :menu_height, 40)
+    dropdown_item_height = Map.get(theme, :item_height, 30)
+    dropdown_padding = Map.get(theme, :padding, 5)
 
     # First, get the main menu items to start our search
     case Map.get(menu_map, active_menu) do
@@ -281,7 +297,7 @@ defmodule ScenicWidgets.MenuBar.State do
 
         # Recursively search for the parent_sub_menu_id starting from main items
         # Once found, we'll know its position
-        case find_sub_menu_in_items(main_items, parent_sub_menu_id, {base_x, menu_height, item_width}) do
+        case find_sub_menu_in_items(main_items, parent_sub_menu_id, {base_x, menu_height, item_width}, theme) do
           nil -> nil
           {parent_x, parent_y, parent_items} ->
             # Now find the target sub-menu within the parent's items
@@ -292,9 +308,9 @@ defmodule ScenicWidgets.MenuBar.State do
 
   # Recursively search for a sub-menu by ID within a list of items
   # Returns {x, y, items} if found
-  defp find_sub_menu_in_items(items, target_id, {base_x, base_y, item_width}) do
-    dropdown_item_height = 30
-    dropdown_padding = 5
+  defp find_sub_menu_in_items(items, target_id, {base_x, base_y, item_width}, theme) do
+    dropdown_item_height = Map.get(theme, :item_height, 30)
+    dropdown_padding = Map.get(theme, :padding, 5)
 
     items
     |> Enum.with_index()
@@ -314,7 +330,7 @@ defmodule ScenicWidgets.MenuBar.State do
             # Not this one, but maybe it's nested deeper - search recursively
             # Sub-menus appear to the right of their parent
             sub_x = base_x + item_width - dropdown_padding
-            find_sub_menu_in_items(sub_items, target_id, {sub_x, item_y, item_width})
+            find_sub_menu_in_items(sub_items, target_id, {sub_x, item_y, item_width}, theme)
           end
 
         _ ->
@@ -349,9 +365,7 @@ defmodule ScenicWidgets.MenuBar.State do
     end)
   end
 
-  defp find_hovered_sub_menu_item(items, {x, y}, sub_x, sub_y, item_height, padding) do
-    item_width = 150
-
+  defp find_hovered_sub_menu_item(items, {x, y}, sub_x, sub_y, item_height, padding, item_width) do
     items
     |> Enum.with_index()
     |> Enum.find_value(fn {item, index} ->
@@ -373,12 +387,12 @@ defmodule ScenicWidgets.MenuBar.State do
   @doc """
   Find which menu header is being hovered.
   """
-  def find_hovered_menu(%{menu_map: menu_map}, {x, _y}) do
+  def find_hovered_menu(%{menu_map: menu_map, theme: theme}, {x, _y}) do
     require Logger
-    item_width = 150
-    
+    item_width = Map.get(theme, :item_width, 150)
+
     Logger.debug("find_hovered_menu: x=#{x}")
-    
+
     menu_map
     |> Enum.with_index()
     |> Enum.find_value(fn {{menu_id, _}, index} ->

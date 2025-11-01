@@ -268,15 +268,45 @@ defmodule WidgetWorkbench.Scene do
         # MenuBar needs menu_map and frame - use (0,0) pin since translate handles positioning
         better_frame = Frame.new(%{
           pin: {0, 0},  # Start at origin - translate will position it
-          size: {600, 40}  # 4 menus * 150px width, standard menubar height
+          size: {600, 60}  # 4 menus * 150px width, taller 60px menubar height
         })
 
         # Build menu_map with optional action callbacks for testing
         menu_map = build_menu_map()
 
+        # Custom theme with height 60 and Scenic's dark theme colors
+        custom_theme = %{
+          # Scenic's dark theme colors
+          background: :black,
+          text: :white,
+          hover_bg: {40, 40, 40},  # Scenic dark active color
+          hover_text: :white,
+          dropdown_bg: :black,
+          dropdown_text: :white,
+          dropdown_hover_bg: {40, 40, 40},
+          dropdown_hover_text: :white,
+          border: :light_grey,
+
+          # Custom dimensions for taller menu
+          menu_height: 60,
+          item_width: 150,
+          item_height: 35,  # Slightly taller dropdown items
+          padding: 8,
+
+          # Typography
+          font: :roboto_mono,
+          font_size: 18,  # Larger font for better readability
+
+          # Text Overflow
+          text_overflow: :ellipsis,
+          max_text_width: 120,
+          ellipsis_char: "..."
+        }
+
         %{
           frame: better_frame,
-          menu_map: menu_map
+          menu_map: menu_map,
+          theme: custom_theme
         }
 
       ScenicWidgets.IconButton ->

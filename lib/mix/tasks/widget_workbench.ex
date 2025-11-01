@@ -15,7 +15,8 @@ defmodule Mix.Tasks.WidgetWorkbench do
   """
   
   def run(_args) do
-    Mix.Task.run("app.start")
+    # Ensure all applications are started and kept running
+    Mix.Task.run("app.start", ["--permanent"])
 
     IO.puts("🎯 Starting Widget Workbench...")
 
@@ -58,8 +59,9 @@ defmodule Mix.Tasks.WidgetWorkbench do
     IO.puts("   - Press 'n' to create a new component")
     IO.puts("   - Click '+' button to add widgets")
     IO.puts("   - Use the UI to develop and test Scenic components")
+    IO.puts("   - Press Ctrl+C twice to exit")
 
-    # Keep the task running
-    Process.sleep(:infinity)
+    # Keep the task running indefinitely
+    :timer.sleep(:infinity)
   end
 end

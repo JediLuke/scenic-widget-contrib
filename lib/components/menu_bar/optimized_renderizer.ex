@@ -1,23 +1,60 @@
 defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
   @moduledoc """
   Optimized rendering logic for MenuBar that prevents flickering.
-  
+
   Key optimizations:
   1. Pre-render all dropdowns with hidden visibility
   2. Update only changed elements instead of full re-render
   3. Use graph modifications instead of rebuilding
   4. Batch updates to minimize redraws
   """
-  
+
   alias Scenic.Graph
   alias Scenic.Primitives
   alias ScenicWidgets.MenuBar.State
+  alias ScenicWidgets.MenuBar.TextHelper
   
-  @menu_height 40
-  @item_width 150
-  @dropdown_item_height 30
-  @dropdown_padding 5
-  
+  # Helper functions to extract theme dimensions
+  defp menu_height(%State{theme: theme}), do: Map.get(theme, :menu_height, 40)
+  defp item_width(%State{theme: theme}), do: Map.get(theme, :item_width, 150)
+  defp item_height(%State{theme: theme}), do: Map.get(theme, :item_height, 30)
+  defp padding(%State{theme: theme}), do: Map.get(theme, :padding, 5)
+  defp font(%State{theme: theme}), do: Map.get(theme, :font, :roboto_mono)
+  defp font_size(%State{theme: theme}), do: Map.get(theme, :font_size, 16)
+  defp max_text_width(%State{theme: theme}), do: Map.get(theme, :max_text_width, 120)
+  defp text_overflow(%State{theme: theme}), do: Map.get(theme, :text_overflow, :ellipsis)
+  defp ellipsis_char(%State{theme: theme}), do: Map.get(theme, :ellipsis_char, "...")
+
+  @doc """
+  Apply text overflow handling to a label based on theme settings.
+  Returns the potentially truncated text.
+  """
+  defp apply_text_overflow(label, state) do
+    case text_overflow(state) do
+      :none ->
+        label
+
+      :ellipsis ->
+        case TextHelper.truncate_text(label, max_text_width(state),
+               font: font(state),
+               font_size: font_size(state),
+               ellipsis: ellipsis_char(state)) do
+          {:ok, text} -> text
+          {:truncated, text} -> text
+          {:error, _} -> label  # Fallback to original if error
+        end
+
+      :truncate ->
+        # Simple character-based truncation without ellipsis
+        max_chars = div(max_text_width(state), font_size(state) * 0.6) |> trunc()
+        if String.length(label) > max_chars do
+          String.slice(label, 0, max_chars)
+        else
+          label
+        end
+    end
+  end
+
   @doc """
   Initial render - creates all elements with proper IDs for later updates.
   """
@@ -42,10 +79,10 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
   
   # Initial rendering functions
   
-  defp render_background(graph, %State{frame: frame, theme: theme}) do
+  defp render_background(graph, %State{frame: frame, theme: theme} = state) do
     graph
     |> Primitives.rect(
-      {frame.size.width, @menu_height},
+      {frame.size.width, menu_height(state)},
       fill: theme.background,
       translate: {frame.pin.x, frame.pin.y},
       id: :menubar_background
@@ -62,28 +99,37 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
   
   defp render_menu_header(graph, menu_id, label, index, %State{} = state) do
     # Use relative positioning starting from 0,0
-    x = index * @item_width
+    item_w = item_width(state)
+    menu_h = menu_height(state)
+    x = index * item_w
     y = 0
-    
+
+    # Apply text overflow handling
+    display_label = apply_text_overflow(label, state)
+
+    # Calculate text position (vertically centered based on font size)
+    text_y = y + (menu_h / 2) + (font_size(state) / 2.5) |> trunc()
+
     graph
     # Header background (for hover effect)
     |> Primitives.rect(
-      {@item_width, @menu_height},
+      {item_w, menu_h},
       fill: state.theme.background,
       translate: {x, y},
       id: {:menu_header_bg, menu_id}
     )
     # Header text
     |> Primitives.text(
-      label,
+      display_label,
       fill: Map.get(state.theme, :text, :white),
-      font: :roboto_mono,
-      translate: {x + 10, y + 26},
+      font: font(state),
+      font_size: font_size(state),
+      translate: {x + padding(state) * 2, text_y},
       id: {:menu_header_text, menu_id}
     )
     # Hit target for mouse events - captures input for hover and clicks
     |> Primitives.rect(
-      {@item_width, @menu_height},
+      {item_w, menu_h},
       fill: :transparent,
       translate: {x, y},
       id: {:menu_header_hit, menu_id},
@@ -103,11 +149,16 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
   
   defp render_dropdown_hidden(graph, menu_id, items, menu_index, %State{} = state) do
     # Use relative positioning
-    x = menu_index * @item_width
-    y = @menu_height
-    
-    dropdown_height = length(items) * @dropdown_item_height + (2 * @dropdown_padding)
-    
+    item_w = item_width(state)
+    menu_h = menu_height(state)
+    item_h = item_height(state)
+    pad = padding(state)
+
+    x = menu_index * item_w
+    y = menu_h
+
+    dropdown_height = length(items) * item_h + (2 * pad)
+
     # Add the dropdown group to main graph, initially hidden
     graph
     |> Primitives.group(
@@ -115,7 +166,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
         g
         # Dropdown background
         |> Primitives.rect(
-          {@item_width, dropdown_height},
+          {item_w, dropdown_height},
           fill: state.theme.dropdown_bg,
           stroke: {1, Map.get(state.theme, :border, :gray)},
           id: {:dropdown_bg, menu_id}
@@ -133,74 +184,86 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
     items
     |> Enum.with_index()
     |> Enum.reduce(graph, fn {item, index}, g ->
-      item_y = @dropdown_padding + (index * @dropdown_item_height)
+      item_y = padding(state) + (index * item_height(state))
       
       case item do
         {item_id, label, _action} when is_binary(item_id) ->
           # Regular menu item with action callback (3-tuple format)
+          display_label = apply_text_overflow(label, state)
+          text_y = item_y + (item_height(state) / 2) + (font_size(state) / 2.5) |> trunc()
+
           g
           # Item background (for hover) - captures input for interaction
           |> Primitives.rect(
-            {@item_width - 2 * @dropdown_padding, @dropdown_item_height},
+            {item_width(state) - 2 * padding(state), item_height(state)},
             fill: state.theme.dropdown_bg,
-            translate: {@dropdown_padding, item_y},
+            translate: {padding(state), item_y},
             id: {:dropdown_item_bg, menu_id, item_id},
             input: [:cursor_pos, :cursor_button]
           )
           # Item text
           |> Primitives.text(
-            label,
+            display_label,
             fill: Map.get(state.theme, :dropdown_text, :black),
-            font: :roboto_mono,
-            translate: {@dropdown_padding + 10, item_y + 20},
+            font: font(state),
+            font_size: font_size(state),
+            translate: {padding(state) * 2, text_y},
             id: {:dropdown_item_text, menu_id, item_id}
           )
 
         {item_id, label} when is_binary(item_id) ->
           # Regular menu item (2-tuple format)
+          display_label = apply_text_overflow(label, state)
+          text_y = item_y + (item_height(state) / 2) + (font_size(state) / 2.5) |> trunc()
+
           g
           # Item background (for hover) - captures input for interaction
           |> Primitives.rect(
-            {@item_width - 2 * @dropdown_padding, @dropdown_item_height},
+            {item_width(state) - 2 * padding(state), item_height(state)},
             fill: state.theme.dropdown_bg,
-            translate: {@dropdown_padding, item_y},
+            translate: {padding(state), item_y},
             id: {:dropdown_item_bg, menu_id, item_id},
             input: [:cursor_pos, :cursor_button]
           )
           # Item text
           |> Primitives.text(
-            label,
+            display_label,
             fill: Map.get(state.theme, :dropdown_text, :black),
-            font: :roboto_mono,
-            translate: {@dropdown_padding + 10, item_y + 20},
+            font: font(state),
+            font_size: font_size(state),
+            translate: {padding(state) * 2, text_y},
             id: {:dropdown_item_text, menu_id, item_id}
           )
         
         {:sub_menu, label, _sub_items} ->
           # Sub-menu item with arrow indicator
           sub_menu_id = "submenu_#{String.downcase(String.replace(label, " ", "_"))}"
+          display_label = apply_text_overflow(label, state)
+          text_y = item_y + (item_height(state) / 2) + (font_size(state) / 2.5) |> trunc()
+
           g
           # Item background (for hover)
           |> Primitives.rect(
-            {@item_width - 2 * @dropdown_padding, @dropdown_item_height},
+            {item_width(state) - 2 * padding(state), item_height(state)},
             fill: state.theme.dropdown_bg,
-            translate: {@dropdown_padding, item_y},
+            translate: {padding(state), item_y},
             id: {:dropdown_item_bg, menu_id, sub_menu_id},
             input: [:cursor_pos, :cursor_button]
           )
           # Item text
           |> Primitives.text(
-            label,
+            display_label,
             fill: Map.get(state.theme, :dropdown_text, :black),
-            font: :roboto_mono,
-            translate: {@dropdown_padding + 10, item_y + 20},
+            font: font(state),
+            font_size: font_size(state),
+            translate: {padding(state) * 2, text_y},
             id: {:dropdown_item_text, menu_id, sub_menu_id}
           )
           # Arrow indicator - draw a triangle instead of using text
           |> Primitives.triangle(
-            {{@item_width - @dropdown_padding - 20, item_y + 10},
-             {@item_width - @dropdown_padding - 20, item_y + 25},
-             {@item_width - @dropdown_padding - 10, item_y + 17.5}},
+            {{item_width(state) - padding(state) - 20, item_y + 10},
+             {item_width(state) - padding(state) - 20, item_y + 25},
+             {item_width(state) - padding(state) - 10, item_y + 17.5}},
             fill: Map.get(state.theme, :dropdown_text, :black),
             id: {:dropdown_item_arrow, menu_id, sub_menu_id}
           )
@@ -215,9 +278,9 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
       case item do
         {:sub_menu, label, sub_items} ->
           sub_menu_id = "submenu_#{String.downcase(String.replace(label, " ", "_"))}"
-          parent_x = menu_index * @item_width
-          parent_y = @menu_height + @dropdown_padding + (item_index * @dropdown_item_height)
-          
+          parent_x = menu_index * item_width(state)
+          parent_y = menu_height(state) + padding(state) + (item_index * item_height(state))
+
           render_sub_menu_hidden(g, sub_menu_id, sub_items, parent_x, parent_y, state)
         _ ->
           g
@@ -227,10 +290,10 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
   
   defp render_sub_menu_hidden(graph, sub_menu_id, items, parent_x, parent_y, state) do
     # Position sub-menu to the right of parent item
-    x = parent_x + @item_width - @dropdown_padding
+    x = parent_x + item_width(state) - padding(state)
     y = parent_y
 
-    dropdown_height = length(items) * @dropdown_item_height + (2 * @dropdown_padding)
+    dropdown_height = length(items) * item_height(state) + (2 * padding(state))
 
     # Add the sub-menu dropdown group, initially hidden
     graph = graph
@@ -239,7 +302,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
         g
         # Sub-dropdown background
         |> Primitives.rect(
-          {@item_width, dropdown_height},
+          {item_width(state), dropdown_height},
           fill: state.theme.dropdown_bg,
           stroke: {1, Map.get(state.theme, :border, :gray)},
           id: {:sub_dropdown_bg, sub_menu_id}
@@ -263,7 +326,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
       case item do
         {:sub_menu, label, sub_items} ->
           sub_menu_id = "submenu_#{String.downcase(String.replace(label, " ", "_"))}"
-          item_y = parent_y + @dropdown_padding + (item_index * @dropdown_item_height)
+          item_y = parent_y + padding(state) + (item_index * item_height(state))
 
           # Recursively render this nested sub-menu
           render_sub_menu_hidden(g, sub_menu_id, sub_items, parent_x, item_y, state)
@@ -273,24 +336,24 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
     end)
   end
   
-  defp add_interaction_layer(graph, %State{frame: frame, active_menu: active_menu, menu_map: menu_map}) do
+  defp add_interaction_layer(graph, %State{frame: frame, active_menu: active_menu, menu_map: menu_map} = state) do
     # Calculate height based on whether a dropdown is open
     height = if active_menu do
       # Get the items for the active menu
       case Map.get(menu_map, active_menu) do
         {_label, items} ->
-          dropdown_height = length(items) * @dropdown_item_height + (2 * @dropdown_padding)
-          @menu_height + dropdown_height
+          dropdown_height = length(items) * item_height(state) + (2 * padding(state))
+          menu_height(state) + dropdown_height
         _ ->
           frame.size.height
       end
     else
       frame.size.height
     end
-    
+
     require Logger
     Logger.debug("MenuBar interaction layer: translate={0, 0}, size={#{frame.size.width}, #{height}}")
-    
+
     # Don't capture input - let the parent handle all input routing
     graph
   end
@@ -419,15 +482,15 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
       height = if new_state.active_menu do
         case Map.get(new_state.menu_map, new_state.active_menu) do
           {_label, items} ->
-            dropdown_height = length(items) * @dropdown_item_height + (2 * @dropdown_padding)
-            @menu_height + dropdown_height
+            dropdown_height = length(items) * item_height(new_state) + (2 * padding(new_state))
+            menu_height(new_state) + dropdown_height
           _ ->
             new_state.frame.size.height
         end
       else
         new_state.frame.size.height
       end
-      
+
       # Update the interaction layer size
       Graph.modify(graph, :menubar_interaction_layer, fn primitive ->
         {width, _old_height} = primitive.data
@@ -534,16 +597,16 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
   
   defp render_sub_menu(graph, menu_id, sub_menu_id, state) do
     # Find the sub-menu data
-    case find_sub_menu_data(state.menu_map, menu_id, sub_menu_id) do
-      nil -> 
+    case find_sub_menu_data(state.menu_map, menu_id, sub_menu_id, state) do
+      nil ->
         graph
       {sub_menu_items, parent_bounds} ->
         # Calculate position relative to parent item
-        x = parent_bounds.x + parent_bounds.width - @dropdown_padding
+        x = parent_bounds.x + parent_bounds.width - padding(state)
         y = parent_bounds.y
-        
-        dropdown_height = length(sub_menu_items) * @dropdown_item_height + (2 * @dropdown_padding)
-        
+
+        dropdown_height = length(sub_menu_items) * item_height(state) + (2 * padding(state))
+
         # Add the sub-menu dropdown
         graph
         |> Primitives.group(
@@ -551,7 +614,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
             g
             # Sub-dropdown background
             |> Primitives.rect(
-              {@item_width, dropdown_height},
+              {item_width(state), dropdown_height},
               fill: state.theme.dropdown_bg,
               stroke: {1, Map.get(state.theme, :border, :gray)},
               id: {:sub_dropdown_bg, sub_menu_id}
@@ -566,7 +629,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
     end
   end
   
-  defp find_sub_menu_data(menu_map, menu_id, sub_menu_id) do
+  defp find_sub_menu_data(menu_map, menu_id, sub_menu_id, state) do
     case Map.get(menu_map, menu_id) do
       {_label, items} ->
         # First check direct children
@@ -574,20 +637,20 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
           {item_index, sub_items} ->
             # Found as direct child - calculate bounds
             menu_index = menu_map |> Map.keys() |> Enum.find_index(&(&1 == menu_id))
-            parent_x = (menu_index || 0) * @item_width
-            parent_y = @menu_height + @dropdown_padding + (item_index * @dropdown_item_height)
+            parent_x = (menu_index || 0) * item_width(state)
+            parent_y = menu_height(state) + padding(state) + (item_index * item_height(state))
 
             bounds = %{
               x: parent_x,
               y: parent_y,
-              width: @item_width,
-              height: @dropdown_item_height
+              width: item_width(state),
+              height: item_height(state)
             }
             {sub_items, bounds}
 
           nil ->
             # Not a direct child - search recursively in nested sub-menus
-            find_nested_sub_menu_data(items, sub_menu_id, 0, @menu_height)
+            find_nested_sub_menu_data(items, sub_menu_id, 0, menu_height(state), state)
         end
       _ ->
         nil
@@ -612,28 +675,28 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
   end
 
   # Recursively search for sub-menu in nested structure
-  defp find_nested_sub_menu_data(items, target_id, base_x, base_y) do
+  defp find_nested_sub_menu_data(items, target_id, base_x, base_y, state) do
     items
     |> Enum.with_index()
     |> Enum.find_value(fn {item, index} ->
       case item do
         {:sub_menu, label, sub_items} ->
           item_id = "submenu_#{String.downcase(String.replace(label, " ", "_"))}"
-          item_y = base_y + @dropdown_padding + (index * @dropdown_item_height)
+          item_y = base_y + padding(state) + (index * item_height(state))
 
           if item_id == target_id do
             # Found it!
             bounds = %{
               x: base_x,
               y: item_y,
-              width: @item_width,
-              height: @dropdown_item_height
+              width: item_width(state),
+              height: item_height(state)
             }
             {sub_items, bounds}
           else
             # Not this one, search deeper
-            next_x = base_x + @item_width - @dropdown_padding
-            find_nested_sub_menu_data(sub_items, target_id, next_x, item_y)
+            next_x = base_x + item_width(state) - padding(state)
+            find_nested_sub_menu_data(sub_items, target_id, next_x, item_y, state)
           end
         _ ->
           nil
@@ -645,74 +708,86 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
     items
     |> Enum.with_index()
     |> Enum.reduce(graph, fn {item, index}, g ->
-      item_y = @dropdown_padding + (index * @dropdown_item_height)
-      
+      item_y = padding(state) + (index * item_height(state))
+
       case item do
         {item_id, label, _action} when is_binary(item_id) ->
           # Regular sub-menu item with action callback (3-tuple format)
+          display_label = apply_text_overflow(label, state)
+          text_y = item_y + (item_height(state) / 2) + (font_size(state) / 2.5) |> trunc()
+
           g
           # Item background (for hover)
           |> Primitives.rect(
-            {@item_width - 2 * @dropdown_padding, @dropdown_item_height},
+            {item_width(state) - 2 * padding(state), item_height(state)},
             fill: state.theme.dropdown_bg,
-            translate: {@dropdown_padding, item_y},
+            translate: {padding(state), item_y},
             id: {:sub_dropdown_item_bg, sub_menu_id, item_id},
             input: [:cursor_pos, :cursor_button]
           )
           # Item text
           |> Primitives.text(
-            label,
+            display_label,
             fill: Map.get(state.theme, :dropdown_text, :black),
-            font: :roboto_mono,
-            translate: {@dropdown_padding + 10, item_y + 20},
+            font: font(state),
+            font_size: font_size(state),
+            translate: {padding(state) * 2, text_y},
             id: {:sub_dropdown_item_text, sub_menu_id, item_id}
           )
 
         {item_id, label} when is_binary(item_id) ->
           # Regular sub-menu item (2-tuple format)
+          display_label = apply_text_overflow(label, state)
+          text_y = item_y + (item_height(state) / 2) + (font_size(state) / 2.5) |> trunc()
+
           g
           # Item background (for hover)
           |> Primitives.rect(
-            {@item_width - 2 * @dropdown_padding, @dropdown_item_height},
+            {item_width(state) - 2 * padding(state), item_height(state)},
             fill: state.theme.dropdown_bg,
-            translate: {@dropdown_padding, item_y},
+            translate: {padding(state), item_y},
             id: {:sub_dropdown_item_bg, sub_menu_id, item_id},
             input: [:cursor_pos, :cursor_button]
           )
           # Item text
           |> Primitives.text(
-            label,
+            display_label,
             fill: Map.get(state.theme, :dropdown_text, :black),
-            font: :roboto_mono,
-            translate: {@dropdown_padding + 10, item_y + 20},
+            font: font(state),
+            font_size: font_size(state),
+            translate: {padding(state) * 2, text_y},
             id: {:sub_dropdown_item_text, sub_menu_id, item_id}
           )
-          
+
         {:sub_menu, label, _sub_sub_items} ->
           # Sub-sub-menu item (with arrow)
           sub_sub_menu_id = "submenu_#{String.downcase(String.replace(label, " ", "_"))}"
+          display_label = apply_text_overflow(label, state)
+          text_y = item_y + (item_height(state) / 2) + (font_size(state) / 2.5) |> trunc()
+
           g
           # Item background (for hover)
           |> Primitives.rect(
-            {@item_width - 2 * @dropdown_padding, @dropdown_item_height},
+            {item_width(state) - 2 * padding(state), item_height(state)},
             fill: state.theme.dropdown_bg,
-            translate: {@dropdown_padding, item_y},
+            translate: {padding(state), item_y},
             id: {:sub_dropdown_item_bg, sub_menu_id, sub_sub_menu_id},
             input: [:cursor_pos, :cursor_button]
           )
           # Item text
           |> Primitives.text(
-            label,
+            display_label,
             fill: Map.get(state.theme, :dropdown_text, :black),
-            font: :roboto_mono,
-            translate: {@dropdown_padding + 10, item_y + 20},
+            font: font(state),
+            font_size: font_size(state),
+            translate: {padding(state) * 2, text_y},
             id: {:sub_dropdown_item_text, sub_menu_id, sub_sub_menu_id}
           )
           # Arrow indicator - draw a triangle (pointing right)
           |> Primitives.triangle(
-            {{@item_width - @dropdown_padding - 20, item_y + 10},
-             {@item_width - @dropdown_padding - 20, item_y + 25},
-             {@item_width - @dropdown_padding - 10, item_y + 17.5}},
+            {{item_width(state) - padding(state) - 20, item_y + 10},
+             {item_width(state) - padding(state) - 20, item_y + 25},
+             {item_width(state) - padding(state) - 10, item_y + 17.5}},
             fill: Map.get(state.theme, :dropdown_text, :black),
             id: {:sub_dropdown_item_arrow, sub_menu_id, sub_sub_menu_id}
           )
