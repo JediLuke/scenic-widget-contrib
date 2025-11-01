@@ -1824,9 +1824,16 @@ defmodule WidgetWorkbench.Scene do
           {"recent_1", "Document 1.txt"},
           {"recent_2", "Project Notes.md"},
           {:sub_menu, "By Project", [
-            {"proj_a_file1", "Project A - README.md"},
-            {"proj_a_file2", "Project A - main.ex"},
-            {"proj_b_file1", "Project B - config.exs"}
+            {:sub_menu, "Project A", [
+              {"proj_a_readme", "README.md"},
+              {"proj_a_main", "main.ex"},
+              {"proj_a_config", "config.exs"}
+            ]},
+            {:sub_menu, "Project B", [
+              {"proj_b_app", "application.ex"},
+              {"proj_b_server", "server.ex"}
+            ]},
+            {"all_projects", "All Projects..."}
           ]}
         ]},
         {"save_file", "Save"},

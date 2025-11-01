@@ -11,8 +11,8 @@ defmodule ScenicWidgets.MenuBar.Reducer do
   """
   def handle_cursor_pos(%State{} = state, coords) do
     require Logger
-    Logger.debug("Reducer.handle_cursor_pos: coords=#{inspect(coords)}, active_menu=#{inspect(state.active_menu)}")
-    
+    Logger.debug("Reducer.handle_cursor_pos: coords=#{inspect(coords)}, active_menu=#{inspect(state.active_menu)}, active_sub_menus=#{inspect(state.active_sub_menus)}")
+
     cond do
       # Check if cursor is in menu bar
       State.point_in_menu_bar?(state, coords) ->
@@ -110,24 +110,50 @@ defmodule ScenicWidgets.MenuBar.Reducer do
                 }
               {true, {item_id, :item}} ->
                 # Regular menu item (not a sub-menu)
-                # Close any sub-menus for the current active menu
+                # Close any sub-menus for the current active menu AND their children
                 Logger.debug("Hovering over regular item: #{inspect(item_id)}, clearing sub-menus for #{inspect(state.active_menu)}")
+
+                # Get the child sub-menu of the active menu (if any) and close it recursively
+                new_sub_menus = case Map.get(state.active_sub_menus, state.active_menu) do
+                  nil -> state.active_sub_menus
+                  child_sub_menu_id ->
+                    # Close this child and all its descendants
+                    close_sub_menu_and_children(state.active_sub_menus, child_sub_menu_id)
+                    |> Map.delete(state.active_menu)
+                end
+
                 %{state |
                   hovered_dropdown: {state.active_menu, item_id},
                   hovered_item: state.active_menu,
-                  active_sub_menus: Map.delete(state.active_sub_menus, state.active_menu)
+                  active_sub_menus: new_sub_menus
                 }
               {true, nil} ->
                 # In dropdown area but not over a specific item
-                # Clear sub-menus for this dropdown
+                # Clear sub-menus for this dropdown AND their children
+                new_sub_menus = case Map.get(state.active_sub_menus, state.active_menu) do
+                  nil -> state.active_sub_menus
+                  child_sub_menu_id ->
+                    close_sub_menu_and_children(state.active_sub_menus, child_sub_menu_id)
+                    |> Map.delete(state.active_menu)
+                end
+
                 %{state |
                   hovered_dropdown: nil,
-                  active_sub_menus: Map.delete(state.active_sub_menus, state.active_menu)
+                  active_sub_menus: new_sub_menus
                 }
               {false, _} ->
                 # Mouse left dropdown area - check if we should close it
+                # IMPORTANT: Don't close if we have active sub-menus (user might be moving to them)
                 if outside_menu_area?(state, coords) do
-                  %{state | active_menu: nil, hovered_item: nil, hovered_dropdown: nil, active_sub_menus: %{}}
+                  Logger.debug("Outside menu area, active_sub_menus: #{inspect(state.active_sub_menus)}")
+                  if map_size(state.active_sub_menus) > 0 do
+                    # Keep menus open if sub-menus are active
+                    Logger.debug("Keeping menus open due to active sub-menus")
+                    %{state | hovered_dropdown: nil}
+                  else
+                    Logger.debug("Closing all menus")
+                    %{state | active_menu: nil, hovered_item: nil, hovered_dropdown: nil, active_sub_menus: %{}}
+                  end
                 else
                   # Mouse might be in grace area between dropdown and sub-menu
                   %{state | hovered_dropdown: nil}
@@ -209,34 +235,37 @@ defmodule ScenicWidgets.MenuBar.Reducer do
   
   defp outside_menu_area?(%State{frame: frame, dropdown_bounds: bounds, active_menu: menu_id, active_sub_menus: sub_menus} = state, {x, y}) do
     dropdown = Map.get(bounds, menu_id)
-    
+
     # Check if outside menu bar (relative to component origin)
     outside_menu_bar = y < 0 || y > 40 ||
                       x < 0 || x > frame.size.width
-    
+
     # Check if outside dropdown (if one is open)
     outside_dropdown = if dropdown do
       # Base dropdown bounds
       in_dropdown = x >= dropdown.x && x <= dropdown.x + dropdown.width &&
                    y >= dropdown.y && y <= dropdown.y + dropdown.height
-      
+
       # Check if we're in any active sub-menu area
-      # When a sub-menu is active, expand the valid area to include the gap between menus
+      # When a sub-menu is active, expand the valid area SIGNIFICANTLY to include nested menus
       in_submenu_area = if map_size(sub_menus) > 0 do
-        # For now, just add a grace area to the right of the dropdown when sub-menus are active
-        # This allows diagonal mouse movement
-        grace_width = 100  # pixels of grace area
+        # Calculate grace area based on nesting depth
+        # Each level adds 150px (width of a menu), plus extra room for mouse movement
+        nesting_depth = map_size(sub_menus)
+        grace_width = nesting_depth * 150 + 200  # Extra padding for safety
+
+        # Expand the valid area to the right to accommodate nested menus
         x >= dropdown.x && x <= dropdown.x + dropdown.width + grace_width &&
-        y >= dropdown.y && y <= dropdown.y + dropdown.height
+        y >= dropdown.y - 50 && y <= dropdown.y + dropdown.height + 50  # Vertical grace too
       else
         false
       end
-      
+
       not (in_dropdown or in_submenu_area)
     else
       true
     end
-    
+
     outside_menu_bar && outside_dropdown
   end
   

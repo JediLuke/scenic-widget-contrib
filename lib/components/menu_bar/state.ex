@@ -175,14 +175,23 @@ defmodule ScenicWidgets.MenuBar.State do
   This checks ALL active sub-menus in the active_sub_menus map, supporting deep nesting.
   """
   def point_in_sub_menu?(%{active_sub_menus: sub_menus} = state, {x, y}) when map_size(sub_menus) > 0 do
+    require Logger
     # Check each active sub-menu (at any level)
     # The map contains parent_id => sub_menu_id pairs at all levels
-    Enum.find_value(sub_menus, :not_in_sub_menu, fn {parent_id, sub_menu_id} ->
+    result = Enum.find_value(sub_menus, :not_in_sub_menu, fn {parent_id, sub_menu_id} ->
       case check_point_in_specific_sub_menu(state, parent_id, sub_menu_id, {x, y}) do
-        {:ok, result} -> {:ok, result}
+        {:ok, result} ->
+          Logger.debug("Found point in sub-menu: parent=#{inspect(parent_id)}, sub=#{inspect(sub_menu_id)}, result=#{inspect(result)}")
+          {:ok, result}
         :not_in_sub_menu -> nil  # Continue searching
       end
     end)
+
+    if result == :not_in_sub_menu do
+      Logger.debug("Point #{inspect({x, y})} not in any sub-menu. Active sub-menus: #{inspect(Map.keys(sub_menus))}")
+    end
+
+    result
   end
   def point_in_sub_menu?(_state, _coords), do: :not_in_sub_menu
 
@@ -251,6 +260,7 @@ defmodule ScenicWidgets.MenuBar.State do
     # This is a recursive problem: parent_sub_menu_id could itself be nested multiple levels deep
 
     item_width = 150
+    menu_height = 40  # Standard menu bar height
     dropdown_item_height = 30
     dropdown_padding = 5
 
@@ -264,7 +274,7 @@ defmodule ScenicWidgets.MenuBar.State do
 
         # Recursively search for the parent_sub_menu_id starting from main items
         # Once found, we'll know its position
-        case find_sub_menu_in_items(main_items, parent_sub_menu_id, {base_x, @menu_height, item_width}) do
+        case find_sub_menu_in_items(main_items, parent_sub_menu_id, {base_x, menu_height, item_width}) do
           nil -> nil
           {parent_x, parent_y, parent_items} ->
             # Now find the target sub-menu within the parent's items
