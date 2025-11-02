@@ -290,6 +290,7 @@ defmodule WidgetWorkbench.Scene do
           # Custom dimensions for taller menu
           menu_height: 60,
           item_width: 150,
+          sub_menu_width: 240,  # 60% wider than main menus (150 * 1.6)
           item_height: 35,  # Slightly taller dropdown items
           padding: 8,
 
@@ -299,7 +300,7 @@ defmodule WidgetWorkbench.Scene do
 
           # Text Overflow
           text_overflow: :ellipsis,
-          max_text_width: 120,
+          max_text_width: 200,  # Wider for sub-menus
           ellipsis_char: "..."
         }
 
@@ -1445,23 +1446,66 @@ defmodule WidgetWorkbench.Scene do
     # Hide the modal
     graph = hide_modal(scene.assigns.graph)
 
-    # Create new component files
-    # TODO this isnt how that works
-    # component_files = Flamelex.GUI.DevTools.build_new_component(component_name)
-    # :ok = Flamelex.GUI.DevTools.build_new_component(component_name)
-    {:ok, component} = WidgetWorkbench.ComponentBuilder.build_new_component(component_name)
+    # Create new component files using the new ComponentGenerator
+    case WidgetWorkbench.ComponentGenerator.generate(component_name) do
+      {:ok, created_files} ->
+        Logger.info("Successfully created component files: #{inspect(created_files)}")
 
-    # TODO open the new component
-    GenServer.cast(self(), {:open_widget, component})
+        # Re-discover components to pick up the newly created one
+        new_components = discover_components()
 
-    scene =
-      scene
-      |> assign(graph: graph)
-      |> assign(modal_visible: false)
-      # |> assign(component_files: component_files)
-      |> push_graph(graph)
+        # Find the newly created component module
+        module_name = Macro.camelize(component_name)
+        new_component = Enum.find(new_components, fn {name, _mod} ->
+          String.replace(name, " ", "") == module_name
+        end)
 
-    {:noreply, scene}
+        # Load the new component automatically
+        {loaded_component, new_graph} = case new_component do
+          {_name, module} ->
+            Logger.info("Auto-loading newly created component: #{inspect(module)}")
+            component_frame = Frame.new(%{pin: {100, 100}, size: {400, 300}})
+
+            # Check if the component module defines add_to_graph/3
+            updated_graph = if function_exported?(module, :add_to_graph, 3) do
+              graph
+              |> module.add_to_graph(
+                prepare_component_data(module, component_frame),
+                id: :loaded_component,
+                translate: {100, 100}
+              )
+            else
+              Logger.warn("Component #{inspect(module)} does not export add_to_graph/3")
+              graph
+            end
+
+            {module, updated_graph}
+          nil ->
+            Logger.warn("Could not find newly created component in discovered list")
+            {nil, graph}
+        end
+
+        scene =
+          scene
+          |> assign(graph: new_graph)
+          |> assign(modal_visible: false)
+          |> assign(selected_component: loaded_component)
+          |> push_graph(new_graph)
+
+        {:noreply, scene}
+
+      {:error, reason} ->
+        Logger.error("Failed to create component: #{reason}")
+
+        # Still hide modal and show error (TODO: show error in UI)
+        scene =
+          scene
+          |> assign(graph: graph)
+          |> assign(modal_visible: false)
+          |> push_graph(graph)
+
+        {:noreply, scene}
+    end
   end
 
   def handle_event(:modal_cancelled, _from, scene) do

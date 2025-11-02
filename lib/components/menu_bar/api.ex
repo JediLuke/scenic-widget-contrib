@@ -66,14 +66,14 @@ defmodule ScenicWidgets.MenuBar.Api do
   @doc """
   Update the theme.
 
-  When theme dimensions change (menu_height, item_width, item_height, padding),
+  When theme dimensions change (menu_height, item_width, sub_menu_width, item_height, padding),
   dropdown bounds are recalculated to reflect the new dimensions.
   """
   def update_theme(%State{} = state, theme_updates) do
     new_theme = Map.merge(state.theme, theme_updates)
 
     # Check if any dimension-related theme properties changed
-    dimension_keys = [:menu_height, :item_width, :item_height, :padding]
+    dimension_keys = [:menu_height, :item_width, :sub_menu_width, :item_height, :padding]
     dimensions_changed? = Enum.any?(dimension_keys, &Map.has_key?(theme_updates, &1))
 
     if dimensions_changed? do

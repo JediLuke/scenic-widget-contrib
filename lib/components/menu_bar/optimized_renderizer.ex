@@ -17,6 +17,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
   # Helper functions to extract theme dimensions
   defp menu_height(%State{theme: theme}), do: Map.get(theme, :menu_height, 40)
   defp item_width(%State{theme: theme}), do: Map.get(theme, :item_width, 150)
+  defp sub_menu_width(%State{theme: theme}), do: Map.get(theme, :sub_menu_width, 150)
   defp item_height(%State{theme: theme}), do: Map.get(theme, :item_height, 30)
   defp padding(%State{theme: theme}), do: Map.get(theme, :padding, 5)
   defp font(%State{theme: theme}), do: Map.get(theme, :font, :roboto_mono)
@@ -150,11 +151,12 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
   defp render_dropdown_hidden(graph, menu_id, items, menu_index, %State{} = state) do
     # Use relative positioning
     item_w = item_width(state)
+    sub_w = sub_menu_width(state)
     menu_h = menu_height(state)
     item_h = item_height(state)
     pad = padding(state)
 
-    x = menu_index * item_w
+    x = menu_index * item_w  # Position based on menu header width
     y = menu_h
 
     dropdown_height = length(items) * item_h + (2 * pad)
@@ -164,9 +166,9 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
     |> Primitives.group(
       fn g ->
         g
-        # Dropdown background
+        # Dropdown background - use sub_menu_width for all dropdowns
         |> Primitives.rect(
-          {item_w, dropdown_height},
+          {sub_w, dropdown_height},
           fill: state.theme.dropdown_bg,
           stroke: {1, Map.get(state.theme, :border, :gray)},
           id: {:dropdown_bg, menu_id}
@@ -195,7 +197,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
           g
           # Item background (for hover) - captures input for interaction
           |> Primitives.rect(
-            {item_width(state) - 2 * padding(state), item_height(state)},
+            {sub_menu_width(state) - 2 * padding(state), item_height(state)},
             fill: state.theme.dropdown_bg,
             translate: {padding(state), item_y},
             id: {:dropdown_item_bg, menu_id, item_id},
@@ -219,7 +221,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
           g
           # Item background (for hover) - captures input for interaction
           |> Primitives.rect(
-            {item_width(state) - 2 * padding(state), item_height(state)},
+            {sub_menu_width(state) - 2 * padding(state), item_height(state)},
             fill: state.theme.dropdown_bg,
             translate: {padding(state), item_y},
             id: {:dropdown_item_bg, menu_id, item_id},
@@ -234,7 +236,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
             translate: {padding(state) * 2, text_y},
             id: {:dropdown_item_text, menu_id, item_id}
           )
-        
+
         {:sub_menu, label, _sub_items} ->
           # Sub-menu item with arrow indicator
           sub_menu_id = "submenu_#{String.downcase(String.replace(label, " ", "_"))}"
@@ -244,7 +246,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
           g
           # Item background (for hover)
           |> Primitives.rect(
-            {item_width(state) - 2 * padding(state), item_height(state)},
+            {sub_menu_width(state) - 2 * padding(state), item_height(state)},
             fill: state.theme.dropdown_bg,
             translate: {padding(state), item_y},
             id: {:dropdown_item_bg, menu_id, sub_menu_id},
@@ -261,9 +263,9 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
           )
           # Arrow indicator - draw a triangle instead of using text
           |> Primitives.triangle(
-            {{item_width(state) - padding(state) - 20, item_y + 10},
-             {item_width(state) - padding(state) - 20, item_y + 25},
-             {item_width(state) - padding(state) - 10, item_y + 17.5}},
+            {{sub_menu_width(state) - padding(state) - 20, item_y + 10},
+             {sub_menu_width(state) - padding(state) - 20, item_y + 25},
+             {sub_menu_width(state) - padding(state) - 10, item_y + 17.5}},
             fill: Map.get(state.theme, :dropdown_text, :black),
             id: {:dropdown_item_arrow, menu_id, sub_menu_id}
           )
@@ -290,7 +292,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
   
   defp render_sub_menu_hidden(graph, sub_menu_id, items, parent_x, parent_y, state) do
     # Position sub-menu to the right of parent item
-    x = parent_x + item_width(state) - padding(state)
+    x = parent_x + sub_menu_width(state) - padding(state)
     y = parent_y
 
     dropdown_height = length(items) * item_height(state) + (2 * padding(state))
@@ -302,7 +304,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
         g
         # Sub-dropdown background
         |> Primitives.rect(
-          {item_width(state), dropdown_height},
+          {sub_menu_width(state), dropdown_height},
           fill: state.theme.dropdown_bg,
           stroke: {1, Map.get(state.theme, :border, :gray)},
           id: {:sub_dropdown_bg, sub_menu_id}
@@ -614,7 +616,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
             g
             # Sub-dropdown background
             |> Primitives.rect(
-              {item_width(state), dropdown_height},
+              {sub_menu_width(state), dropdown_height},
               fill: state.theme.dropdown_bg,
               stroke: {1, Map.get(state.theme, :border, :gray)},
               id: {:sub_dropdown_bg, sub_menu_id}
@@ -689,13 +691,13 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
             bounds = %{
               x: base_x,
               y: item_y,
-              width: item_width(state),
+              width: sub_menu_width(state),
               height: item_height(state)
             }
             {sub_items, bounds}
           else
             # Not this one, search deeper
-            next_x = base_x + item_width(state) - padding(state)
+            next_x = base_x + sub_menu_width(state) - padding(state)
             find_nested_sub_menu_data(sub_items, target_id, next_x, item_y, state)
           end
         _ ->
@@ -719,7 +721,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
           g
           # Item background (for hover)
           |> Primitives.rect(
-            {item_width(state) - 2 * padding(state), item_height(state)},
+            {sub_menu_width(state) - 2 * padding(state), item_height(state)},
             fill: state.theme.dropdown_bg,
             translate: {padding(state), item_y},
             id: {:sub_dropdown_item_bg, sub_menu_id, item_id},
@@ -743,7 +745,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
           g
           # Item background (for hover)
           |> Primitives.rect(
-            {item_width(state) - 2 * padding(state), item_height(state)},
+            {sub_menu_width(state) - 2 * padding(state), item_height(state)},
             fill: state.theme.dropdown_bg,
             translate: {padding(state), item_y},
             id: {:sub_dropdown_item_bg, sub_menu_id, item_id},
@@ -768,7 +770,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
           g
           # Item background (for hover)
           |> Primitives.rect(
-            {item_width(state) - 2 * padding(state), item_height(state)},
+            {sub_menu_width(state) - 2 * padding(state), item_height(state)},
             fill: state.theme.dropdown_bg,
             translate: {padding(state), item_y},
             id: {:sub_dropdown_item_bg, sub_menu_id, sub_sub_menu_id},
@@ -785,9 +787,9 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
           )
           # Arrow indicator - draw a triangle (pointing right)
           |> Primitives.triangle(
-            {{item_width(state) - padding(state) - 20, item_y + 10},
-             {item_width(state) - padding(state) - 20, item_y + 25},
-             {item_width(state) - padding(state) - 10, item_y + 17.5}},
+            {{sub_menu_width(state) - padding(state) - 20, item_y + 10},
+             {sub_menu_width(state) - padding(state) - 20, item_y + 25},
+             {sub_menu_width(state) - padding(state) - 10, item_y + 17.5}},
             fill: Map.get(state.theme, :dropdown_text, :black),
             id: {:sub_dropdown_item_arrow, sub_menu_id, sub_sub_menu_id}
           )
