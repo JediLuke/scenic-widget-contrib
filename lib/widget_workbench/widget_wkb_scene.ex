@@ -354,6 +354,14 @@ defmodule WidgetWorkbench.Scene do
           ]
         }
 
+      ScenicWidgets.TextField ->
+        # TextField needs frame with (0,0) pin since we position via translate
+        text_field_frame = Frame.new(%{
+          pin: {0, 0},  # Start at origin - translate will position it
+          size: component_frame.size
+        })
+        %{frame: text_field_frame}
+
       _ ->
         # Default: try frame parameter
         component_frame

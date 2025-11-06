@@ -282,18 +282,22 @@ defmodule ScenicWidgets.TestHelpers.SemanticUI do
           "Tab Bar", "Test Pattern", "Text Button"
         ]
 
-        # Based on actual directory listing, Menu Bar is at index 3
-        # (buttons=0, input_modal=1, inputmodal=2, menu_bar=3)
+        # Based on alphabetical directory listing from lib/components/
+        # Components are discovered and sorted alphabetically by display name
         case component_name do
-          "Menu Bar" -> 3  # menu_bar directory is 4th in alphabetical order (0-indexed)
           "Buttons" -> 0
-          "Input Modal" -> 1
-          "Inputmodal" -> 2
-          "Scroll Bars" -> 4
-          "Side Nav" -> 5
-          "Tab Bar" -> 7
-          "Ubuntu Bar" -> 8
-          _ -> 3  # Default to Menu Bar position
+          "Frame Box" -> 1
+          "Input Modal" -> 2
+          "Markup Widgets" -> 3
+          "Menu Bar" -> 4
+          "Scroll Bars" -> 5
+          "Side Nav" -> 6
+          "Sidebar" -> 7
+          "Spare Parts" -> 8
+          "Tab Bar" -> 9
+          "Text Field" -> 10  # text_field directory = "Text Field"
+          "Ubuntu Bar" -> 11
+          _ -> 0  # Default to first position
         end
       else
         4  # Default fallback
@@ -302,12 +306,50 @@ defmodule ScenicWidgets.TestHelpers.SemanticUI do
       # Calculate Y position for this component's button
       button_y = modal_y + 60 + (button_height + button_margin) * component_index
 
-      # Calculate centroid of the button
-      centroid_x = round(button_x + button_width / 2)
-      centroid_y = round(button_y + button_height / 2)
+      # Check if we need to scroll to make this component visible
+      # Modal list visible area: modal_y + 60 to modal_y + modal_height - 55
+      list_top = modal_y + 60
+      list_bottom = modal_y + modal_height - 55
+
+      # If button is below visible area, we need to scroll
+      {centroid_x, centroid_y} = if button_y + button_height > list_bottom do
+        # Calculate how many scroll events we need
+        # Each scroll moves by ~45px (button height + margin)
+        scroll_needed = button_y + button_height - list_bottom
+        scroll_events = ceil(scroll_needed / (button_height + button_margin))
+
+        IO.puts("📜 Component #{component_name} at index #{component_index} is below visible area")
+        IO.puts("    Need to scroll down #{scroll_events} times to make it visible")
+
+        # Scroll down by sending down arrow keys
+        IO.puts("    Sending #{scroll_events} down arrow keys...")
+        for i <- 1..scroll_events do
+          ScenicMcp.Probes.send_keys("down", [])
+          IO.puts("      Scroll #{i}/#{scroll_events}")
+          Process.sleep(100)  # Slower to ensure each scroll registers
+        end
+        Process.sleep(300)  # Let the scroll settle
+
+        # After scrolling, the target component should be visible
+        # After scrolling N times, the list has shifted up by N * (button_height + margin)
+        # So the button's new visible Y position is:
+        adjusted_button_y = button_y - (scroll_events * (button_height + button_margin))
+
+        x = round(button_x + button_width / 2)
+        y = round(adjusted_button_y + button_height / 2)
+
+        IO.puts("    After #{scroll_events} scrolls, button should be at Y: #{round(adjusted_button_y)}")
+        IO.puts("    Will click at centroid: (#{x}, #{y})")
+        {x, y}
+      else
+        # Button is already visible, use calculated position
+        x = round(button_x + button_width / 2)
+        y = round(button_y + button_height / 2)
+        {x, y}
+      end
 
       IO.puts("🖱️  Clicking #{component_name} button in modal")
-      IO.puts("     Button bounds: x=#{round(button_x)}, y=#{round(button_y)}, w=#{button_width}, h=#{button_height}")
+      IO.puts("     Original button Y: #{round(button_y)}")
       IO.puts("     Clicking at centroid: (#{centroid_x}, #{centroid_y})")
 
       click_at_position(centroid_x, centroid_y)
@@ -339,6 +381,16 @@ defmodule ScenicWidgets.TestHelpers.SemanticUI do
           {:ok, %{component: component_name, menu_items: found_items, loaded: true}}
         else
           {:error, "MenuBar not loaded. Expected menu items, got: #{inspect(String.slice(rendered_content, 0, 300))}"}
+        end
+
+      "Text Field" ->
+        # TextField now starts empty (for testing)
+        # Just verify the component loaded without errors - we'll check functionality in tests
+        # The workbench UI shows "+" characters which indicates the TextField is rendered
+        if not String.contains?(rendered_content, "Error") do
+          {:ok, %{component: component_name, loaded: true}}
+        else
+          {:error, "TextField failed to load. Got: #{inspect(String.slice(rendered_content, 0, 300))}"}
         end
 
       _ ->

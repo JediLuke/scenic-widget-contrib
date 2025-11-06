@@ -111,17 +111,8 @@ defmodule ScenicWidgets.TextField.State do
     String.split(text, "\n")
   end
   defp parse_initial_text(_) do
-    # Default text for Widget Workbench demo
-    [
-      "Hello from TextField!",
-      "This is a multi-line text editor.",
-      "",
-      "Phase 1 features:",
-      "- Multi-line display",
-      "- Blinking cursor",
-      "- Line numbers (optional)",
-      "- Configurable colors"
-    ]
+    # Default to empty for testing
+    [""]
   end
 
   defp default_font do
@@ -148,10 +139,13 @@ defmodule ScenicWidgets.TextField.State do
 
   @doc """
   Check if point is inside TextField bounds.
+  Coordinates are in component-local space (Scenic transforms them).
   """
   def point_inside?(%__MODULE__{frame: frame}, {x, y}) do
-    x >= frame.pin.x and x <= frame.pin.x + frame.size.width and
-    y >= frame.pin.y and y <= frame.pin.y + frame.size.height
+    # When component is added with translate, Scenic transforms input coords to local space
+    # So we check against (0,0) origin, not frame.pin
+    x >= 0 and x <= frame.size.width and
+    y >= 0 and y <= frame.size.height
   end
 
   @doc """

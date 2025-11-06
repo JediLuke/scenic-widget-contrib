@@ -10,8 +10,8 @@ Code.ensure_compiled(WidgetWorkbench)
 Code.ensure_compiled(WidgetWorkbench.Scene)
 
 # Load test helpers
-Code.require_file("test_helpers/script_inspector.ex", __DIR__)
-Code.require_file("test_helpers/semantic_ui.ex", __DIR__)
+Code.require_file("helpers/script_inspector.ex", __DIR__)
+Code.require_file("helpers/semantic_ui.ex", __DIR__)
 
 # Configure test environment
 Application.put_env(:scenic_widget_contrib, :test_mode, true)

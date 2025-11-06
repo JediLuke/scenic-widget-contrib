@@ -102,11 +102,9 @@ defmodule ScenicWidgets.TextField do
     state = %{state | cursor_timer: timer}
 
     # Phase 2: Request input if in direct mode
-    # scene = if state.input_mode == :direct do
-    #   request_input(scene, [:cursor_button, :key, :codepoint])
-    # else
-    #   scene
-    # end
+    if state.input_mode == :direct do
+      request_input(scene, [:cursor_button, :key])
+    end
 
     scene =
       scene
@@ -118,21 +116,21 @@ defmodule ScenicWidgets.TextField do
 
   # ===== INPUT HANDLING (Phase 2) =====
 
-  # def handle_input(input, _context, scene) do
-  #   state = scene.assigns.state
-  #
-  #   case Reducer.process_input(state, input) do
-  #     {:noop, ^state} ->
-  #       {:noreply, scene}
-  #
-  #     {:noop, new_state} ->
-  #       update_scene(scene, state, new_state)
-  #
-  #     {:event, event_data, new_state} ->
-  #       send_parent_event(scene, event_data)
-  #       update_scene(scene, state, new_state)
-  #   end
-  # end
+  def handle_input(input, _context, scene) do
+    state = scene.assigns.state
+
+    case Reducer.process_input(state, input) do
+      {:noop, ^state} ->
+        {:noreply, scene}
+
+      {:noop, new_state} ->
+        update_scene(scene, state, new_state)
+
+      {:event, event_data, new_state} ->
+        send_parent_event(scene, event_data)
+        update_scene(scene, state, new_state)
+    end
+  end
 
   # ===== EXTERNAL CONTROL (Phase 3) =====
 
@@ -180,14 +178,14 @@ defmodule ScenicWidgets.TextField do
 
   # ===== HELPER FUNCTIONS =====
 
-  # defp update_scene(scene, old_state, new_state) do
-  #   graph = Renderer.update_render(scene.assigns.graph, old_state, new_state)
-  #
-  #   scene =
-  #     scene
-  #     |> assign(state: new_state, graph: graph)
-  #     |> push_graph(graph)
-  #
-  #   {:noreply, scene}
-  # end
+  defp update_scene(scene, old_state, new_state) do
+    graph = Renderer.update_render(scene.assigns.graph, old_state, new_state)
+
+    scene =
+      scene
+      |> assign(state: new_state, graph: graph)
+      |> push_graph(graph)
+
+    {:noreply, scene}
+  end
 end

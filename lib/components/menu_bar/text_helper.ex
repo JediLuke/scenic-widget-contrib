@@ -8,7 +8,7 @@ defmodule ScenicWidgets.MenuBar.TextHelper do
 
   alias Scenic.Assets.Static
 
-  @default_font :roboto_mono
+  @default_font :ibm_plex_mono
   @default_font_size 16
   @ellipsis "..."
 

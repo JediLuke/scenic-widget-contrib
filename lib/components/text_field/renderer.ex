@@ -130,6 +130,7 @@ defmodule ScenicWidgets.TextField.Renderer do
   defp render_cursor(graph, %State{
     cursor: {line, col},
     cursor_visible: visible,
+    focused: focused,
     font: font,
     colors: colors
   } = state) do
@@ -143,12 +144,13 @@ defmodule ScenicWidgets.TextField.Renderer do
     cursor_y = (line - 1) * font.size
 
     # Render cursor as thin vertical line
+    # Only show when focused AND visible (for blinking)
     graph
     |> Primitives.rect(
       {2, font.size},
       translate: {cursor_x, cursor_y},
       fill: colors.cursor,
-      hidden: !visible,
+      hidden: !focused or !visible,
       id: :cursor
     )
   end
