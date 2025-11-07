@@ -9,22 +9,32 @@ defmodule ScenicWidgets.TestHelpers.ScriptInspector do
   require Logger
 
   @doc """
-  Checks if the rendered text output is empty.
+  Checks if the rendered text output is empty (user content only).
   """
   def rendered_text_empty?() do
-    get_rendered_text_string() |> String.trim() == ""
+    get_user_content() |> Enum.empty?()
   end
 
   @doc """
-  Checks if the rendered output contains the specified text.
+  Checks if the rendered output contains the specified text (user content only).
+  For TextField testing, this filters out Widget Workbench UI.
   """
   def rendered_text_contains?(expected_text) do
-    rendered_content = get_rendered_text_string()
-    String.contains?(rendered_content, expected_text)
+    user_content = get_user_content()
+    IO.puts("🔍 ScriptInspector: Looking for '#{expected_text}' in user_content:")
+    IO.inspect(user_content, label: "User content list", limit: 10)
+
+    result = Enum.any?(user_content, fn text ->
+      String.contains?(text, expected_text)
+    end)
+
+    IO.puts("🔍 Found: #{result}")
+    result
   end
 
   @doc """
   Gets the full rendered text as a string for inspection.
+  Includes all text (for UI verification).
   """
   def get_rendered_text_string() do
     try do
@@ -47,6 +57,40 @@ defmodule ScenicWidgets.TestHelpers.ScriptInspector do
       error ->
         Logger.warn("Failed to get rendered text: #{Exception.message(error)}")
         ""
+    end
+  end
+
+  @doc """
+  Gets user-entered content only (filters out all GUI elements).
+  """
+  def get_user_content() do
+    try do
+      script_data = get_script_table_directly()
+
+      all_commands = script_data
+      |> Enum.flat_map(fn
+        {_id, commands, _pid} -> commands
+        commands when is_list(commands) -> commands
+        _ -> []
+      end)
+
+      all_text = all_commands
+      |> extract_text_primitives()
+      |> Enum.map(&extract_text_content/1)
+
+      IO.puts("🔍 ALL text primitives (#{length(all_text)}): #{inspect(all_text, limit: :infinity)}")
+
+      filtered = all_text
+      |> Enum.reject(&is_widget_workbench_ui?/1)
+      |> Enum.reject(&is_common_gui_element?/1)
+
+      IO.puts("🔍 After filtering (#{length(filtered)}): #{inspect(filtered, limit: :infinity)}")
+
+      filtered
+    rescue
+      error ->
+        Logger.warn("Failed to get user content: #{Exception.message(error)}")
+        []
     end
   end
 
@@ -158,4 +202,82 @@ defmodule ScenicWidgets.TestHelpers.ScriptInspector do
       _ -> ""
     end
   end
+
+  # Filter out Widget Workbench UI elements
+  defp is_widget_workbench_ui?(text) when is_binary(text) do
+    workbench_ui_patterns = [
+      # Main UI text
+      "Widget Workbench",
+      "Design & test Scenic components",
+      "New Widget",
+      "Load Component",
+      "Reset Scene",
+      # Button/coordinate labels
+      "A:", "B:", "C:", "D:",
+      # Component modal text
+      "Select Component",
+      "Failed to load:",
+      "function",
+      "is undefined",
+      "(module",
+      "is not available)",
+      "(Component isolation working!)",
+      # Common error patterns
+      "Error:",
+      "undefined",
+      "not available"
+    ]
+
+    # Check for exact or partial matches
+    matches_pattern = Enum.any?(workbench_ui_patterns, fn pattern ->
+      String.contains?(text, pattern) or text == pattern
+    end)
+
+    # Filter coordinate patterns like "(600, 545)"
+    is_coordinate = String.match?(text, ~r/^\(\d+,\s*\d+\)$/)
+
+    # Filter single special characters that are UI symbols
+    is_symbol = String.length(text) == 1 and text in ["+", "×", "◊", "⋮", "|", "-", "=", "*"]
+
+    result = matches_pattern or is_coordinate or is_symbol
+
+    if result and String.length(text) > 10 do
+      IO.puts("🔍 FILTERED OUT (workbench UI): '#{text}' (pattern=#{matches_pattern}, coord=#{is_coordinate}, symbol=#{is_symbol})")
+    end
+
+    result
+  end
+
+  defp is_widget_workbench_ui?(_), do: false
+
+  # Filter out common GUI elements (similar to quillex)
+  defp is_common_gui_element?(text) when is_binary(text) do
+    # Font hashes (long alphanumeric strings with multiple underscores/dashes AND numbers)
+    # Example: "Roboto_Mono_Regular_0abc123def456"
+    has_multiple_separators = (String.split(text, "_") |> length() >= 3) or
+                              (String.split(text, "-") |> length() >= 3)
+    font_hash = String.length(text) > 30 and
+                String.match?(text, ~r/^[A-Za-z0-9_-]+$/) and
+                String.match?(text, ~r/[0-9]/) and
+                has_multiple_separators
+
+    # Script IDs (UUIDs or similar)
+    script_id = String.contains?(text, "-") and
+                String.length(text) > 10 and
+                String.match?(text, ~r/^[A-Za-z0-9_-]+$/) and
+                length(String.split(text, "-")) >= 3
+
+    # Internal IDs (_something_)
+    internal_id = String.starts_with?(text, "_") and String.ends_with?(text, "_")
+
+    result = font_hash or script_id or internal_id
+
+    if result and String.length(text) > 10 do
+      IO.puts("🔍 FILTERED OUT (common GUI): '#{text}' (font=#{font_hash}, script=#{script_id}, internal=#{internal_id})")
+    end
+
+    result
+  end
+
+  defp is_common_gui_element?(_), do: false
 end

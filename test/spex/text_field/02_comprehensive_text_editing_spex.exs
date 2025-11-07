@@ -103,10 +103,22 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
   end
 
   setup context do
+    # Wait for Widget Workbench to fully render
+    Process.sleep(1000)
+
     # Load TextField component before each test
     # SemanticUI.load_component handles scrolling automatically
-    {:ok, _} = SemanticUI.load_component("Text Field")
-    Process.sleep(500)
+    case SemanticUI.load_component("Text Field") do
+      {:ok, result} ->
+        IO.puts("✅ TextField loaded successfully")
+        Process.sleep(500)
+      {:error, reason} ->
+        IO.puts("❌ Failed to load TextField: #{reason}")
+        # Try to debug what's on screen
+        rendered = ScriptInspector.get_rendered_text_string()
+        IO.puts("📄 Screen content: #{String.slice(rendered, 0, 200)}")
+        raise "Could not load TextField component"
+    end
 
     # Click to focus the TextField
     # TextField is positioned at (100, 100) with size 400x200
@@ -405,7 +417,210 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
     end
 
     # =============================================================================
-    # 6. MULTI-LINE NAVIGATION
+    # 6. TEXT SELECTION (Phase 3)
+    # =============================================================================
+
+    scenario "Shift+Arrow text selection and replacement", context do
+      given_ "text for selection", context do
+        # Clear all previous text first (Ctrl+A then Backspace)
+        driver_struct = get_driver_state()
+        Scenic.Driver.send_input(driver_struct, {:key, {:key_a, 1, [:ctrl]}})
+        Process.sleep(50)
+        Scenic.Driver.send_input(driver_struct, {:key, {:key_a, 0, [:ctrl]}})
+        Process.sleep(50)
+        Scenic.Driver.send_input(driver_struct, {:key, {:key_backspace, 1, []}})
+        Process.sleep(50)
+        Scenic.Driver.send_input(driver_struct, {:key, {:key_backspace, 0, []}})
+        Process.sleep(100)
+
+        test_text = "Select some text"
+        ScenicMcp.Probes.send_text(test_text)
+        Process.sleep(100)
+
+        # Position cursor after "Select "
+        ScenicMcp.Probes.send_keys("home", [])
+        for _i <- 1..7, do: ScenicMcp.Probes.send_keys("right", [])
+        Process.sleep(50)
+
+        {:ok, Map.put(context, :test_text, test_text)}
+      end
+
+      when_ "user selects text with Shift+Right and types replacement", context do
+        # Select "some" (4 characters)
+        for _i <- 1..4, do: ScenicMcp.Probes.send_keys("right", [:shift])
+        Process.sleep(100)
+
+        # Type replacement - should replace selection
+        ScenicMcp.Probes.send_text("NEW")
+        Process.sleep(100)
+
+        {:ok, context}
+      end
+
+      then_ "selected text should be replaced", context do
+        rendered_content = ScriptInspector.get_rendered_text_string()
+        IO.puts("📄 After selection replacement: #{inspect(rendered_content)}")
+
+        assert ScriptInspector.rendered_text_contains?("Select NEW text"),
+               "Selection should be replaced. Expected 'Select NEW text', Got: '#{rendered_content}'"
+
+        IO.puts("✅ Text selection and replacement working")
+        :ok
+      end
+    end
+
+    scenario "Ctrl+A Select All", context do
+      given_ "multi-line text", context do
+        ScenicMcp.Probes.send_text("Line1")
+        ScenicMcp.Probes.send_keys("enter", [])
+        ScenicMcp.Probes.send_text("Line2")
+        ScenicMcp.Probes.send_keys("enter", [])
+        ScenicMcp.Probes.send_text("Line3")
+        Process.sleep(100)
+
+        {:ok, context}
+      end
+
+      when_ "user presses Ctrl+A and types replacement", context do
+        ScenicMcp.Probes.send_keys("a", [:ctrl])
+        Process.sleep(100)
+
+        ScenicMcp.Probes.send_text("Replaced")
+        Process.sleep(100)
+
+        {:ok, context}
+      end
+
+      then_ "all text should be replaced", context do
+        rendered_content = ScriptInspector.get_rendered_text_string()
+        IO.puts("📄 After select all: #{inspect(rendered_content)}")
+
+        assert ScriptInspector.rendered_text_contains?("Replaced"),
+               "Replacement text should appear. Got: '#{rendered_content}'"
+
+        refute ScriptInspector.rendered_text_contains?("Line1"),
+               "Original text should be gone. Got: '#{rendered_content}'"
+
+        IO.puts("✅ Select All working")
+        :ok
+      end
+    end
+
+    # =============================================================================
+    # 7. CLIPBOARD OPERATIONS (Phase 3)
+    # =============================================================================
+
+    scenario "Copy and paste", context do
+      given_ "text for copy/paste", context do
+        # Clear all previous text first (Ctrl+A then Backspace)
+        driver_struct = get_driver_state()
+        Scenic.Driver.send_input(driver_struct, {:key, {:key_a, 1, [:ctrl]}})
+        Process.sleep(50)
+        Scenic.Driver.send_input(driver_struct, {:key, {:key_a, 0, [:ctrl]}})
+        Process.sleep(50)
+        Scenic.Driver.send_input(driver_struct, {:key, {:key_backspace, 1, []}})
+        Process.sleep(50)
+        Scenic.Driver.send_input(driver_struct, {:key, {:key_backspace, 0, []}})
+        Process.sleep(100)
+
+        ScenicMcp.Probes.send_text("Copy this")
+        Process.sleep(100)
+
+        {:ok, context}
+      end
+
+      when_ "user selects, copies, moves, and pastes", context do
+        # Ensure focus (in case previous scenarios lost it)
+        driver_struct = get_driver_state()
+        Scenic.Driver.send_input(driver_struct, {:cursor_button, {:btn_left, 1, [], {200, 200}}})
+        Process.sleep(10)
+        Scenic.Driver.send_input(driver_struct, {:cursor_button, {:btn_left, 0, [], {200, 200}}})
+        Process.sleep(100)
+
+        # Select "this"
+        ScenicMcp.Probes.send_keys("home", [])
+        for _i <- 1..5, do: ScenicMcp.Probes.send_keys("right", [])
+        for _i <- 1..4, do: ScenicMcp.Probes.send_keys("right", [:shift])
+        Process.sleep(100)
+
+        # Copy
+        ScenicMcp.Probes.send_keys("c", [:ctrl])
+        Process.sleep(100)
+
+        # Move to end and paste
+        ScenicMcp.Probes.send_keys("end", [])
+        ScenicMcp.Probes.send_text(" and ")
+        ScenicMcp.Probes.send_keys("v", [:ctrl])
+        Process.sleep(100)
+
+        {:ok, context}
+      end
+
+      then_ "copied text should appear twice", context do
+        rendered_content = ScriptInspector.get_rendered_text_string()
+        IO.puts("📄 After copy/paste: #{inspect(rendered_content)}")
+
+        assert ScriptInspector.rendered_text_contains?("Copy this and this"),
+               "Copy/paste should work. Expected 'Copy this and this', Got: '#{rendered_content}'"
+
+        IO.puts("✅ Copy/paste working")
+        :ok
+      end
+    end
+
+    scenario "Cut and paste", context do
+      given_ "text for cut/paste", context do
+        # Clear all previous text first (Ctrl+A then Backspace)
+        driver_struct = get_driver_state()
+        Scenic.Driver.send_input(driver_struct, {:key, {:key_a, 1, [:ctrl]}})
+        Process.sleep(50)
+        Scenic.Driver.send_input(driver_struct, {:key, {:key_a, 0, [:ctrl]}})
+        Process.sleep(50)
+        Scenic.Driver.send_input(driver_struct, {:key, {:key_backspace, 1, []}})
+        Process.sleep(50)
+        Scenic.Driver.send_input(driver_struct, {:key, {:key_backspace, 0, []}})
+        Process.sleep(100)
+
+        ScenicMcp.Probes.send_text("Cut this out")
+        Process.sleep(100)
+
+        {:ok, context}
+      end
+
+      when_ "user selects, cuts, and pastes elsewhere", context do
+        # Select "this "
+        ScenicMcp.Probes.send_keys("home", [])
+        for _i <- 1..4, do: ScenicMcp.Probes.send_keys("right", [])
+        for _i <- 1..5, do: ScenicMcp.Probes.send_keys("right", [:shift])
+        Process.sleep(100)
+
+        # Cut
+        ScenicMcp.Probes.send_keys("x", [:ctrl])
+        Process.sleep(100)
+
+        # Move to end and paste
+        ScenicMcp.Probes.send_keys("end", [])
+        ScenicMcp.Probes.send_text(" ")
+        ScenicMcp.Probes.send_keys("v", [:ctrl])
+        Process.sleep(100)
+
+        {:ok, context}
+      end
+
+      then_ "cut text should move to new location", context do
+        rendered_content = ScriptInspector.get_rendered_text_string()
+        IO.puts("📄 After cut/paste: #{inspect(rendered_content)}")
+
+        assert ScriptInspector.rendered_text_contains?("Cut out this"),
+               "Cut/paste should work. Expected 'Cut out this', Got: '#{rendered_content}'"
+
+        IO.puts("✅ Cut/paste working")
+        :ok
+      end
+    end
+
+    # =============================================================================
+    # 8. MULTI-LINE NAVIGATION
     # =============================================================================
 
     scenario "Up and Down arrows navigate between lines", context do
