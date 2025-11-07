@@ -25,6 +25,7 @@ defmodule ScenicWidgets.TextField.Renderer do
     |> render_background(state)
     |> render_border(state)
     |> render_line_numbers(state)
+    |> render_selection(state)
     |> render_lines(state)
     |> render_cursor(state)
   end
@@ -100,6 +101,82 @@ defmodule ScenicWidgets.TextField.Renderer do
         font_size: font.size,
         text_align: :right,
         id: {:line_number, line_num}
+      )
+    end)
+  end
+
+  defp render_selection(graph, %State{selection: nil}), do: graph
+
+  defp render_selection(graph, %State{
+    selection: {start_pos, end_pos},
+    lines: lines,
+    font: font
+  } = state) do
+    # Normalize selection - ensure start comes before end
+    {{sel_start_line, sel_start_col}, {sel_end_line, sel_end_col}} =
+      if start_pos <= end_pos do
+        {start_pos, end_pos}
+      else
+        {end_pos, start_pos}
+      end
+
+    # Skip if selection is empty (start == end)
+    if sel_start_line == sel_end_line and sel_start_col == sel_end_col do
+      graph
+    else
+      render_selection_rectangles(
+        graph,
+        {sel_start_line, sel_start_col},
+        {sel_end_line, sel_end_col},
+        lines,
+        font,
+        state
+      )
+    end
+  end
+
+  defp render_selection_rectangles(graph, {sel_start_line, sel_start_col}, {sel_end_line, sel_end_col}, lines, font, state) do
+    x_offset = State.text_x_offset(state)
+    line_height = font.size
+    char_width = trunc(font.size * 0.6)  # Monospace approximation
+
+    # Selection color - semi-transparent blue
+    selection_color = {:color_rgba, {100, 150, 200, 100}}
+
+    # Render selection rectangles for each line in the selection
+    Enum.reduce(sel_start_line..sel_end_line, graph, fn line_num, acc_graph ->
+      y_position = (line_num - 1) * line_height
+      line_text = Enum.at(lines, line_num - 1, "")
+
+      # Calculate selection bounds for this line
+      {start_col_on_line, end_col_on_line} =
+        cond do
+          line_num == sel_start_line and line_num == sel_end_line ->
+            # Selection within same line
+            {sel_start_col, sel_end_col}
+          line_num == sel_start_line ->
+            # First line of multi-line selection
+            {sel_start_col, String.length(line_text) + 1}
+          line_num == sel_end_line ->
+            # Last line of multi-line selection
+            {1, sel_end_col}
+          true ->
+            # Middle line of multi-line selection
+            {1, String.length(line_text) + 1}
+        end
+
+      # Calculate pixel coordinates for selection rectangle
+      start_x_offset = (start_col_on_line - 1) * char_width
+      selection_length = max(0, end_col_on_line - start_col_on_line)
+      selection_width = selection_length * char_width
+
+      # Add selection rectangle to graph
+      acc_graph
+      |> Primitives.rect(
+        {selection_width, line_height},
+        fill: selection_color,
+        translate: {x_offset + start_x_offset, y_position},
+        id: {:selection_highlight, line_num}
       )
     end)
   end
