@@ -15,9 +15,16 @@ defmodule WidgetWorkbench.Scene do
   # Customize the grid spacing
   @grid_spacing 40.0
 
+  @type component_spec :: {String.t(), module(), term()}
+
   @moduledoc """
   A scene that serves as a widget workbench for designing and testing GUI components.
   """
+
+  def load_component(name, module, opts) do
+    component_spec = {name, module, opts}
+    GenServer.cast(:_widget_workbench_scene_, {:load_and_select_component, component_spec})
+  end
 
   @impl Scenic.Scene
   def init(scene, _params, _opts) do
@@ -27,27 +34,29 @@ defmodule WidgetWorkbench.Scene do
     Logger.info("🚀 WidgetWorkbench.Scene init called!")
 
     # Try to get stored window size first (from previous resize events)
-    {width, height} = try do
-      case :ets.lookup(:widget_workbench_state, :current_size) do
-        [{:current_size, stored_size}] ->
-          Logger.info("🔍 Using stored window size: #{inspect(stored_size)}")
-          stored_size
-        [] ->
-          # Table exists but no size stored yet
+    {width, height} =
+      try do
+        case :ets.lookup(:widget_workbench_state, :current_size) do
+          [{:current_size, stored_size}] ->
+            Logger.info("🔍 Using stored window size: #{inspect(stored_size)}")
+            stored_size
+
+          [] ->
+            # Table exists but no size stored yet
+            size = scene.viewport.size
+            :ets.insert(:widget_workbench_state, {:current_size, size})
+            Logger.info("📐 Storing initial window size: #{inspect(size)}")
+            size
+        end
+      rescue
+        ArgumentError ->
+          # Table doesn't exist - create it and use viewport size
+          :ets.new(:widget_workbench_state, [:set, :public, :named_table])
           size = scene.viewport.size
           :ets.insert(:widget_workbench_state, {:current_size, size})
-          Logger.info("📐 Storing initial window size: #{inspect(size)}")
+          Logger.info("📐 Created ETS table with initial window size: #{inspect(size)}")
           size
       end
-    rescue
-      ArgumentError ->
-        # Table doesn't exist - create it and use viewport size
-        :ets.new(:widget_workbench_state, [:set, :public, :named_table])
-        size = scene.viewport.size
-        :ets.insert(:widget_workbench_state, {:current_size, size})
-        Logger.info("📐 Created ETS table with initial window size: #{inspect(size)}")
-        size
-    end
 
     Logger.info("📏 Using window size: #{width}x#{height}")
 
@@ -72,9 +81,6 @@ defmodule WidgetWorkbench.Scene do
       |> assign(modal_scroll_offset: 0)
       |> push_graph(graph)
 
-    # Register buttons for semantic MCP clicking
-    register_buttons_for_mcp(scene, frame)
-
     # Request input events including cursor events and scroll
     # We need to request cursor_button to receive it, but we won't consume it in handle_input
     request_input(scene, [:cursor_pos, :cursor_button, :cursor_scroll, :key, :viewport])
@@ -83,11 +89,20 @@ defmodule WidgetWorkbench.Scene do
   end
 
   # Render function to build the graph using Widgex Grid
-  defp render(%Frame{} = frame, selected_component \\ nil, show_modal \\ false, click_viz \\ nil, modal_scroll_offset \\ 0) do
+  defp render(
+         %Frame{} = frame,
+         selected_component_spec \\ nil,
+         show_modal \\ false,
+         click_viz \\ nil,
+         modal_scroll_offset \\ 0
+       ) do
     # Create a grid with 2 columns: 2/3 for main area, 1/3 for constructor pane
-    grid = Grid.new(frame)
-    |> Grid.columns([2/3, 1/3])  # Two columns: main area (2/3) and constructor pane (1/3)
-    |> Grid.rows([1.0])           # Single row that takes full height
+    grid =
+      Grid.new(frame)
+      # Two columns: main area (2/3) and constructor pane (1/3)
+      |> Grid.columns([2 / 3, 1 / 3])
+      # Single row that takes full height
+      |> Grid.rows([1.0])
 
     # Calculate cell frames
     cell_frames = Grid.calculate(grid)
@@ -97,35 +112,39 @@ defmodule WidgetWorkbench.Scene do
     constructor_area = Grid.cell_frame(cell_frames, 0, 1)
 
     # Build the graph
-    graph = Graph.build()
-    # Render the main drawing area
-    |> render_main_area(main_area, selected_component)
-    # Render the constructor pane
-    |> render_constructor_pane(constructor_area)
+    graph =
+      Graph.build()
+      # Render the main drawing area
+      |> render_main_area(main_area, selected_component_spec)
+      # Render the constructor pane
+      |> render_constructor_pane(constructor_area)
 
     # Add modal if needed
-    graph = if show_modal do
-      graph |> render_component_selection_modal(frame, modal_scroll_offset)
-    else
-      graph
-    end
+    graph =
+      if show_modal do
+        graph |> render_component_selection_modal(frame, modal_scroll_offset)
+      else
+        graph
+      end
 
     # Add click visualization if present
-    graph = if click_viz do
-      render_click_visualization(graph, click_viz)
-    else
-      graph
-    end
+    graph =
+      if click_viz do
+        render_click_visualization(graph, click_viz)
+      else
+        graph
+      end
 
     # Add an empty modal container group for later use
-    graph = graph
-    |> Primitives.group(fn g -> g end, id: :modal_container)
+    graph =
+      graph
+      |> Primitives.group(fn g -> g end, id: :modal_container)
 
     graph
   end
 
   # Render the main drawing area
-  defp render_main_area(graph, %Frame{} = frame, selected_component) do
+  defp render_main_area(graph, %Frame{} = frame, selected_component_spec) do
     graph
     # Main area background - make it more visible
     |> Primitives.rect(
@@ -137,85 +156,71 @@ defmodule WidgetWorkbench.Scene do
     # Draw grid background
     |> draw_grid_background(frame)
     # Render content based on selection
-    |> render_main_content(frame, selected_component)
+    |> render_main_content(frame, selected_component_spec)
   end
 
   # Render content in the main area
   defp render_main_content(graph, frame, nil) do
     # No component selected - show the yellow circle
     center_point = Frame.center(frame)
+
     graph
     |> Primitives.circle(30, fill: :green, translate: {center_point.x, center_point.y})
   end
 
-  defp render_main_content(graph, frame, {component_name, component_module}) do
-    # Component selected - render it at a consistent ANCHOR POINT
-    # ANCHOR POINT: Always position components at (100, 100) for predictable testing
-    anchor_x = 100
-    anchor_y = 100
-
+  defp render_main_content(graph, frame, {component_name, component_module, component_opts}) do
     # Also calculate center for error messages
     center_point = Frame.center(frame)
 
-    # Create a reasonable default frame for the component
-    # MenuBar needs more width for all menus, other components get 400x200
-    default_size = case component_module do
-      ScenicWidgets.MenuBar -> {600, 200}  # 4 menus * 150px each
-      _ -> {400, 200}
-    end
-
-    component_frame = Frame.new(%{
-      pin: {anchor_x, anchor_y},
-      size: default_size
-    })
-
-    Logger.info("🎯 Component positioning (ANCHORED at #{anchor_x}, #{anchor_y}):")
     Logger.info("   Main area frame: pin=#{inspect(frame.pin)}, size=#{inspect(frame.size)}")
-    Logger.info("   Component frame: pin=#{inspect(component_frame.pin)}, size=#{inspect(component_frame.size)}")
 
     # Try different component loading strategies with better isolation
     try do
       # Convert pin to tuple for Scenic compatibility
-      translate_pin = case component_frame.pin do
-        %Widgex.Structs.Coordinates{x: x, y: y} -> {x, y}
-        {x, y} -> {x, y}
-      end
+      translate_pin =
+        case component_opts do
+          component_frame = %Widgex.Frame{} ->
+            case component_frame.pin do
+              %Widgex.Structs.Coordinates{x: x, y: y} -> {x, y}
+              {x, y} -> {x, y}
+            end
+
+          _ ->
+            center_point.point
+        end
 
       # Draw anchor point indicator UNDER the component (rendered first, so it appears below)
-      graph = graph
-      |> Primitives.circle(15, fill: {:color, {100, 149, 237, 128}}, id: :anchor_point_indicator, translate: translate_pin)  # Cornflower blue with 50% opacity
-
-      # Strategy 1: Check if it has add_to_graph function
-      if function_exported?(component_module, :add_to_graph, 3) do
+      graph =
         graph
-        |> component_module.add_to_graph(
-          prepare_component_data(component_module, component_frame),
-          id: :loaded_component,
+        # Cornflower blue with 50% opacity
+        |> Primitives.circle(15,
+          fill: {:color, {100, 149, 237, 128}},
+          id: :anchor_point_indicator,
           translate: translate_pin
         )
-      else
-        # Strategy 2: Use standard Scenic.Component pattern with timeout and isolation
-        component_data = prepare_component_data(component_module, component_frame)
-        Logger.info("Loading component #{component_name} with data: #{inspect(component_data)}")
 
-        graph
-        |> component_module.add_to_graph(
-          component_data,
-          id: :loaded_component,
-          translate: translate_pin
-        )
+      if not function_exported?(component_module, :add_to_graph, 3) do
+        raise "Component must define add_to_graph to be compatible (checked #{inspect(component_module)})"
       end
+
+      graph
+      |> component_module.add_to_graph(
+        component_opts,
+        id: :loaded_component,
+        translate: translate_pin
+      )
     rescue
       error ->
         Logger.warn("Failed to load component #{component_name}: #{Exception.message(error)}")
         Logger.warn("Error details: #{inspect(error)}")
 
         # Show detailed error message
-        error_text = case error do
-          %FunctionClauseError{} -> "Invalid component format"
-          %ArgumentError{} -> "Invalid arguments"
-          _ -> Exception.message(error)
-        end
+        error_text =
+          case error do
+            %FunctionClauseError{} -> "Invalid component format"
+            %ArgumentError{} -> "Invalid arguments"
+            _ -> Exception.message(error)
+          end
 
         graph
         |> Primitives.text(
@@ -266,10 +271,13 @@ defmodule WidgetWorkbench.Scene do
     case component_module do
       ScenicWidgets.MenuBar ->
         # MenuBar needs menu_map and frame - use (0,0) pin since translate handles positioning
-        better_frame = Frame.new(%{
-          pin: {0, 0},  # Start at origin - translate will position it
-          size: {600, 60}  # 4 menus * 150px width, taller 60px menubar height
-        })
+        better_frame =
+          Frame.new(%{
+            # Start at origin - translate will position it
+            pin: {0, 0},
+            # 4 menus * 150px width, taller 60px menubar height
+            size: {600, 60}
+          })
 
         # Build menu_map with optional action callbacks for testing
         menu_map = build_menu_map()
@@ -279,7 +287,8 @@ defmodule WidgetWorkbench.Scene do
           # Scenic's dark theme colors
           background: :black,
           text: :white,
-          hover_bg: {40, 40, 40},  # Scenic dark active color
+          # Scenic dark active color
+          hover_bg: {40, 40, 40},
           hover_text: :white,
           dropdown_bg: :black,
           dropdown_text: :white,
@@ -290,17 +299,21 @@ defmodule WidgetWorkbench.Scene do
           # Custom dimensions for taller menu
           menu_height: 60,
           item_width: 150,
-          sub_menu_width: 240,  # 60% wider than main menus (150 * 1.6)
-          item_height: 35,  # Slightly taller dropdown items
+          # 60% wider than main menus (150 * 1.6)
+          sub_menu_width: 240,
+          # Slightly taller dropdown items
+          item_height: 35,
           padding: 8,
 
           # Typography
           font: :roboto_mono,
-          font_size: 18,  # Larger font for better readability
+          # Larger font for better readability
+          font_size: 18,
 
           # Text Overflow
           text_overflow: :ellipsis,
-          max_text_width: 200,  # Wider for sub-menus
+          # Wider for sub-menus
+          max_text_width: 200,
           ellipsis_char: "..."
         }
 
@@ -312,16 +325,18 @@ defmodule WidgetWorkbench.Scene do
 
       ScenicWidgets.IconButton ->
         # Convert Coordinates struct to tuple format for IconButton
-        {pin_x, pin_y} = case component_frame.pin do
-          %Widgex.Structs.Coordinates{x: x, y: y} -> {x, y}
-          {x, y} -> {x, y}
-        end
+        {pin_x, pin_y} =
+          case component_frame.pin do
+            %Widgex.Structs.Coordinates{x: x, y: y} -> {x, y}
+            {x, y} -> {x, y}
+          end
 
         # Create a new frame with tuple pin for IconButton
-        icon_frame = Frame.new(%{
-          pin: {pin_x, pin_y},
-          size: component_frame.size
-        })
+        icon_frame =
+          Frame.new(%{
+            pin: {pin_x, pin_y},
+            size: component_frame.size
+          })
 
         %{frame: icon_frame, text: "Icon Button"}
 
@@ -331,26 +346,41 @@ defmodule WidgetWorkbench.Scene do
 
       ScenicWidgets.Sidebar ->
         # Sidebar needs frame with (0,0) pin since we position via translate
-        sidebar_frame = Frame.new(%{
-          pin: {0, 0},  # Start at origin - translate will position it
-          size: component_frame.size
-        })
+        sidebar_frame =
+          Frame.new(%{
+            # Start at origin - translate will position it
+            pin: {0, 0},
+            size: component_frame.size
+          })
+
         %{
           frame: sidebar_frame,
           items: [
-            %{id: :file, label: "File", children: [
-              %{id: :new, label: "New", children: []},
-              %{id: :open, label: "Open", children: []}
-            ]},
-            %{id: :edit, label: "Edit", children: [
-              %{id: :copy, label: "Copy", children: []},
-              %{id: :paste, label: "Paste", children: []}
-            ]},
-            %{id: :view, label: "View", children: [
-              %{id: :zoom_in, label: "Zoom In", children: []},
-              %{id: :zoom_out, label: "Zoom Out", children: []},
-              %{id: :fullscreen, label: "Toggle Fullscreen", children: []}
-            ]}
+            %{
+              id: :file,
+              label: "File",
+              children: [
+                %{id: :new, label: "New", children: []},
+                %{id: :open, label: "Open", children: []}
+              ]
+            },
+            %{
+              id: :edit,
+              label: "Edit",
+              children: [
+                %{id: :copy, label: "Copy", children: []},
+                %{id: :paste, label: "Paste", children: []}
+              ]
+            },
+            %{
+              id: :view,
+              label: "View",
+              children: [
+                %{id: :zoom_in, label: "Zoom In", children: []},
+                %{id: :zoom_out, label: "Zoom Out", children: []},
+                %{id: :fullscreen, label: "Toggle Fullscreen", children: []}
+              ]
+            }
           ]
         }
 
@@ -363,16 +393,19 @@ defmodule WidgetWorkbench.Scene do
   # Render the constructor pane on the right side
   defp render_constructor_pane(graph, %Frame{} = frame) do
     # Create a grid layout for the constructor pane
-    pane_grid = Grid.new(frame)
-    |> Grid.rows([20, 35, 30, 15, 50, 20, 50, 20, 50, 1])  # Top padding, title, subtitle, gap, reset, gap, new, gap, load, remaining
-    |> Grid.columns([0.1, 0.8, 0.1])  # Small padding, large content area, small padding
-    |> Grid.define_areas(%{
-      title: {1, 1, 1, 1},
-      subtitle: {2, 1, 1, 1},
-      reset_button: {4, 1, 1, 1},
-      new_button: {6, 1, 1, 1},
-      load_button: {8, 1, 1, 1}
-    })
+    pane_grid =
+      Grid.new(frame)
+      # Top padding, title, subtitle, gap, reset, gap, new, gap, load, remaining
+      |> Grid.rows([20, 35, 30, 15, 50, 20, 50, 20, 50, 1])
+      # Small padding, large content area, small padding
+      |> Grid.columns([0.1, 0.8, 0.1])
+      |> Grid.define_areas(%{
+        title: {1, 1, 1, 1},
+        subtitle: {2, 1, 1, 1},
+        reset_button: {4, 1, 1, 1},
+        new_button: {6, 1, 1, 1},
+        load_button: {8, 1, 1, 1}
+      })
 
     cell_frames = Grid.calculate(pane_grid)
     title_frame = Grid.area_frame(pane_grid, cell_frames, :title)
@@ -394,7 +427,9 @@ defmodule WidgetWorkbench.Scene do
       "Widget Workbench",
       font_size: 20,
       fill: {:color, {40, 40, 50}},
-      translate: {elem(title_frame.pin.point, 0) + title_frame.size.width / 2, elem(title_frame.pin.point, 1) + 25},
+      translate:
+        {elem(title_frame.pin.point, 0) + title_frame.size.width / 2,
+         elem(title_frame.pin.point, 1) + 25},
       text_align: :center
     )
     # Add subtitle/help text
@@ -402,7 +437,9 @@ defmodule WidgetWorkbench.Scene do
       "Design & test Scenic components",
       font_size: 14,
       fill: {:color, {100, 100, 110}},
-      translate: {elem(subtitle_frame.pin.point, 0) + subtitle_frame.size.width / 2, elem(subtitle_frame.pin.point, 1) + 20},
+      translate:
+        {elem(subtitle_frame.pin.point, 0) + subtitle_frame.size.width / 2,
+         elem(subtitle_frame.pin.point, 1) + 20},
       text_align: :center
     )
     # Reset Scene button (red)
@@ -468,7 +505,8 @@ defmodule WidgetWorkbench.Scene do
 
     # Calculate scrollable area dimensions
     list_top = modal_y + 60
-    list_height = modal_height - 60 - 55  # Space for title and cancel button
+    # Space for title and cancel button
+    list_height = modal_height - 60 - 55
     button_height = 40
     button_margin = 5
     total_content_height = length(components) * (button_height + button_margin)
@@ -480,19 +518,22 @@ defmodule WidgetWorkbench.Scene do
 
     # Calculate scrollbar dimensions if needed
     show_scrollbar = total_content_height > list_height
-    scrollbar_height = if show_scrollbar do
-      # Scrollbar thumb height proportional to visible content
-      max(30, list_height * list_height / total_content_height)
-    else
-      0
-    end
+
+    scrollbar_height =
+      if show_scrollbar do
+        # Scrollbar thumb height proportional to visible content
+        max(30, list_height * list_height / total_content_height)
+      else
+        0
+      end
 
     # Calculate scrollbar position
-    scrollbar_y_offset = if show_scrollbar and max_scroll > 0 do
-      (list_height - scrollbar_height) * (clamped_scroll / max_scroll)
-    else
-      0
-    end
+    scrollbar_y_offset =
+      if show_scrollbar and max_scroll > 0 do
+        (list_height - scrollbar_height) * (clamped_scroll / max_scroll)
+      else
+        0
+      end
 
     graph
     # Semi-transparent overlay
@@ -552,7 +593,8 @@ defmodule WidgetWorkbench.Scene do
           {scrollbar_width, scrollbar_height},
           fill: {:color, {150, 150, 150}},
           stroke: {1, {:color, {120, 120, 120}}},
-          translate: {modal_x + modal_width - scrollbar_width - 10, list_top + scrollbar_y_offset},
+          translate:
+            {modal_x + modal_width - scrollbar_width - 10, list_top + scrollbar_y_offset},
           id: :scrollbar_thumb
         )
       else
@@ -611,12 +653,16 @@ defmodule WidgetWorkbench.Scene do
   defp render_grid_layout(graph, grid, cell_frames) do
     # Define named areas for better organization
     # Using {row, col, row_span, col_span} format
-    grid_with_areas = grid
-    |> Grid.define_areas(%{
-      header: {0, 0, 1, 12},    # Row 0, all 12 columns
-      sidebar: {1, 0, 7, 2},    # Rows 1-7, columns 0-1 (2 columns wide)
-      content: {1, 2, 7, 10}    # Rows 1-7, columns 2-11 (10 columns wide)
-    })
+    grid_with_areas =
+      grid
+      |> Grid.define_areas(%{
+        # Row 0, all 12 columns
+        header: {0, 0, 1, 12},
+        # Rows 1-7, columns 0-1 (2 columns wide)
+        sidebar: {1, 0, 7, 2},
+        # Rows 1-7, columns 2-11 (10 columns wide)
+        content: {1, 2, 7, 10}
+      })
 
     # Get frames for each area using the passed cell_frames
     header_frame = Grid.area_frame(grid_with_areas, cell_frames, :header)
@@ -652,8 +698,10 @@ defmodule WidgetWorkbench.Scene do
       |> File.ls!()
       |> Enum.filter(&File.dir?(Path.join(components_dir, &1)))
       |> Enum.map(&discover_component_from_dir(&1, Path.join(components_dir, &1)))
-      |> Enum.filter(& &1)  # Remove nils
-      |> Enum.sort_by(fn {name, _} -> name end)  # Sort alphabetically
+      # Remove nils
+      |> Enum.filter(& &1)
+      # Sort alphabetically
+      |> Enum.sort_by(fn {name, _} -> name end)
     else
       # Fallback to hardcoded list if directory doesn't exist
       [
@@ -674,16 +722,24 @@ defmodule WidgetWorkbench.Scene do
       File.exists?(main_file_path) ->
         # Convert directory name to module name
         module_name = dir_name |> Macro.camelize()
-        display_name = dir_name |> String.replace("_", " ") |> String.split(" ") |> Enum.map(&String.capitalize/1) |> Enum.join(" ")
+
+        display_name =
+          dir_name
+          |> String.replace("_", " ")
+          |> String.split(" ")
+          |> Enum.map(&String.capitalize/1)
+          |> Enum.join(" ")
 
         # Try to build the module atom - this might fail for non-standard modules
         try do
           module_atom = Module.concat([ScenicWidgets, module_name])
+          Code.ensure_loaded(module_atom)
           {display_name, module_atom}
         rescue
           _ ->
             # If module creation fails, still include it but mark it specially
-            {display_name <> " (experimental)", String.to_atom("Elixir.ScenicWidgets.#{module_name}")}
+            {display_name <> " (experimental)",
+             String.to_atom("Elixir.ScenicWidgets.#{module_name}")}
         end
 
       true ->
@@ -691,25 +747,52 @@ defmodule WidgetWorkbench.Scene do
         case File.ls(dir_path) do
           {:ok, files} ->
             ex_files = Enum.filter(files, &String.ends_with?(&1, ".ex"))
+
             if length(ex_files) > 0 do
               # Use the first .ex file found
               file_name = List.first(ex_files) |> String.replace(".ex", "")
               module_name = file_name |> Macro.camelize()
-              display_name = dir_name |> String.replace("_", " ") |> String.split(" ") |> Enum.map(&String.capitalize/1) |> Enum.join(" ")
+
+              display_name =
+                dir_name
+                |> String.replace("_", " ")
+                |> String.split(" ")
+                |> Enum.map(&String.capitalize/1)
+                |> Enum.join(" ")
 
               try do
                 module_atom = Module.concat([ScenicWidgets, module_name])
                 {display_name, module_atom}
               rescue
                 _ ->
-                  {display_name <> " (experimental)", String.to_atom("Elixir.ScenicWidgets.#{module_name}")}
+                  {display_name <> " (experimental)",
+                   String.to_atom("Elixir.ScenicWidgets.#{module_name}")}
               end
             else
-              nil  # No .ex files found
+              # No .ex files found
+              nil
             end
-          _ -> nil  # Can't read directory
+
+          # Can't read directory
+          _ ->
+            nil
         end
     end
+  end
+
+  @spec select_component(Scene.t(), component_spec()) :: Scene.t()
+  defp select_component(scene, component_spec) do
+    new_graph =
+      render(scene.assigns.frame, component_spec, false, nil, 0)
+      |> apply_click_visualizations(scene)
+
+    scene =
+      scene
+      |> assign(selected_component: component_spec)
+      # |> assign(selected_component_name: component_name)
+      # |> assign(component_frame: component_frame)
+      |> assign(graph: new_graph)
+      |> push_graph(new_graph)
   end
 
   # Function to draw a pseudo-grid background of "+"
@@ -728,7 +811,7 @@ defmodule WidgetWorkbench.Scene do
           "+",
           font_size: 16,
           fill: @grid_color,
-          translate: {frame_x + (x * @grid_spacing), frame_y + (y * @grid_spacing)}
+          translate: {frame_x + x * @grid_spacing, frame_y + y * @grid_spacing}
         )
       end)
     end)
@@ -739,24 +822,27 @@ defmodule WidgetWorkbench.Scene do
     # Create a grid for the tools pane layout
     # Padding of 20px on all sides, but ensure positive dimensions
     padding = 20
-    padded_width = max(frame.size.width - (padding * 2), 10)
-    padded_height = max(frame.size.height - (padding * 2), 10)
+    padded_width = max(frame.size.width - padding * 2, 10)
+    padded_height = max(frame.size.height - padding * 2, 10)
 
-    padded_frame = Frame.new(%{
-      pin: {padding, padding},
-      size: {padded_width, padded_height}
-    })
+    padded_frame =
+      Frame.new(%{
+        pin: {padding, padding},
+        size: {padded_width, padded_height}
+      })
 
-    tools_grid = Grid.new(padded_frame)
-    |> Grid.rows([60, 20, 50, 50, 1])  # Title, gap, button1, button2, remaining space
-    |> Grid.columns([1])
-    |> Grid.row_gap(10)
-    |> Grid.define_areas(%{
-      title: {0, 0, 1, 1},
-      divider: {1, 0, 1, 1},
-      open_button: {2, 0, 1, 1},
-      create_button: {3, 0, 1, 1}
-    })
+    tools_grid =
+      Grid.new(padded_frame)
+      # Title, gap, button1, button2, remaining space
+      |> Grid.rows([60, 20, 50, 50, 1])
+      |> Grid.columns([1])
+      |> Grid.row_gap(10)
+      |> Grid.define_areas(%{
+        title: {0, 0, 1, 1},
+        divider: {1, 0, 1, 1},
+        open_button: {2, 0, 1, 1},
+        create_button: {3, 0, 1, 1}
+      })
 
     cell_frames = Grid.calculate(tools_grid)
     title_frame = Grid.area_frame(tools_grid, cell_frames, :title)
@@ -817,30 +903,38 @@ defmodule WidgetWorkbench.Scene do
   defp render_test_menu_bar(graph, %Frame{} = frame) do
     # Sample menu structure for testing
     test_menu_map = %{
-      file: {"File", [
-        {:new_file, "New File"},
-        {:open_file, "Open File"},
-        {:save_file, "Save"},
-        {:save_as, "Save As..."},
-        {:quit, "Quit"}
-      ]},
-      edit: {"Edit", [
-        {:undo, "Undo"},
-        {:redo, "Redo"},
-        {:cut, "Cut"},
-        {:copy, "Copy"},
-        {:paste, "Paste"}
-      ]},
-      view: {"View", [
-        {:zoom_in, "Zoom In"},
-        {:zoom_out, "Zoom Out"},
-        {:reset_zoom, "Reset Zoom"},
-        {:toggle_sidebar, "Toggle Sidebar"}
-      ]},
-      help: {"Help", [
-        {:documentation, "Documentation"},
-        {:about, "About"}
-      ]}
+      file:
+        {"File",
+         [
+           {:new_file, "New File"},
+           {:open_file, "Open File"},
+           {:save_file, "Save"},
+           {:save_as, "Save As..."},
+           {:quit, "Quit"}
+         ]},
+      edit:
+        {"Edit",
+         [
+           {:undo, "Undo"},
+           {:redo, "Redo"},
+           {:cut, "Cut"},
+           {:copy, "Copy"},
+           {:paste, "Paste"}
+         ]},
+      view:
+        {"View",
+         [
+           {:zoom_in, "Zoom In"},
+           {:zoom_out, "Zoom Out"},
+           {:reset_zoom, "Reset Zoom"},
+           {:toggle_sidebar, "Toggle Sidebar"}
+         ]},
+      help:
+        {"Help",
+         [
+           {:documentation, "Documentation"},
+           {:about, "About"}
+         ]}
     }
 
     # Position menubar at top of canvas with some margin
@@ -848,10 +942,11 @@ defmodule WidgetWorkbench.Scene do
     menubar_width = max(frame.size.width - 40, 100)
 
     menu_bar_data = %{
-      frame: Frame.new(%{
-        pin: {20, 20},
-        size: {menubar_width, 30}
-      }),
+      frame:
+        Frame.new(%{
+          pin: {20, 20},
+          size: {menubar_width, 30}
+        }),
       menu_map: test_menu_map
     }
 
@@ -966,12 +1061,20 @@ defmodule WidgetWorkbench.Scene do
     new_frame = Frame.new(%{pin: {0, 0}, size: {width, height}})
 
     # Re-render with new frame and selected component
-    graph = render(new_frame, scene.assigns[:selected_component], scene.assigns[:component_modal_visible] || false, nil, scene.assigns[:modal_scroll_offset] || 0)
+    graph =
+      render(
+        new_frame,
+        scene.assigns[:selected_component],
+        scene.assigns[:component_modal_visible] || false,
+        nil,
+        scene.assigns[:modal_scroll_offset] || 0
+      )
 
-    scene = scene
-    |> assign(frame: new_frame)
-    |> assign(graph: graph)
-    |> push_graph(graph)
+    scene =
+      scene
+      |> assign(frame: new_frame)
+      |> assign(graph: graph)
+      |> push_graph(graph)
 
     {:noreply, scene}
   end
@@ -1008,7 +1111,7 @@ defmodule WidgetWorkbench.Scene do
       # Scroll speed multiplier
       scroll_speed = 30
       current_offset = scene.assigns[:modal_scroll_offset] || 0
-      new_offset = current_offset - (dy * scroll_speed)
+      new_offset = current_offset - dy * scroll_speed
 
       # Calculate modal dimensions (same as render function)
       frame = scene.assigns.frame
@@ -1028,29 +1131,39 @@ defmodule WidgetWorkbench.Scene do
       clamped_scroll = max(0, min(new_offset, max_scroll))
 
       # Update graph transform without re-rendering everything
-      new_graph = scene.assigns.graph
-      |> Graph.modify(:component_list_scroll_group, fn p ->
-        Primitives.update_opts(p, translate: {0, -clamped_scroll})
-      end)
-      |> Graph.modify(:scrollbar_thumb, fn p ->
-        scrollbar_height = if total_content_height > list_height do
-          max(30, list_height * list_height / total_content_height)
-        else
-          0
-        end
-        scrollbar_y_offset = if total_content_height > list_height and max_scroll > 0 do
-          (list_height - scrollbar_height) * (clamped_scroll / max_scroll)
-        else
-          0
-        end
-        scrollbar_width = 15
-        Primitives.update_opts(p, translate: {modal_x + modal_width - scrollbar_width - 10, list_top + scrollbar_y_offset})
-      end)
+      new_graph =
+        scene.assigns.graph
+        |> Graph.modify(:component_list_scroll_group, fn p ->
+          Primitives.update_opts(p, translate: {0, -clamped_scroll})
+        end)
+        |> Graph.modify(:scrollbar_thumb, fn p ->
+          scrollbar_height =
+            if total_content_height > list_height do
+              max(30, list_height * list_height / total_content_height)
+            else
+              0
+            end
 
-      scene = scene
-      |> assign(modal_scroll_offset: clamped_scroll)
-      |> assign(graph: new_graph)
-      |> push_graph(new_graph)
+          scrollbar_y_offset =
+            if total_content_height > list_height and max_scroll > 0 do
+              (list_height - scrollbar_height) * (clamped_scroll / max_scroll)
+            else
+              0
+            end
+
+          scrollbar_width = 15
+
+          Primitives.update_opts(p,
+            translate:
+              {modal_x + modal_width - scrollbar_width - 10, list_top + scrollbar_y_offset}
+          )
+        end)
+
+      scene =
+        scene
+        |> assign(modal_scroll_offset: clamped_scroll)
+        |> assign(graph: new_graph)
+        |> push_graph(new_graph)
 
       {:noreply, scene}
     else
@@ -1090,7 +1203,7 @@ defmodule WidgetWorkbench.Scene do
     line_height = button_height + button_margin
 
     current_offset = scene.assigns[:modal_scroll_offset] || 0
-    new_offset = current_offset + (lines * line_height)
+    new_offset = current_offset + lines * line_height
 
     # Calculate modal dimensions (same as render function)
     frame = scene.assigns.frame
@@ -1108,29 +1221,38 @@ defmodule WidgetWorkbench.Scene do
     clamped_scroll = max(0, min(new_offset, max_scroll))
 
     # Update graph transform without re-rendering everything
-    new_graph = scene.assigns.graph
-    |> Graph.modify(:component_list_scroll_group, fn p ->
-      Primitives.update_opts(p, translate: {0, -clamped_scroll})
-    end)
-    |> Graph.modify(:scrollbar_thumb, fn p ->
-      scrollbar_height = if total_content_height > list_height do
-        max(30, list_height * list_height / total_content_height)
-      else
-        0
-      end
-      scrollbar_y_offset = if total_content_height > list_height and max_scroll > 0 do
-        (list_height - scrollbar_height) * (clamped_scroll / max_scroll)
-      else
-        0
-      end
-      scrollbar_width = 15
-      Primitives.update_opts(p, translate: {modal_x + modal_width - scrollbar_width - 10, list_top + scrollbar_y_offset})
-    end)
+    new_graph =
+      scene.assigns.graph
+      |> Graph.modify(:component_list_scroll_group, fn p ->
+        Primitives.update_opts(p, translate: {0, -clamped_scroll})
+      end)
+      |> Graph.modify(:scrollbar_thumb, fn p ->
+        scrollbar_height =
+          if total_content_height > list_height do
+            max(30, list_height * list_height / total_content_height)
+          else
+            0
+          end
 
-    scene = scene
-    |> assign(modal_scroll_offset: clamped_scroll)
-    |> assign(graph: new_graph)
-    |> push_graph(new_graph)
+        scrollbar_y_offset =
+          if total_content_height > list_height and max_scroll > 0 do
+            (list_height - scrollbar_height) * (clamped_scroll / max_scroll)
+          else
+            0
+          end
+
+        scrollbar_width = 15
+
+        Primitives.update_opts(p,
+          translate: {modal_x + modal_width - scrollbar_width - 10, list_top + scrollbar_y_offset}
+        )
+      end)
+
+    scene =
+      scene
+      |> assign(modal_scroll_offset: clamped_scroll)
+      |> assign(graph: new_graph)
+      |> push_graph(new_graph)
 
     {:noreply, scene}
   end
@@ -1173,8 +1295,10 @@ defmodule WidgetWorkbench.Scene do
 
     # Get current click sequence number and increment
     click_history = scene.assigns[:click_history] || []
-    click_number = rem(length(click_history), 26)  # A-Z, then wrap
-    click_label = <<click_number + ?A>>  # Convert to letter A-Z
+    # A-Z, then wrap
+    click_number = rem(length(click_history), 26)
+    # Convert to letter A-Z
+    click_label = <<click_number + ?A>>
 
     # Store this click with timestamp
     timestamp = :os.system_time(:millisecond)
@@ -1185,33 +1309,35 @@ defmodule WidgetWorkbench.Scene do
     # This preserves button component state
     click_id = String.to_atom("click_viz_#{timestamp}")
 
-    new_graph = scene.assigns.graph
-    |> Primitives.circle(
-      30,
-      fill: {:color, {255, 0, 0, 80}},
-      stroke: {3, {:color, {255, 0, 0, 200}}},
-      translate: {x, y},
-      id: String.to_atom("#{click_id}_outer")
-    )
-    |> Primitives.circle(
-      8,
-      fill: {:color, {255, 0, 0, 255}},
-      translate: {x, y},
-      id: String.to_atom("#{click_id}_inner")
-    )
-    |> Primitives.text(
-      "#{click_label}: (#{trunc(x)}, #{trunc(y)})",
-      font_size: 16,
-      font: :roboto_mono,
-      fill: {:color, {255, 0, 0, 255}},
-      translate: {x + 35, y + 5},
-      id: String.to_atom("#{click_id}_text")
-    )
+    new_graph =
+      scene.assigns.graph
+      |> Primitives.circle(
+        30,
+        fill: {:color, {255, 0, 0, 80}},
+        stroke: {3, {:color, {255, 0, 0, 200}}},
+        translate: {x, y},
+        id: String.to_atom("#{click_id}_outer")
+      )
+      |> Primitives.circle(
+        8,
+        fill: {:color, {255, 0, 0, 255}},
+        translate: {x, y},
+        id: String.to_atom("#{click_id}_inner")
+      )
+      |> Primitives.text(
+        "#{click_label}: (#{trunc(x)}, #{trunc(y)})",
+        font_size: 16,
+        font: :roboto_mono,
+        fill: {:color, {255, 0, 0, 255}},
+        translate: {x + 35, y + 5},
+        id: String.to_atom("#{click_id}_text")
+      )
 
-    scene = scene
-    |> assign(click_history: updated_history)
-    |> assign(graph: new_graph)
-    |> push_graph(new_graph)
+    scene =
+      scene
+      |> assign(click_history: updated_history)
+      |> assign(graph: new_graph)
+      |> push_graph(new_graph)
 
     Logger.info("🎨 Click #{click_label} visualization pushed to graph")
 
@@ -1228,26 +1354,30 @@ defmodule WidgetWorkbench.Scene do
     # Use a single persistent hover indicator that follows the cursor
     hover_id = :hover_viz
 
-    new_graph = scene.assigns.graph
-    |> Graph.delete(:hover_viz_outer)
-    |> Graph.delete(:hover_viz_inner)
-    |> Primitives.circle(
-      15,
-      fill: {:color, {30, 144, 255, 60}},   # Dodger blue, semi-transparent
-      stroke: {2, {:color, {30, 144, 255, 180}}},
-      translate: {x, y},
-      id: :hover_viz_outer
-    )
-    |> Primitives.circle(
-      4,
-      fill: {:color, {30, 144, 255, 255}},  # Solid blue center
-      translate: {x, y},
-      id: :hover_viz_inner
-    )
+    new_graph =
+      scene.assigns.graph
+      |> Graph.delete(:hover_viz_outer)
+      |> Graph.delete(:hover_viz_inner)
+      |> Primitives.circle(
+        15,
+        # Dodger blue, semi-transparent
+        fill: {:color, {30, 144, 255, 60}},
+        stroke: {2, {:color, {30, 144, 255, 180}}},
+        translate: {x, y},
+        id: :hover_viz_outer
+      )
+      |> Primitives.circle(
+        4,
+        # Solid blue center
+        fill: {:color, {30, 144, 255, 255}},
+        translate: {x, y},
+        id: :hover_viz_inner
+      )
 
-    scene = scene
-    |> assign(graph: new_graph)
-    |> push_graph(new_graph)
+    scene =
+      scene
+      |> assign(graph: new_graph)
+      |> push_graph(new_graph)
 
     {:noreply, scene}
   end
@@ -1257,17 +1387,19 @@ defmodule WidgetWorkbench.Scene do
   def handle_info({:fade_click_step, click_id, timestamp, step}, scene) when step < 50 do
     # Calculate opacity: fade from 100% (1.0) to 35% (0.35) over 50 steps
     # opacity = 1.0 - ((1.0 - 0.35) * step / 50)
-    opacity_percent = 1.0 - (0.65 * step / 50)
+    opacity_percent = 1.0 - 0.65 * step / 50
 
     # Update the opacity for this specific click in history
     click_history = scene.assigns[:click_history] || []
-    updated_history = Enum.map(click_history, fn click ->
-      if click.timestamp == timestamp do
-        Map.put(click, :opacity, opacity_percent)
-      else
-        click
-      end
-    end)
+
+    updated_history =
+      Enum.map(click_history, fn click ->
+        if click.timestamp == timestamp do
+          Map.put(click, :opacity, opacity_percent)
+        else
+          click
+        end
+      end)
 
     # Find the click coordinates
     click = Enum.find(click_history, fn c -> c.timestamp == timestamp end)
@@ -1287,22 +1419,33 @@ defmodule WidgetWorkbench.Scene do
       inner_id = String.to_atom("#{click_id}_inner")
       text_id = String.to_atom("#{click_id}_text")
 
-      new_graph = scene.assigns.graph
-      |> Graph.modify(outer_id, &Primitives.update_opts(&1,
-          fill: {:color, {255, 0, 0, outer_fill_alpha}},
-          stroke: {3, {:color, {255, 0, 0, outer_stroke_alpha}}}
-        ))
-      |> Graph.modify(inner_id, &Primitives.update_opts(&1,
-          fill: {:color, {255, 0, 0, inner_alpha}}
-        ))
-      |> Graph.modify(text_id, &Primitives.update_opts(&1,
-          fill: {:color, {255, 0, 0, text_alpha}}
-        ))
+      new_graph =
+        scene.assigns.graph
+        |> Graph.modify(
+          outer_id,
+          &Primitives.update_opts(&1,
+            fill: {:color, {255, 0, 0, outer_fill_alpha}},
+            stroke: {3, {:color, {255, 0, 0, outer_stroke_alpha}}}
+          )
+        )
+        |> Graph.modify(
+          inner_id,
+          &Primitives.update_opts(&1,
+            fill: {:color, {255, 0, 0, inner_alpha}}
+          )
+        )
+        |> Graph.modify(
+          text_id,
+          &Primitives.update_opts(&1,
+            fill: {:color, {255, 0, 0, text_alpha}}
+          )
+        )
 
-      scene = scene
-      |> assign(click_history: updated_history)
-      |> assign(graph: new_graph)
-      |> push_graph(new_graph)
+      scene =
+        scene
+        |> assign(click_history: updated_history)
+        |> assign(graph: new_graph)
+        |> push_graph(new_graph)
 
       # Schedule next fade step in 200ms for smooth animation
       Process.send_after(self(), {:fade_click_step, click_id, timestamp, step + 1}, 200)
@@ -1325,15 +1468,17 @@ defmodule WidgetWorkbench.Scene do
     inner_id = String.to_atom("#{click_id}_inner")
     text_id = String.to_atom("#{click_id}_text")
 
-    new_graph = scene.assigns.graph
-    |> Graph.delete(outer_id)
-    |> Graph.delete(inner_id)
-    |> Graph.delete(text_id)
+    new_graph =
+      scene.assigns.graph
+      |> Graph.delete(outer_id)
+      |> Graph.delete(inner_id)
+      |> Graph.delete(text_id)
 
-    scene = scene
-    |> assign(click_history: updated_history)
-    |> assign(graph: new_graph)
-    |> push_graph(new_graph)
+    scene =
+      scene
+      |> assign(click_history: updated_history)
+      |> assign(graph: new_graph)
+      |> push_graph(new_graph)
 
     {:noreply, scene}
   end
@@ -1351,7 +1496,8 @@ defmodule WidgetWorkbench.Scene do
       {x, y} = click.coords
       timestamp = click.timestamp
       label = click.label
-      opacity = Map.get(click, :opacity, 1.0)  # Default to 100% if not specified
+      # Default to 100% if not specified
+      opacity = Map.get(click, :opacity, 1.0)
       click_id = String.to_atom("click_viz_#{timestamp}")
 
       # Calculate alpha values based on opacity
@@ -1384,7 +1530,6 @@ defmodule WidgetWorkbench.Scene do
       )
     end)
   end
-
 
   @impl Scenic.Scene
   def handle_event({:click, :open_widget_button}, _from, scene) do
@@ -1436,7 +1581,12 @@ defmodule WidgetWorkbench.Scene do
   end
 
   def handle_cast({:open_widget, component}, scene) do
-    IO.puts "Attempting to open #{inspect component}"
+    IO.puts("Attempting to open #{inspect(component)}")
+    {:noreply, scene}
+  end
+
+  def handle_cast({:load_and_select_component, component_spec}, scene) do
+    scene = select_component(scene, component_spec)
     {:noreply, scene}
   end
 
@@ -1456,34 +1606,39 @@ defmodule WidgetWorkbench.Scene do
 
         # Find the newly created component module
         module_name = Macro.camelize(component_name)
-        new_component = Enum.find(new_components, fn {name, _mod} ->
-          String.replace(name, " ", "") == module_name
-        end)
+
+        new_component =
+          Enum.find(new_components, fn {name, _mod} ->
+            String.replace(name, " ", "") == module_name
+          end)
 
         # Load the new component automatically
-        {loaded_component, new_graph} = case new_component do
-          {_name, module} ->
-            Logger.info("Auto-loading newly created component: #{inspect(module)}")
-            component_frame = Frame.new(%{pin: {100, 100}, size: {400, 300}})
+        {loaded_component, new_graph} =
+          case new_component do
+            {_name, module} ->
+              Logger.info("Auto-loading newly created component: #{inspect(module)}")
+              component_frame = Frame.new(%{pin: {100, 100}, size: {400, 300}})
 
-            # Check if the component module defines add_to_graph/3
-            updated_graph = if function_exported?(module, :add_to_graph, 3) do
-              graph
-              |> module.add_to_graph(
-                prepare_component_data(module, component_frame),
-                id: :loaded_component,
-                translate: {100, 100}
-              )
-            else
-              Logger.warn("Component #{inspect(module)} does not export add_to_graph/3")
-              graph
-            end
+              # Check if the component module defines add_to_graph/3
+              updated_graph =
+                if function_exported?(module, :add_to_graph, 3) do
+                  graph
+                  |> module.add_to_graph(
+                    prepare_component_data(module, component_frame),
+                    id: :loaded_component,
+                    translate: {100, 100}
+                  )
+                else
+                  Logger.warn("Component #{inspect(module)} does not export add_to_graph/3")
+                  graph
+                end
 
-            {module, updated_graph}
-          nil ->
-            Logger.warn("Could not find newly created component in discovered list")
-            {nil, graph}
-        end
+              {module, updated_graph}
+
+            nil ->
+              Logger.warn("Could not find newly created component in discovered list")
+              {nil, graph}
+          end
 
         scene =
           scene
@@ -1512,8 +1667,9 @@ defmodule WidgetWorkbench.Scene do
     Logger.info("Modal cancelled")
 
     # Hide the modal
-    graph = hide_modal(scene.assigns.graph)
-    |> apply_click_visualizations(scene)
+    graph =
+      hide_modal(scene.assigns.graph)
+      |> apply_click_visualizations(scene)
 
     scene =
       scene
@@ -1531,8 +1687,10 @@ defmodule WidgetWorkbench.Scene do
     case item_id do
       :new_file ->
         Logger.info("Creating new file...")
+
       :quit ->
         Logger.info("Quit selected")
+
       _ ->
         Logger.info("Menu action: #{item_id}")
     end
@@ -1540,21 +1698,24 @@ defmodule WidgetWorkbench.Scene do
     {:noreply, scene}
   end
 
+  # Load component button
   def handle_event({:click, :load_component_button}, _from, scene) do
     Logger.info("Load Component button clicked - showing component selection modal")
 
     # Show the component selection modal (reset scroll to top)
-    new_graph = render(scene.assigns.frame, scene.assigns.selected_component, true, nil, 0)
-    |> apply_click_visualizations(scene)
+    new_graph =
+      render(scene.assigns.frame, scene.assigns.selected_component, true, nil, 0)
+      |> apply_click_visualizations(scene)
 
     # Register component list buttons for MCP
     register_modal_components_for_mcp(scene)
 
-    scene = scene
-    |> assign(component_modal_visible: true)
-    |> assign(modal_scroll_offset: 0)
-    |> assign(graph: new_graph)
-    |> push_graph(new_graph)
+    scene =
+      scene
+      |> assign(component_modal_visible: true)
+      |> assign(modal_scroll_offset: 0)
+      |> assign(graph: new_graph)
+      |> push_graph(new_graph)
 
     {:noreply, scene}
   end
@@ -1563,15 +1724,17 @@ defmodule WidgetWorkbench.Scene do
     Logger.info("Reset Scene button clicked - clearing component and reloading")
 
     # Clear selected component and re-render
-    new_graph = render(scene.assigns.frame, nil, false, nil, 0)
-    |> apply_click_visualizations(scene)
+    new_graph =
+      render(scene.assigns.frame, nil, false, nil, 0)
+      |> apply_click_visualizations(scene)
 
-    scene = scene
-    |> assign(selected_component: nil)
-    |> assign(component_modal_visible: false)
-    |> assign(modal_scroll_offset: 0)
-    |> assign(graph: new_graph)
-    |> push_graph(new_graph)
+    scene =
+      scene
+      |> assign(selected_component: nil)
+      |> assign(component_modal_visible: false)
+      |> assign(modal_scroll_offset: 0)
+      |> assign(graph: new_graph)
+      |> push_graph(new_graph)
 
     {:noreply, scene}
   end
@@ -1580,13 +1743,21 @@ defmodule WidgetWorkbench.Scene do
     Logger.info("Component selection cancelled")
 
     # Hide the modal
-    new_graph = render(scene.assigns.frame, scene.assigns.selected_component, false, nil, scene.assigns[:modal_scroll_offset] || 0)
-    |> apply_click_visualizations(scene)
+    new_graph =
+      render(
+        scene.assigns.frame,
+        scene.assigns.selected_component,
+        false,
+        nil,
+        scene.assigns[:modal_scroll_offset] || 0
+      )
+      |> apply_click_visualizations(scene)
 
-    scene = scene
-    |> assign(component_modal_visible: false)
-    |> assign(graph: new_graph)
-    |> push_graph(new_graph)
+    scene =
+      scene
+      |> assign(component_modal_visible: false)
+      |> assign(graph: new_graph)
+      |> push_graph(new_graph)
 
     {:noreply, scene}
   end
@@ -1594,41 +1765,68 @@ defmodule WidgetWorkbench.Scene do
   def handle_event({:click, {:select_component, component_module}}, _from, scene) do
     # Find the component info from our discovered list
     components = discover_components()
-    selected = Enum.find(components, fn {_name, module} -> module == component_module end)
 
-    Logger.info("Component selected: #{inspect(selected)}")
+    {component_name, component_module} =
+      Enum.find(components, fn {_name, module} -> module == component_module end)
+
+    Logger.info("Component selected: #{component_name}")
 
     # Calculate component frame for click-outside detection
-    {component_name, _module} = selected || {nil, nil}
     frame = scene.assigns.frame
-    main_area = Frame.new(%{
-      pin: {0, 0},
-      size: {frame.size.width * 2/3, frame.size.height}
-    })
+
+    main_area =
+      Frame.new(%{
+        pin: {0, 0},
+        size: {frame.size.width * 2 / 3, frame.size.height}
+      })
+
     center_point = Frame.center(main_area)
 
-    default_size = case component_module do
-      ScenicWidgets.MenuBar -> {600, 200}
-      _ -> {400, 200}
-    end
+    # Component selected - render it at a consistent ANCHOR POINT
+    # ANCHOR POINT: Always position components at (100, 100) for predictable testing
+    anchor_x = 100
+    anchor_y = 100
 
-    component_frame = Frame.new(%{
-      pin: {center_point.x - elem(default_size, 0) / 2, center_point.y - elem(default_size, 1) / 2},
-      size: default_size
-    })
+    # Create a reasonable default frame for the component
+    # MenuBar needs more width for all menus, other components get 400x200
+    default_size =
+      case component_module do
+        # 4 menus * 150px each
+        ScenicWidgets.MenuBar -> {600, 200}
+        _ -> {400, 200}
+      end
+
+    default_size =
+      case component_module do
+        ScenicWidgets.MenuBar -> {600, 200}
+        _ -> {400, 200}
+      end
+
+    component_frame =
+      Frame.new(%{
+        pin: {anchor_x, anchor_y},
+        size: default_size
+      })
+
+    Logger.info("🎯 Component positioning (ANCHORED at #{anchor_x}, #{anchor_y}):")
+
+    component_opts = prepare_component_data(component_module, component_frame)
+    selected = {component_name, component_module, component_opts}
 
     # Re-render with the selected component and hide modal
-    new_graph = render(scene.assigns.frame, selected, false, nil, 0)
-    |> apply_click_visualizations(scene)
+    new_graph =
+      render(scene.assigns.frame, selected, false, nil, 0)
+      |> apply_click_visualizations(scene)
 
-    scene = scene
-    |> assign(selected_component: selected)
-    |> assign(selected_component_name: component_name)
-    |> assign(component_frame: component_frame)
-    |> assign(component_modal_visible: false)
-    |> assign(modal_scroll_offset: 0)
-    |> assign(graph: new_graph)
-    |> push_graph(new_graph)
+    scene =
+      scene
+      |> assign(selected_component: selected)
+      |> assign(selected_component_name: component_name)
+      # |> assign(component_frame: component_frame)
+      |> assign(component_modal_visible: false)
+      |> assign(modal_scroll_offset: 0)
+      |> assign(graph: new_graph)
+      |> push_graph(new_graph)
 
     {:noreply, scene}
   end
@@ -1705,7 +1903,6 @@ defmodule WidgetWorkbench.Scene do
     )
   end
 
-
   def handle_info(:hot_reload, scene) do
     # Get size from multiple sources to debug
     stored_frame = scene.assigns.frame
@@ -1723,11 +1920,19 @@ defmodule WidgetWorkbench.Scene do
     current_frame = stored_frame
 
     # Re-render with current dimensions and selected component
-    new_graph = render(current_frame, scene.assigns[:selected_component], scene.assigns[:component_modal_visible] || false, scene.assigns[:click_visualization], scene.assigns[:modal_scroll_offset] || 0)
+    new_graph =
+      render(
+        current_frame,
+        scene.assigns[:selected_component],
+        scene.assigns[:component_modal_visible] || false,
+        scene.assigns[:click_visualization],
+        scene.assigns[:modal_scroll_offset] || 0
+      )
 
-    scene = scene
-    |> assign(graph: new_graph)
-    |> push_graph(new_graph)
+    scene =
+      scene
+      |> assign(graph: new_graph)
+      |> push_graph(new_graph)
 
     {:noreply, scene}
   end
@@ -1750,18 +1955,21 @@ defmodule WidgetWorkbench.Scene do
     # Calculate button frames (same logic as render_constructor_pane)
     pane_width = frame.size.width / 3
     pane_height = frame.size.height
-    pane_frame = Frame.new(%{pin: {frame.size.width - pane_width, 0}, size: {pane_width, pane_height}})
 
-    pane_grid = Grid.new(pane_frame)
-    |> Grid.rows([20, 35, 30, 15, 50, 20, 50, 20, 50, 1])
-    |> Grid.columns([0.1, 0.8, 0.1])
-    |> Grid.define_areas(%{
-      title: {1, 1, 1, 1},
-      subtitle: {2, 1, 1, 1},
-      reset_button: {4, 1, 1, 1},
-      new_button: {6, 1, 1, 1},
-      load_button: {8, 1, 1, 1}
-    })
+    pane_frame =
+      Frame.new(%{pin: {frame.size.width - pane_width, 0}, size: {pane_width, pane_height}})
+
+    pane_grid =
+      Grid.new(pane_frame)
+      |> Grid.rows([20, 35, 30, 15, 50, 20, 50, 20, 50, 1])
+      |> Grid.columns([0.1, 0.8, 0.1])
+      |> Grid.define_areas(%{
+        title: {1, 1, 1, 1},
+        subtitle: {2, 1, 1, 1},
+        reset_button: {4, 1, 1, 1},
+        new_button: {6, 1, 1, 1},
+        load_button: {8, 1, 1, 1}
+      })
 
     cell_frames = Grid.calculate(pane_grid)
     load_button_frame = Grid.area_frame(pane_grid, cell_frames, :load_button)
@@ -1792,7 +2000,9 @@ defmodule WidgetWorkbench.Scene do
       }
     )
 
-    Logger.info("🎯 Registered Load Component button for MCP at {#{left}, #{top}, #{width}x#{height}}")
+    Logger.info(
+      "🎯 Registered Load Component button for MCP at {#{left}, #{top}, #{width}x#{height}}"
+    )
   end
 
   # Register all component buttons in the modal for MCP clicking
@@ -1810,7 +2020,8 @@ defmodule WidgetWorkbench.Scene do
 
     button_height = 40
     button_margin = 5
-    button_width = modal_width - scrollbar_width - 5 - 40  # Account for padding
+    # Account for padding
+    button_width = modal_width - scrollbar_width - 5 - 40
 
     components = discover_components()
 
@@ -1820,16 +2031,18 @@ defmodule WidgetWorkbench.Scene do
     |> Enum.each(fn {{name, module}, index} ->
       # Calculate global position (group is translated to modal_x, list_top)
       y = list_top + (button_height + button_margin) * index
-      x = modal_x + 20  # modal_x from group translate + 20 from local offset
+      # modal_x from group translate + 20 from local offset
+      x = modal_x + 20
 
       # Create a semantic ID from the module name
-      semantic_id = module
-      |> to_string()
-      |> String.split(".")
-      |> List.last()
-      |> Macro.underscore()
-      |> then(&"component_#{&1}")
-      |> String.to_atom()
+      semantic_id =
+        module
+        |> to_string()
+        |> String.split(".")
+        |> List.last()
+        |> Macro.underscore()
+        |> then(&"component_#{&1}")
+        |> String.to_atom()
 
       Scenic.ViewPort.register_semantic(
         viewport,
@@ -1853,7 +2066,9 @@ defmodule WidgetWorkbench.Scene do
         }
       )
 
-      Logger.info("🎯 Registered component button '#{name}' for MCP at {#{x}, #{y}, #{button_width}x#{button_height}}")
+      Logger.info(
+        "🎯 Registered component button '#{name}' for MCP at {#{x}, #{y}, #{button_width}x#{button_height}}"
+      )
     end)
 
     # Also register the cancel button
@@ -1891,95 +2106,114 @@ defmodule WidgetWorkbench.Scene do
 
     # Base menu structure
     base_menu = [
-      {:sub_menu, "File", [
-        {"new_file", "New File"},
-        {"open_file", "Open File"},
-        {:sub_menu, "Recent Files", [
-          {"recent_1", "Document 1.txt"},
-          {"recent_2", "Project Notes.md"},
-          {:sub_menu, "By Project", [
-            {:sub_menu, "Project A", [
-              {:sub_menu, "Source Code", [
-                {:sub_menu, "Core Modules", [
-                  {:sub_menu, "Authentication", [
-                    {"auth_user", "user.ex"},
-                    {"auth_session", "session.ex"},
-                    {"auth_token", "token.ex"},
-                    {"auth_middleware", "middleware.ex"}
-                  ]},
-                  {:sub_menu, "Database", [
-                    {"db_schema", "schema.ex"},
-                    {"db_repo", "repo.ex"},
-                    {"db_migration", "migration.ex"}
-                  ]},
-                  {"core_app", "application.ex"},
-                  {"core_supervisor", "supervisor.ex"}
+      {:sub_menu, "File",
+       [
+         {"new_file", "New File"},
+         {"open_file", "Open File"},
+         {:sub_menu, "Recent Files",
+          [
+            {"recent_1", "Document 1.txt"},
+            {"recent_2", "Project Notes.md"},
+            {:sub_menu, "By Project",
+             [
+               {:sub_menu, "Project A",
+                [
+                  {:sub_menu, "Source Code",
+                   [
+                     {:sub_menu, "Core Modules",
+                      [
+                        {:sub_menu, "Authentication",
+                         [
+                           {"auth_user", "user.ex"},
+                           {"auth_session", "session.ex"},
+                           {"auth_token", "token.ex"},
+                           {"auth_middleware", "middleware.ex"}
+                         ]},
+                        {:sub_menu, "Database",
+                         [
+                           {"db_schema", "schema.ex"},
+                           {"db_repo", "repo.ex"},
+                           {"db_migration", "migration.ex"}
+                         ]},
+                        {"core_app", "application.ex"},
+                        {"core_supervisor", "supervisor.ex"}
+                      ]},
+                     {"src_main", "main.ex"},
+                     {"src_utils", "utils.ex"}
+                   ]},
+                  {"proj_a_readme", "README.md"},
+                  {"proj_a_config", "config.exs"}
                 ]},
-                {"src_main", "main.ex"},
-                {"src_utils", "utils.ex"}
-              ]},
-              {"proj_a_readme", "README.md"},
-              {"proj_a_config", "config.exs"}
-            ]},
-            {:sub_menu, "Project B", [
-              {"proj_b_app", "application.ex"},
-              {"proj_b_server", "server.ex"}
-            ]},
-            {"all_projects", "All Projects..."}
+               {:sub_menu, "Project B",
+                [
+                  {"proj_b_app", "application.ex"},
+                  {"proj_b_server", "server.ex"}
+                ]},
+               {"all_projects", "All Projects..."}
+             ]}
+          ]},
+         {"save_file", "Save"},
+         {"save_as", "Save As..."},
+         {:sub_menu, "Export",
+          [
+            {"export_pdf", "Export as PDF"},
+            {"export_html", "Export as HTML"},
+            {:sub_menu, "Export Image",
+             [
+               {"export_png", "PNG"},
+               {"export_jpg", "JPEG"},
+               {"export_svg", "SVG"}
+             ]}
+          ]},
+         {"quit", "Quit"}
+       ]},
+      {:sub_menu, "Edit",
+       [
+         {"undo", "Undo"},
+         {"redo", "Redo"},
+         {"cut", "Cut"},
+         {"copy", "Copy"},
+         {"paste", "Paste"},
+         {:sub_menu, "Find",
+          [
+            {"find", "Find..."},
+            {"find_replace", "Find and Replace..."},
+            {:sub_menu, "Find in",
+             [
+               {"find_project", "Current Project"},
+               {"find_folder", "Current Folder"},
+               {"find_all", "All Open Files"}
+             ]}
           ]}
-        ]},
-        {"save_file", "Save"},
-        {"save_as", "Save As..."},
-        {:sub_menu, "Export", [
-          {"export_pdf", "Export as PDF"},
-          {"export_html", "Export as HTML"},
-          {:sub_menu, "Export Image", [
-            {"export_png", "PNG"},
-            {"export_jpg", "JPEG"},
-            {"export_svg", "SVG"}
-          ]}
-        ]},
-        {"quit", "Quit"}
-      ]},
-      {:sub_menu, "Edit", [
-        {"undo", "Undo"},
-        {"redo", "Redo"},
-        {"cut", "Cut"},
-        {"copy", "Copy"},
-        {"paste", "Paste"},
-        {:sub_menu, "Find", [
-          {"find", "Find..."},
-          {"find_replace", "Find and Replace..."},
-          {:sub_menu, "Find in", [
-            {"find_project", "Current Project"},
-            {"find_folder", "Current Folder"},
-            {"find_all", "All Open Files"}
-          ]}
-        ]}
-      ]},
-      {:sub_menu, "View", [
-        {:sub_menu, "Appearance", [
-          {"theme_light", "Light Theme"},
-          {"theme_dark", "Dark Theme"},
-          {"theme_auto", "Auto"}
-        ]},
-        {:sub_menu, "Layout", [
-          {"layout_single", "Single Pane"},
-          {"layout_split", "Split Horizontal"},
-          {"layout_split_v", "Split Vertical"}
-        ]},
-        {"fullscreen", "Toggle Fullscreen"}
-      ]},
-      {:sub_menu, "Help", [
-        {"docs", "Documentation"},
-        {"shortcuts", "Keyboard Shortcuts"},
-        {:sub_menu, "Tutorials", [
-          {"tut_basics", "Getting Started"},
-          {"tut_advanced", "Advanced Features"},
-          {"tut_tips", "Tips & Tricks"}
-        ]},
-        {"about", "About"}
-      ]}
+       ]},
+      {:sub_menu, "View",
+       [
+         {:sub_menu, "Appearance",
+          [
+            {"theme_light", "Light Theme"},
+            {"theme_dark", "Dark Theme"},
+            {"theme_auto", "Auto"}
+          ]},
+         {:sub_menu, "Layout",
+          [
+            {"layout_single", "Single Pane"},
+            {"layout_split", "Split Horizontal"},
+            {"layout_split_v", "Split Vertical"}
+          ]},
+         {"fullscreen", "Toggle Fullscreen"}
+       ]},
+      {:sub_menu, "Help",
+       [
+         {"docs", "Documentation"},
+         {"shortcuts", "Keyboard Shortcuts"},
+         {:sub_menu, "Tutorials",
+          [
+            {"tut_basics", "Getting Started"},
+            {"tut_advanced", "Advanced Features"},
+            {"tut_tips", "Tips & Tricks"}
+          ]},
+         {"about", "About"}
+       ]}
     ]
 
     # If we're in test mode with a test PID, add action callbacks

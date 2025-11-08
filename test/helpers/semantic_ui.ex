@@ -202,7 +202,7 @@ defmodule ScenicWidgets.TestHelpers.SemanticUI do
   defp get_driver_state() do
     # Get driver name from config (allows test and dev to run simultaneously)
     driver_name = Application.get_env(:scenic_mcp, :driver_name, :scenic_driver)
-    viewport_name = Application.get_env(:scenic_mcp, :viewport_name, :main_viewport)
+    viewport_name = ScenicMcp.Config.viewport_name()
 
     # Get the driver from the registered name or via viewport
     case Process.whereis(driver_name) do

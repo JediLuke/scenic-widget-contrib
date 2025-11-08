@@ -23,50 +23,28 @@ defmodule WidgetWorkbench do
 
     IO.puts("🎯 Starting Widget Workbench...")
 
-    # Check if viewport already exists (e.g., from Flamelex)
-    case Process.whereis(:main_viewport) do
-      nil ->
-        # No viewport exists, create a new one
-        case Code.ensure_loaded(Scenic.Driver.Local) do
-          {:module, _} ->
-            start_viewport(size, title)
-          {:error, _} ->
-            IO.puts("❌ Error: scenic_driver_local is not available.")
-            IO.puts("   Add {:scenic_driver_local, \"~> 0.11\"} to your deps")
-            {:error, :missing_driver}
-        end
+    # No viewport exists, create a new one
+    case Code.ensure_loaded(Scenic.Driver.Local) do
+      {:module, _} ->
+        start_viewport(size, title)
 
-      viewport_pid ->
-        # Viewport exists, switch the scene
-        IO.puts("📱 Switching existing viewport to Widget Workbench...")
-        Scenic.ViewPort.set_root(viewport_pid, WidgetWorkbench.Scene, [])
-
-        IO.puts("✅ Widget Workbench is running!")
-        IO.puts("")
-        IO.puts("   Controls:")
-        IO.puts("   - Click 'Load Component' to load a widget")
-        IO.puts("   - Click 'Reset Scene' to clear the current widget")
-        IO.puts("   - Use the UI to develop and test Scenic components")
-        IO.puts("")
-
-        # Start the auto-reloader
-        start_auto_reloader()
-
-        {:ok, viewport_pid}
+      {:error, _} ->
+        IO.puts("❌ Error: scenic_driver_local is not available.")
+        IO.puts("   Add {:scenic_driver_local, \"~> 0.11\"} to your deps")
+        {:error, :missing_driver}
     end
   end
 
   defp start_viewport(size, title) do
-    #NOTE: ScenicMCP expects the viewport to be named `:main_viewport` AND the driver to be named `:scenic_driver`
     viewport_config = [
-      name: :main_viewport,
+      name: ScenicMcp.Config.viewport_name(),
       size: size,
       theme: :dark,
       default_scene: {WidgetWorkbench.Scene, []},
       drivers: [
         [
           module: Scenic.Driver.Local,
-          name: :scenic_driver,
+          name: :widget_wkb_scenic_driver,
           window: [
             resizeable: true,
             title: title
@@ -117,6 +95,7 @@ defmodule WidgetWorkbench do
       nil ->
         IO.puts("Widget Workbench is not running")
         :ok
+
       pid ->
         IO.puts("Stopping Widget Workbench...")
         Process.exit(pid, :kill)
@@ -128,8 +107,12 @@ defmodule WidgetWorkbench do
 
   defp wait_for_stop(timeout \\ 1000) do
     case Process.whereis(:main_viewport) do
-      nil -> :ok
-      _pid when timeout <= 0 -> :timeout
+      nil ->
+        :ok
+
+      _pid when timeout <= 0 ->
+        :timeout
+
       _pid ->
         Process.sleep(10)
         wait_for_stop(timeout - 10)
@@ -169,6 +152,7 @@ defmodule WidgetWorkbench do
           Logger.info("🔥 Hot-reloading scene (restarting)...")
           Scenic.ViewPort.set_root(viewport, WidgetWorkbench.Scene)
           Logger.info("✅ Scene restarted with new code!")
+
         _ ->
           Logger.info("Widget Workbench is not running")
           :ok
@@ -232,6 +216,7 @@ defmodule WidgetWorkbench.AutoReloader do
       nil ->
         IO.puts("❌ No file watcher found!")
         {:ok, %{last_reload: 0}}
+
       watcher_pid ->
         IO.puts("🔍 Found watcher PID: #{inspect(watcher_pid)}")
         result = FileSystem.subscribe(watcher_pid)
@@ -251,7 +236,8 @@ defmodule WidgetWorkbench.AutoReloader do
       now = :os.system_time(:millisecond)
       time_since_last = now - state.last_reload
 
-      if time_since_last > 200 do  # 200ms debounce
+      # 200ms debounce
+      if time_since_last > 200 do
         Logger.info("🔄 File changed: #{Path.relative_to_cwd(path)}")
         Logger.info("🔄 Hot-reloading scene...")
 

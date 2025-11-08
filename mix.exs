@@ -34,7 +34,7 @@ defmodule ScenicWidgets.MixProject do
       {:earmark, "~> 1.4", only: :dev},
       # {:stream_data, "~> 1.0", only: :test},
       # Added dependencies for widget development
-      {:scenic_mcp, path: "../scenic_mcp", optional: true},
+      {:scenic_mcp, path: "../scenic_mcp"},
       {:sexy_spex, path: "../spex", optional: true},
       {:scenic_live_reload, git: "https://github.com/axelson/scenic_live_reload.git", branch: "main", only: :dev},
       {:tidewave, "~> 0.1", only: :dev},
