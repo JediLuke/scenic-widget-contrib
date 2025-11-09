@@ -24,19 +24,19 @@ defmodule WidgetWorkbench.Scene do
     # Register this process so hot reload can find it
     Process.register(self(), :_widget_workbench_scene_)
 
-    Logger.info("🚀 WidgetWorkbench.Scene init called!")
+    # Logger.info("🚀 WidgetWorkbench.Scene init called!")
 
     # Try to get stored window size first (from previous resize events)
     {width, height} = try do
       case :ets.lookup(:widget_workbench_state, :current_size) do
         [{:current_size, stored_size}] ->
-          Logger.info("🔍 Using stored window size: #{inspect(stored_size)}")
+          # Logger.info("🔍 Using stored window size: #{inspect(stored_size)}")
           stored_size
         [] ->
           # Table exists but no size stored yet
           size = scene.viewport.size
           :ets.insert(:widget_workbench_state, {:current_size, size})
-          Logger.info("📐 Storing initial window size: #{inspect(size)}")
+          # Logger.info("📐 Storing initial window size: #{inspect(size)}")
           size
       end
     rescue
@@ -45,11 +45,11 @@ defmodule WidgetWorkbench.Scene do
         :ets.new(:widget_workbench_state, [:set, :public, :named_table])
         size = scene.viewport.size
         :ets.insert(:widget_workbench_state, {:current_size, size})
-        Logger.info("📐 Created ETS table with initial window size: #{inspect(size)}")
+        # Logger.info("📐 Created ETS table with initial window size: #{inspect(size)}")
         size
     end
 
-    Logger.info("📏 Using window size: #{width}x#{height}")
+    # Logger.info("📏 Using window size: #{width}x#{height}")
 
     # Create a frame for the scene
     frame = Frame.new(%{pin: {0, 0}, size: {width, height}})
@@ -169,9 +169,9 @@ defmodule WidgetWorkbench.Scene do
       size: default_size
     })
 
-    Logger.info("🎯 Component positioning (ANCHORED at #{anchor_x}, #{anchor_y}):")
-    Logger.info("   Main area frame: pin=#{inspect(frame.pin)}, size=#{inspect(frame.size)}")
-    Logger.info("   Component frame: pin=#{inspect(component_frame.pin)}, size=#{inspect(component_frame.size)}")
+    # Logger.info("🎯 Component positioning (ANCHORED at #{anchor_x}, #{anchor_y}):")
+    # Logger.info("   Main area frame: pin=#{inspect(frame.pin)}, size=#{inspect(frame.size)}")
+    # Logger.info("   Component frame: pin=#{inspect(component_frame.pin)}, size=#{inspect(component_frame.size)}")
 
     # Try different component loading strategies with better isolation
     try do
@@ -196,7 +196,7 @@ defmodule WidgetWorkbench.Scene do
       else
         # Strategy 2: Use standard Scenic.Component pattern with timeout and isolation
         component_data = prepare_component_data(component_module, component_frame)
-        Logger.info("Loading component #{component_name} with data: #{inspect(component_data)}")
+        # Logger.info("Loading component #{component_name} with data: #{inspect(component_data)}")
 
         graph
         |> component_module.add_to_graph(
@@ -360,7 +360,13 @@ defmodule WidgetWorkbench.Scene do
           pin: {0, 0},  # Start at origin - translate will position it
           size: component_frame.size
         })
-        %{frame: text_field_frame}
+
+        # For demo: Add long text to show word wrap
+        %{
+          frame: text_field_frame,
+          initial_text: "This is a very long line of text that definitely exceeds the width and should wrap to multiple lines when line_wrap is enabled",
+          wrap_mode: :word  # Can be :word or :none
+        }
 
       _ ->
         # Default: try frame parameter
@@ -965,7 +971,7 @@ defmodule WidgetWorkbench.Scene do
 
   @impl Scenic.Scene
   def handle_input({:viewport, {:reshape, {width, height}}}, _context, scene) do
-    Logger.info("Viewport resized to #{width}x#{height}")
+    # Logger.info("Viewport resized to #{width}x#{height}")
 
     # Store the new size in ETS for hot reload
     :ets.insert(:widget_workbench_state, {:current_size, {width, height}})
@@ -996,7 +1002,7 @@ defmodule WidgetWorkbench.Scene do
   # It will still be routed to child buttons via do_listed_input
   @impl Scenic.Scene
   def handle_input({:cursor_button, {button, state, mods, coords}} = input, _context, scene) do
-    Logger.info("🎯 Parent handle_input received cursor_button: #{inspect(input)}")
+    # Logger.info("🎯 Parent handle_input received cursor_button: #{inspect(input)}")
     # Don't consume - but Scenic requires us to return {:noreply, scene}
     # The input routing has ALREADY happened before this is called
     {:noreply, scene}
@@ -1154,7 +1160,7 @@ defmodule WidgetWorkbench.Scene do
   def observe_input({:cursor_button, {:btn_left, 1, [], coords}}, _id, scene) do
     # Visualize on button press (state 1)
     {x, y} = coords
-    Logger.info("🖱️  Widget Workbench CLICK at (#{x}, #{y})")
+    # Logger.info("🖱️  Widget Workbench CLICK at (#{x}, #{y})")
 
     # Send visualization message to self
     send(self(), {:visualize_click, coords})
@@ -1176,7 +1182,7 @@ defmodule WidgetWorkbench.Scene do
 
   # Handle async visualization message for clicks
   def handle_info({:visualize_click, coords}, scene) do
-    Logger.info("🎨 Rendering click visualization at #{inspect(coords)}")
+    # Logger.info("🎨 Rendering click visualization at #{inspect(coords)}")
     {x, y} = coords
 
     # Get current click sequence number and increment
@@ -1221,7 +1227,7 @@ defmodule WidgetWorkbench.Scene do
     |> assign(graph: new_graph)
     |> push_graph(new_graph)
 
-    Logger.info("🎨 Click #{click_label} visualization pushed to graph")
+    # Logger.info("🎨 Click #{click_label} visualization pushed to graph")
 
     # Schedule first fade step after 200ms (smooth fade with 50 steps over 10 seconds)
     Process.send_after(self(), {:fade_click_step, click_id, timestamp, 1}, 200)
@@ -1396,21 +1402,21 @@ defmodule WidgetWorkbench.Scene do
 
   @impl Scenic.Scene
   def handle_event({:click, :open_widget_button}, _from, scene) do
-    Logger.info("Open Widget button clicked!")
+    # Logger.info("Open Widget button clicked!")
     # TODO: Show a list of available widgets to open
     # For now, let's just log it
     {:noreply, scene}
   end
 
   def handle_event({:click, :create_widget_button}, _from, scene) do
-    Logger.info("Create New Widget button clicked!")
+    # Logger.info("Create New Widget button clicked!")
     # TODO: Show modal to create new widget with name input
     # For now, let's just log it
     {:noreply, scene}
   end
 
   def handle_event({:click, :new_widget_button}, _from, scene) do
-    Logger.info("New Widget button clicked!")
+    # Logger.info("New Widget button clicked!")
 
     # Show the modal
     graph = show_modal(scene.assigns.graph, scene.assigns.frame)
@@ -1425,14 +1431,14 @@ defmodule WidgetWorkbench.Scene do
   end
 
   def handle_event({:click, :close_workbench_button}, _from, scene) do
-    Logger.info("Close Workbench button clicked!")
+    # Logger.info("Close Workbench button clicked!")
     # switch back to Flamelex
     {:ok, _} = ViewPort.set_root(scene.viewport, Flamelex.GUI.RootScene, nil)
     {:noreply, scene}
   end
 
   def handle_event({:click, {:file_tab, index}}, _from, scene) do
-    Logger.info("File tab #{index + 1} clicked!")
+    # Logger.info("File tab #{index + 1} clicked!")
 
     # Update the current file index
     scene =
@@ -1449,7 +1455,7 @@ defmodule WidgetWorkbench.Scene do
   end
 
   def handle_event({:modal_submitted, component_name}, _from, scene) do
-    Logger.info("Modal submitted with component name: #{component_name}")
+    # Logger.info("Modal submitted with component name: #{component_name}")
 
     # Hide the modal
     graph = hide_modal(scene.assigns.graph)
@@ -1457,7 +1463,7 @@ defmodule WidgetWorkbench.Scene do
     # Create new component files using the new ComponentGenerator
     case WidgetWorkbench.ComponentGenerator.generate(component_name) do
       {:ok, created_files} ->
-        Logger.info("Successfully created component files: #{inspect(created_files)}")
+        # Logger.info("Successfully created component files: #{inspect(created_files)}")
 
         # Re-discover components to pick up the newly created one
         new_components = discover_components()
@@ -1471,7 +1477,7 @@ defmodule WidgetWorkbench.Scene do
         # Load the new component automatically
         {loaded_component, new_graph} = case new_component do
           {_name, module} ->
-            Logger.info("Auto-loading newly created component: #{inspect(module)}")
+            # Logger.info("Auto-loading newly created component: #{inspect(module)}")
             component_frame = Frame.new(%{pin: {100, 100}, size: {400, 300}})
 
             # Check if the component module defines add_to_graph/3
@@ -1517,7 +1523,7 @@ defmodule WidgetWorkbench.Scene do
   end
 
   def handle_event(:modal_cancelled, _from, scene) do
-    Logger.info("Modal cancelled")
+    # Logger.info("Modal cancelled")
 
     # Hide the modal
     graph = hide_modal(scene.assigns.graph)
@@ -1533,23 +1539,23 @@ defmodule WidgetWorkbench.Scene do
   end
 
   def handle_event({:menu_item_clicked, item_id}, _from, scene) do
-    Logger.info("Menu item clicked: #{inspect(item_id)}")
+    # Logger.info("Menu item clicked: #{inspect(item_id)}")
 
     # Handle different menu actions
     case item_id do
       :new_file ->
-        Logger.info("Creating new file...")
+        nil # Logger.info("Creating new file...")
       :quit ->
-        Logger.info("Quit selected")
+        nil # Logger.info("Quit selected")
       _ ->
-        Logger.info("Menu action: #{item_id}")
+        nil # Logger.info("Menu action: #{item_id}")
     end
 
     {:noreply, scene}
   end
 
   def handle_event({:click, :load_component_button}, _from, scene) do
-    Logger.info("Load Component button clicked - showing component selection modal")
+    # Logger.info("Load Component button clicked - showing component selection modal")
 
     # Show the component selection modal (reset scroll to top)
     new_graph = render(scene.assigns.frame, scene.assigns.selected_component, true, nil, 0)
@@ -1568,7 +1574,7 @@ defmodule WidgetWorkbench.Scene do
   end
 
   def handle_event({:click, :reset_scene_button}, _from, scene) do
-    Logger.info("Reset Scene button clicked - clearing component and reloading")
+    # Logger.info("Reset Scene button clicked - clearing component and reloading")
 
     # Clear selected component and re-render
     new_graph = render(scene.assigns.frame, nil, false, nil, 0)
@@ -1585,7 +1591,7 @@ defmodule WidgetWorkbench.Scene do
   end
 
   def handle_event({:click, :cancel_component_selection}, _from, scene) do
-    Logger.info("Component selection cancelled")
+    # Logger.info("Component selection cancelled")
 
     # Hide the modal
     new_graph = render(scene.assigns.frame, scene.assigns.selected_component, false, nil, scene.assigns[:modal_scroll_offset] || 0)
@@ -1604,7 +1610,7 @@ defmodule WidgetWorkbench.Scene do
     components = discover_components()
     selected = Enum.find(components, fn {_name, module} -> module == component_module end)
 
-    Logger.info("Component selected: #{inspect(selected)}")
+    # Logger.info("Component selected: #{inspect(selected)}")
 
     # Calculate component frame for click-outside detection
     {component_name, _module} = selected || {nil, nil}
@@ -1722,10 +1728,10 @@ defmodule WidgetWorkbench.Scene do
     {:ok, viewport_info} = Scenic.ViewPort.info(:main_viewport)
     vp_info_size = viewport_info.size
 
-    Logger.info("Hot reload debug:")
-    Logger.info("  - Stored frame size: #{inspect(stored_frame.size.box)}")
-    Logger.info("  - scene.viewport.size: #{inspect(scene_viewport_size)}")
-    Logger.info("  - ViewPort.info size: #{inspect(vp_info_size)}")
+    # Logger.info("Hot reload debug:")
+    # Logger.info("  - Stored frame size: #{inspect(stored_frame.size.box)}")
+    # Logger.info("  - scene.viewport.size: #{inspect(scene_viewport_size)}")
+    # Logger.info("  - ViewPort.info size: #{inspect(vp_info_size)}")
 
     # Use the stored frame size since that's what was last set by resize event
     current_frame = stored_frame
@@ -1800,7 +1806,7 @@ defmodule WidgetWorkbench.Scene do
       }
     )
 
-    Logger.info("🎯 Registered Load Component button for MCP at {#{left}, #{top}, #{width}x#{height}}")
+    # Logger.info("🎯 Registered Load Component button for MCP at {#{left}, #{top}, #{width}x#{height}}")
   end
 
   # Register all component buttons in the modal for MCP clicking
@@ -1861,7 +1867,7 @@ defmodule WidgetWorkbench.Scene do
         }
       )
 
-      Logger.info("🎯 Registered component button '#{name}' for MCP at {#{x}, #{y}, #{button_width}x#{button_height}}")
+      # Logger.info("🎯 Registered component button '#{name}' for MCP at {#{x}, #{y}, #{button_width}x#{button_height}}")
     end)
 
     # Also register the cancel button
@@ -1889,7 +1895,7 @@ defmodule WidgetWorkbench.Scene do
       }
     )
 
-    Logger.info("🎯 Registered Cancel button for MCP at {#{cancel_x}, #{cancel_y}, 80x35}")
+    # Logger.info("🎯 Registered Cancel button for MCP at {#{cancel_x}, #{cancel_y}, 80x35}")
   end
 
   # Helper to build menu_map with optional action callbacks for testing

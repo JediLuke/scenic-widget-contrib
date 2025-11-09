@@ -89,7 +89,7 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
     {:ok, viewport_pid} = Scenic.ViewPort.start_link(viewport_config)
 
     # Wait for Widget Workbench to initialize
-    Process.sleep(1500)
+    Process.sleep(500)
 
     # Cleanup on test completion
     on_exit(fn ->
@@ -104,14 +104,14 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
 
   setup context do
     # Wait for Widget Workbench to fully render
-    Process.sleep(1000)
+    Process.sleep(100)
 
     # Load TextField component before each test
     # SemanticUI.load_component handles scrolling automatically
     case SemanticUI.load_component("Text Field") do
       {:ok, result} ->
         IO.puts("✅ TextField loaded successfully")
-        Process.sleep(500)
+        Process.sleep(10)
       {:error, reason} ->
         IO.puts("❌ Failed to load TextField: #{reason}")
         # Try to debug what's on screen
@@ -131,7 +131,7 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
     Scenic.Driver.send_input(driver_struct, {:cursor_button, {:btn_left, 1, [], {click_x, click_y}}})
     Process.sleep(10)
     Scenic.Driver.send_input(driver_struct, {:cursor_button, {:btn_left, 0, [], {click_x, click_y}}})
-    Process.sleep(200)
+    Process.sleep(20)
 
     context
   end
@@ -165,9 +165,9 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
         # TextField loaded and focused from setup
         # Clear any default text
         ScenicMcp.Probes.send_keys("a", [:ctrl])
-        Process.sleep(50)
+        Process.sleep(10)
         ScenicMcp.Probes.send_keys("backspace", [])
-        Process.sleep(100)
+        Process.sleep(10)
 
         # Verify it's empty
         rendered = ScriptInspector.get_rendered_text_string()
@@ -181,7 +181,7 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
         # Start simple - just type "Hello"
         test_string = "Hello"
         ScenicMcp.Probes.send_text(test_string)
-        Process.sleep(200)
+        Process.sleep(10)
 
         input_screenshot = ScenicMcp.Probes.take_screenshot("#{@tmp_screenshots_dir}/basic_input_typed")
         {:ok, Map.merge(context, %{test_string: test_string, input_screenshot: input_screenshot})}
@@ -208,7 +208,7 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
         # Type "Test" then move left twice and insert "XX"
         test_text = "Test"
         ScenicMcp.Probes.send_text(test_text)
-        Process.sleep(100)
+        Process.sleep(10)
 
         {:ok, Map.put(context, :test_text, test_text)}
       end
@@ -216,13 +216,13 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
       when_ "user moves cursor left and inserts text", context do
         # Move left 2 positions (cursor between 's' and 't')
         ScenicMcp.Probes.send_keys("left", [])
-        Process.sleep(50)
+        Process.sleep(10)
         ScenicMcp.Probes.send_keys("left", [])
-        Process.sleep(50)
+        Process.sleep(10)
 
         # Insert "XX"
         ScenicMcp.Probes.send_text("XX")
-        Process.sleep(100)
+        Process.sleep(10)
 
         {:ok, context}
       end
@@ -248,7 +248,7 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
       given_ "TextField with text", context do
         test_text = "Delete"
         ScenicMcp.Probes.send_text(test_text)
-        Process.sleep(100)
+        Process.sleep(10)
 
         {:ok, context}
       end
@@ -256,7 +256,7 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
       when_ "user presses backspace", context do
         # Delete the 'e' at the end
         ScenicMcp.Probes.send_keys("backspace", [])
-        Process.sleep(100)
+        Process.sleep(10)
 
         {:ok, context}
       end
@@ -281,16 +281,16 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
       given_ "TextField with single line text", context do
         test_text = "Line1"
         ScenicMcp.Probes.send_text(test_text)
-        Process.sleep(100)
+        Process.sleep(10)
 
         {:ok, context}
       end
 
       when_ "user presses Enter and types more text", context do
         ScenicMcp.Probes.send_keys("enter", [])
-        Process.sleep(50)
+        Process.sleep(10)
         ScenicMcp.Probes.send_text("Line2")
-        Process.sleep(100)
+        Process.sleep(10)
 
         {:ok, context}
       end
@@ -314,10 +314,10 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
     scenario "Delete key deletes character at cursor", context do
       given_ "TextField with text", context do
         ScenicMcp.Probes.send_text("Remove")
-        Process.sleep(50)
+        Process.sleep(10)
         # Move cursor to beginning
         for _i <- 1..6, do: ScenicMcp.Probes.send_keys("left", [])
-        Process.sleep(100)
+        Process.sleep(10)
 
         {:ok, context}
       end
@@ -325,7 +325,7 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
       when_ "user presses delete", context do
         # Should delete the 'R'
         ScenicMcp.Probes.send_keys("delete", [])
-        Process.sleep(100)
+        Process.sleep(10)
 
         {:ok, context}
       end
@@ -345,7 +345,7 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
     scenario "Home and End keys navigate to line boundaries", context do
       given_ "TextField with text", context do
         ScenicMcp.Probes.send_text("Middle")
-        Process.sleep(100)
+        Process.sleep(10)
 
         {:ok, context}
       end
@@ -353,15 +353,15 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
       when_ "user uses Home and End keys", context do
         # Home - go to start
         ScenicMcp.Probes.send_keys("home", [])
-        Process.sleep(50)
+        Process.sleep(10)
         ScenicMcp.Probes.send_text("START")
-        Process.sleep(50)
+        Process.sleep(10)
 
         # End - go to end
         ScenicMcp.Probes.send_keys("end", [])
-        Process.sleep(50)
+        Process.sleep(10)
         ScenicMcp.Probes.send_text("END")
-        Process.sleep(100)
+        Process.sleep(10)
 
         {:ok, context}
       end
@@ -399,7 +399,7 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
       when_ "user types after clicking", context do
         # Type some text
         ScenicMcp.Probes.send_text("Focused")
-        Process.sleep(200)
+        Process.sleep(20)
 
         {:ok, context}
       end
@@ -425,22 +425,22 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
         # Clear all previous text first (Ctrl+A then Backspace)
         driver_struct = get_driver_state()
         Scenic.Driver.send_input(driver_struct, {:key, {:key_a, 1, [:ctrl]}})
-        Process.sleep(50)
+        Process.sleep(10)
         Scenic.Driver.send_input(driver_struct, {:key, {:key_a, 0, [:ctrl]}})
-        Process.sleep(50)
+        Process.sleep(10)
         Scenic.Driver.send_input(driver_struct, {:key, {:key_backspace, 1, []}})
-        Process.sleep(50)
+        Process.sleep(10)
         Scenic.Driver.send_input(driver_struct, {:key, {:key_backspace, 0, []}})
-        Process.sleep(100)
+        Process.sleep(10)
 
         test_text = "Select some text"
         ScenicMcp.Probes.send_text(test_text)
-        Process.sleep(100)
+        Process.sleep(10)
 
         # Position cursor after "Select "
         ScenicMcp.Probes.send_keys("home", [])
         for _i <- 1..7, do: ScenicMcp.Probes.send_keys("right", [])
-        Process.sleep(50)
+        Process.sleep(10)
 
         {:ok, Map.put(context, :test_text, test_text)}
       end
@@ -448,11 +448,11 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
       when_ "user selects text with Shift+Right and types replacement", context do
         # Select "some" (4 characters)
         for _i <- 1..4, do: ScenicMcp.Probes.send_keys("right", [:shift])
-        Process.sleep(100)
+        Process.sleep(10)
 
         # Type replacement - should replace selection
         ScenicMcp.Probes.send_text("NEW")
-        Process.sleep(100)
+        Process.sleep(10)
 
         {:ok, context}
       end
@@ -476,17 +476,17 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
         ScenicMcp.Probes.send_text("Line2")
         ScenicMcp.Probes.send_keys("enter", [])
         ScenicMcp.Probes.send_text("Line3")
-        Process.sleep(100)
+        Process.sleep(10)
 
         {:ok, context}
       end
 
       when_ "user presses Ctrl+A and types replacement", context do
         ScenicMcp.Probes.send_keys("a", [:ctrl])
-        Process.sleep(100)
+        Process.sleep(10)
 
         ScenicMcp.Probes.send_text("Replaced")
-        Process.sleep(100)
+        Process.sleep(10)
 
         {:ok, context}
       end
@@ -515,16 +515,16 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
         # Clear all previous text first (Ctrl+A then Backspace)
         driver_struct = get_driver_state()
         Scenic.Driver.send_input(driver_struct, {:key, {:key_a, 1, [:ctrl]}})
-        Process.sleep(50)
+        Process.sleep(10)
         Scenic.Driver.send_input(driver_struct, {:key, {:key_a, 0, [:ctrl]}})
-        Process.sleep(50)
+        Process.sleep(10)
         Scenic.Driver.send_input(driver_struct, {:key, {:key_backspace, 1, []}})
-        Process.sleep(50)
+        Process.sleep(10)
         Scenic.Driver.send_input(driver_struct, {:key, {:key_backspace, 0, []}})
-        Process.sleep(100)
+        Process.sleep(10)
 
         ScenicMcp.Probes.send_text("Copy this")
-        Process.sleep(100)
+        Process.sleep(10)
 
         {:ok, context}
       end
@@ -535,23 +535,23 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
         Scenic.Driver.send_input(driver_struct, {:cursor_button, {:btn_left, 1, [], {200, 200}}})
         Process.sleep(10)
         Scenic.Driver.send_input(driver_struct, {:cursor_button, {:btn_left, 0, [], {200, 200}}})
-        Process.sleep(100)
+        Process.sleep(10)
 
         # Select "this"
         ScenicMcp.Probes.send_keys("home", [])
         for _i <- 1..5, do: ScenicMcp.Probes.send_keys("right", [])
         for _i <- 1..4, do: ScenicMcp.Probes.send_keys("right", [:shift])
-        Process.sleep(100)
+        Process.sleep(10)
 
         # Copy
         ScenicMcp.Probes.send_keys("c", [:ctrl])
-        Process.sleep(100)
+        Process.sleep(10)
 
         # Move to end and paste
         ScenicMcp.Probes.send_keys("end", [])
         ScenicMcp.Probes.send_text(" and ")
         ScenicMcp.Probes.send_keys("v", [:ctrl])
-        Process.sleep(100)
+        Process.sleep(10)
 
         {:ok, context}
       end
@@ -573,16 +573,16 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
         # Clear all previous text first (Ctrl+A then Backspace)
         driver_struct = get_driver_state()
         Scenic.Driver.send_input(driver_struct, {:key, {:key_a, 1, [:ctrl]}})
-        Process.sleep(50)
+        Process.sleep(10)
         Scenic.Driver.send_input(driver_struct, {:key, {:key_a, 0, [:ctrl]}})
-        Process.sleep(50)
+        Process.sleep(10)
         Scenic.Driver.send_input(driver_struct, {:key, {:key_backspace, 1, []}})
-        Process.sleep(50)
+        Process.sleep(10)
         Scenic.Driver.send_input(driver_struct, {:key, {:key_backspace, 0, []}})
-        Process.sleep(100)
+        Process.sleep(10)
 
         ScenicMcp.Probes.send_text("Cut this out")
-        Process.sleep(100)
+        Process.sleep(10)
 
         {:ok, context}
       end
@@ -592,17 +592,17 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
         ScenicMcp.Probes.send_keys("home", [])
         for _i <- 1..4, do: ScenicMcp.Probes.send_keys("right", [])
         for _i <- 1..5, do: ScenicMcp.Probes.send_keys("right", [:shift])
-        Process.sleep(100)
+        Process.sleep(10)
 
         # Cut
         ScenicMcp.Probes.send_keys("x", [:ctrl])
-        Process.sleep(100)
+        Process.sleep(10)
 
         # Move to end and paste
         ScenicMcp.Probes.send_keys("end", [])
         ScenicMcp.Probes.send_text(" ")
         ScenicMcp.Probes.send_keys("v", [:ctrl])
-        Process.sleep(100)
+        Process.sleep(10)
 
         {:ok, context}
       end
@@ -631,7 +631,7 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
         ScenicMcp.Probes.send_text("Line2")
         ScenicMcp.Probes.send_keys("enter", [])
         ScenicMcp.Probes.send_text("Line3")
-        Process.sleep(100)
+        Process.sleep(10)
 
         {:ok, context}
       end
@@ -639,15 +639,15 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
       when_ "user navigates with up/down arrows", context do
         # Go to start of line 3
         ScenicMcp.Probes.send_keys("home", [])
-        Process.sleep(50)
+        Process.sleep(10)
 
         # Move up to line 2
         ScenicMcp.Probes.send_keys("up", [])
-        Process.sleep(50)
+        Process.sleep(10)
 
         # Insert marker
         ScenicMcp.Probes.send_text("MARK")
-        Process.sleep(100)
+        Process.sleep(10)
 
         {:ok, context}
       end
@@ -664,7 +664,74 @@ defmodule ScenicWidgets.TextField.ComprehensiveTextEditingSpex do
       end
     end
 
+    # scenario "Multi-line selection with Shift+Down/Up", context do
+    #   given_ "multi-line text content", context do
+    #     # Clear previous content
+    #     driver_struct = get_driver_state()
+    #     Scenic.Driver.send_input(driver_struct, {:key, {:key_a, 1, [:ctrl]}})
+    #     Process.sleep(50)
+    #     Scenic.Driver.send_input(driver_struct, {:key, {:key_a, 0, [:ctrl]}})
+    #     Process.sleep(50)
+    #     Scenic.Driver.send_input(driver_struct, {:key, {:key_backspace, 1, []}})
+    #     Process.sleep(50)
+    #     Scenic.Driver.send_input(driver_struct, {:key, {:key_backspace, 0, []}})
+    #     Process.sleep(100)
+
+    #     # Type multi-line content
+    #     ScenicMcp.Probes.send_text("First line")
+    #     ScenicMcp.Probes.send_keys("enter", [])
+    #     ScenicMcp.Probes.send_text("Second line")
+    #     ScenicMcp.Probes.send_keys("enter", [])
+    #     ScenicMcp.Probes.send_text("Third line")
+    #     Process.sleep(100)
+
+    #     # Position cursor at start of first line
+    #     ScenicMcp.Probes.send_keys("home", [:ctrl])
+    #     Process.sleep(50)
+
+    #     {:ok, context}
+    #   end
+
+    #   when_ "user selects across multiple lines with Shift+Down", context do
+    #     # Select from start of first line, move down with shift
+    #     ScenicMcp.Probes.send_keys("down", [:shift])  # Select first line
+    #     Process.sleep(50)
+    #     ScenicMcp.Probes.send_keys("down", [:shift])  # Extend to second line
+    #     Process.sleep(50)
+
+    #     # Now move right a bit to select partial third line
+    #     for _i <- 1..5 do
+    #       ScenicMcp.Probes.send_keys("right", [:shift])
+    #     end
+    #     Process.sleep(100)
+
+    #     {:ok, context}
+    #   end
+
+    #   then_ "multi-line selection should be replaceable", context do
+    #     # Type to replace selection
+    #     ScenicMcp.Probes.send_text("REPLACED")
+    #     Process.sleep(100)
+
+    #     rendered_content = ScriptInspector.get_rendered_text_string()
+    #     IO.puts("📄 After multi-line replace: #{inspect(rendered_content)}")
+
+    #     assert ScriptInspector.rendered_text_contains?("REPLACED"),
+    #            "Multi-line selection should be replaced. Got: '#{rendered_content}'"
+
+    #     refute ScriptInspector.rendered_text_contains?("First line"),
+    #            "Original first line should be gone. Got: '#{rendered_content}'"
+
+    #     refute ScriptInspector.rendered_text_contains?("Second line"),
+    #            "Original second line should be gone. Got: '#{rendered_content}'"
+
+    #     IO.puts("✅ Multi-line selection and replacement working")
+    #     :ok
+    #   end
+    # end
   end
+
+
 
   # Helper function to clear textfield
   defp clear_textfield() do
