@@ -66,6 +66,20 @@ Then in the IEx shell:
 iex> WidgetWorkbench.start()
 ```
 
+#### Option 3: Start when developing a component outside of Scenic Widget Contrib
+
+- Modify your mix.exs to refer to scenic contrib
+- Start IEx
+- Run code to start Widget Workbench and load your component using `WidgetWorkbench.Scene.load_component/3`:
+
+``` elixir
+def start_widget_workbench do
+  WidgetWorkbench.start()
+  opts = [pomodoro_timer: Pomodoro.PomodoroTimer.get_timer()]
+  WidgetWorkbench.Scene.load_component("Pomodoro Timer", PomodoroUi.TimerComponent, opts)
+end
+```
+
 ### Using the Workbench
 
 Once running, you can:
