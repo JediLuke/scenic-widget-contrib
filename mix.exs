@@ -38,8 +38,7 @@ defmodule ScenicWidgets.MixProject do
       {:sexy_spex, path: "../spex", optional: true},
       {:scenic_live_reload, git: "https://github.com/axelson/scenic_live_reload.git", branch: "main", only: :dev},
       {:tidewave, "~> 0.1", only: :dev},
-      {:bandit, "~> 1.0", only: :dev},
-      {:pomodoro, path: "~/dev/pomodoro"}
+      {:bandit, "~> 1.0", only: :dev}
     ]
   end
 
