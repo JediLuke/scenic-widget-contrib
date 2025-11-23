@@ -116,14 +116,57 @@ defmodule ScenicWidgets.MenuBar do
         {:sub_menu, label, items} ->
           # Generate unique menu ID based on label and index
           menu_id = String.to_atom("menu_#{index}_#{String.downcase(String.replace(label, " ", "_"))}")
-          Map.put(acc, menu_id, {label, items})
+          # Convert items to ensure they're in the correct format
+          converted_items = convert_menu_items(items)
+          Map.put(acc, menu_id, {label, converted_items})
         {label, items} when is_binary(label) and is_list(items) ->
           # Also handle simple tuple format
           menu_id = String.to_atom("menu_#{index}_#{String.downcase(String.replace(label, " ", "_"))}")
-          Map.put(acc, menu_id, {label, items})
+          converted_items = convert_menu_items(items)
+          Map.put(acc, menu_id, {label, converted_items})
         _ ->
           acc
       end
+    end)
+  end
+
+  # Convert menu items to ensure they're in the correct {id, label} or {id, label, action} format
+  defp convert_menu_items(items) when is_list(items) do
+    Logger.debug("convert_menu_items called with #{length(items)} items")
+    Enum.map(items, fn item ->
+      result = case item do
+        # Already in 3-tuple format with action
+        {id, label, action} when is_binary(id) and is_binary(label) and is_function(action, 0) ->
+          Logger.debug("  - Already 3-tuple: {#{inspect(id)}, #{inspect(label)}, <fn>}")
+          item
+
+        # Already in 2-tuple format {id, label}
+        {id, label} when is_binary(id) and is_binary(label) ->
+          Logger.debug("  - Already 2-tuple: {#{inspect(id)}, #{inspect(label)}}")
+          item
+
+        # 2-tuple format with function: {label, function} -> {id, label, function}
+        # Use label as both ID and display text
+        {label, action} when is_binary(label) and is_function(action, 0) ->
+          # Generate ID from label
+          id = label
+               |> String.downcase()
+               |> String.replace(~r/[^a-z0-9]+/, "_")
+               |> String.trim("_")
+          Logger.debug("  - Converting {#{inspect(label)}, <fn>} -> {#{inspect(id)}, #{inspect(label)}, <fn>}")
+          {id, label, action}
+
+        # Sub-menu: recursively convert items
+        {:sub_menu, label, sub_items} ->
+          Logger.debug("  - Sub-menu: #{inspect(label)} with #{length(sub_items)} items")
+          {:sub_menu, label, convert_menu_items(sub_items)}
+
+        # Pass through anything else unchanged
+        other ->
+          Logger.warning("  - Unexpected format: #{inspect(other)}")
+          other
+      end
+      result
     end)
   end
 

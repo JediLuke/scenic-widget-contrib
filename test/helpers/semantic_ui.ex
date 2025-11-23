@@ -11,21 +11,39 @@ defmodule ScenicWidgets.TestHelpers.SemanticUI do
   """
 
   alias ScenicWidgets.TestHelpers.ScriptInspector
-  alias ScenicMcp.Probes
+  alias ScenicMcp.Tools
+
+  @doc """
+  Connect and setup viewport for testing.
+  Used in setup_all blocks for spex tests.
+  """
+  def connect_and_setup_viewport() do
+    # Give the app time to boot
+    Process.sleep(1000)
+    {:ok, %{}}
+  end
+
+  @doc """
+  Cleanup viewport after testing.
+  Used in on_exit blocks for spex tests.
+  """
+  def cleanup_viewport() do
+    :ok
+  end
 
   @doc """
   Verify that Widget Workbench has booted properly.
-  Returns {:ok, state} with current UI state or {:error, reason}.
+  Returns {:ok, state} or {:error, reason}.
   """
   def verify_widget_workbench_loaded() do
     rendered_content = ScriptInspector.get_rendered_text_string()
 
     cond do
       String.contains?(rendered_content, "Widget Workbench") ->
-        {:ok, %{content: rendered_content, status: :loaded}}
+        {:ok, %{status: :loaded, content: rendered_content}}
 
       String.contains?(rendered_content, "Load Component") ->
-        {:ok, %{content: rendered_content, status: :ready_for_component}}
+        {:ok, %{status: :ready_for_component, content: rendered_content}}
 
       true ->
         {:error, "Widget Workbench not detected. Got: #{inspect(String.slice(rendered_content, 0, 200))}"}
@@ -199,6 +217,13 @@ defmodule ScenicWidgets.TestHelpers.SemanticUI do
     Process.sleep(500)
   end
 
+  defp send_scroll_event({dx, dy}, {x, y}) do
+    # Send scroll event at specific coordinates
+    driver_struct = get_driver_state()
+    Scenic.Driver.send_input(driver_struct, {:cursor_scroll, {{dx, dy}, {x, y}}})
+    Process.sleep(100)
+  end
+
   defp get_driver_state() do
     # Get driver name from config (allows test and dev to run simultaneously)
     driver_name = Application.get_env(:scenic_mcp, :driver_name, :scenic_driver)
@@ -303,8 +328,9 @@ defmodule ScenicWidgets.TestHelpers.SemanticUI do
         4  # Default fallback
       end
 
-      # Calculate Y position for this component's button
-      button_y = modal_y + 60 + (button_height + button_margin) * component_index
+      # Check if we need to scroll to see this component
+      list_area_height = modal_height - 60 - 55  # Header and footer
+      max_visible_index = trunc(list_area_height / (button_height + button_margin)) - 1
 
       # Check if we need to scroll to make this component visible
       # Modal list visible area: modal_y + 60 to modal_y + modal_height - 55
@@ -352,8 +378,43 @@ defmodule ScenicWidgets.TestHelpers.SemanticUI do
       IO.puts("     Original button Y: #{round(button_y)}")
       IO.puts("     Clicking at centroid: (#{centroid_x}, #{centroid_y})")
 
-      click_at_position(centroid_x, centroid_y)
-      Process.sleep(1000)
+        # Send scroll event to modal center
+        modal_center_x = modal_x + modal_width / 2
+        modal_center_y = modal_y + modal_height / 2
+
+        IO.puts("     Target visible slot: #{target_visible_slot}")
+        IO.puts("     Scroll lines: #{scroll_lines}")
+        IO.puts("     Scrolling down #{scroll_pixels}px to bring #{component_name} to visible slot #{target_visible_slot}...")
+        send_scroll_event({0, -scroll_pixels}, {modal_center_x, modal_center_y})
+        Process.sleep(500)  # Wait for scroll and button re-registration
+
+        {target_visible_slot, scroll_pixels}
+      else
+        IO.puts("✓ Component #{component_name} is already visible at index #{component_index}")
+        {component_index, 0}
+      end
+
+      # After scrolling (or if no scroll needed), use semantic clicking
+      # Build semantic ID: "Text Field" -> "component_text_field"
+      component_id = component_name
+        |> String.downcase()
+        |> String.replace(" ", "_")
+        |> then(&("component_" <> &1))
+
+      IO.puts("🖱️  Clicking #{component_name} using semantic ID: :#{component_id}")
+
+      # Use ScenicMcp.Tools to click by semantic ID
+      # The function expects a map with "element_id" key (string)
+      case Tools.click_element(%{"element_id" => component_id}) do
+        {:ok, result} ->
+          IO.puts("✓ Successfully clicked #{component_name}")
+          IO.puts("     Result: #{inspect(result)}")
+          Process.sleep(1000)
+
+        {:error, reason} ->
+          IO.puts("❌ Failed to click #{component_name}: #{inspect(reason)}")
+          Process.sleep(1000)
+      end
 
       # Verify the component loaded
       verify_component_loaded(component_name)
@@ -419,6 +480,81 @@ defmodule ScenicWidgets.TestHelpers.SemanticUI do
       {:error, reason} ->
         IO.puts("❌ Failed to load #{component_name}: #{reason}")
         {:error, reason}
+    end
+  end
+
+  @doc """
+  Send keyboard keys to the application.
+  Accepts either a string (for text) or {:key, key_name} tuple for special keys.
+  """
+  def send_keys(text) when is_binary(text) do
+    case Tools.handle_send_keys(%{"text" => text}) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def send_keys({:key, key_name}) do
+    case Tools.handle_send_keys(%{"key" => Atom.to_string(key_name)}) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Click on an element by its semantic ID.
+  """
+  def click_element(element_id) when is_atom(element_id) do
+    click_element(Atom.to_string(element_id))
+  end
+
+  def click_element(element_id) when is_binary(element_id) do
+    # Remove leading colon if present
+    id = String.trim_leading(element_id, ":")
+
+    case Tools.click_element(%{"element_id" => id}) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Send a mouse click at specific coordinates.
+  """
+  def send_mouse_click(x, y) do
+    case Tools.handle_mouse_click(%{"x" => x, "y" => y}) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Find all clickable elements in the viewport.
+  """
+  def find_clickable_elements() do
+    case Tools.find_clickable_elements(%{}) do
+      {:ok, %{elements: elements}} -> {:ok, elements}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Inspect the viewport and return visual description.
+  """
+  def inspect_viewport() do
+    case Tools.handle_get_scenic_graph() do
+      {:ok, %{visual_description: desc}} -> {:ok, desc}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Take a screenshot and return the path.
+  """
+  def take_screenshot(name) do
+    case Tools.take_screenshot(%{"filename" => name}) do
+      {:ok, %{path: path}} -> {:ok, path}
+      {:error, reason} -> {:error, reason}
     end
   end
 

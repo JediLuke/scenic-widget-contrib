@@ -2,6 +2,8 @@ defmodule ScenicWidgets.TextField.Reducer do
   @moduledoc """
   Pure state transition functions for TextField.
 
+  Phase 2: Input handling (process_input/2)
+  Phase 3: External actions (process_action/2)
   Phase 2: Input handling using ScenicEventsDefinitions
   Handles :key events and converts them to text using key2string/1
 
@@ -12,6 +14,8 @@ defmodule ScenicWidgets.TextField.Reducer do
 
   alias ScenicWidgets.TextField.State
   use ScenicWidgets.ScenicEventsDefinitions
+
+  # ===== DIRECT INPUT PROCESSING =====
 
   @doc """
   Process raw Scenic input events (for direct input mode).
@@ -207,6 +211,13 @@ defmodule ScenicWidgets.TextField.Reducer do
   def process_input(state, _input) do
     {:noop, state}
   end
+
+  # Catch-all for unhandled input
+  def process_input(state, _input) do
+    {:noop, state}
+  end
+
+  # ===== EXTERNAL ACTION PROCESSING (Phase 3) =====
 
   @doc """
   Process high-level actions (for external control mode).

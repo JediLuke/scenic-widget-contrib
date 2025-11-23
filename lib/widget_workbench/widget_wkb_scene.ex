@@ -83,7 +83,8 @@ defmodule WidgetWorkbench.Scene do
 
     # Request input events including cursor events and scroll
     # We need to request cursor_button to receive it, but we won't consume it in handle_input
-    request_input(scene, [:cursor_pos, :cursor_button, :cursor_scroll, :key, :viewport])
+    # Added :codepoint for TextField support
+    request_input(scene, [:cursor_pos, :cursor_button, :cursor_scroll, :key, :codepoint, :viewport])
 
     {:ok, scene}
   end
@@ -264,6 +265,27 @@ defmodule WidgetWorkbench.Scene do
           text_align: :center
         )
     end
+  end
+
+  # Catch-all for unexpected selected_component values
+  defp render_main_content(graph, frame, unexpected_value) do
+    Logger.warn("Unexpected selected_component value: #{inspect(unexpected_value)}")
+    center_point = Frame.center(frame)
+    graph
+    |> Primitives.text(
+      "Error: Invalid component state",
+      font_size: 16,
+      fill: :orange,
+      translate: {center_point.x, center_point.y},
+      text_align: :center
+    )
+    |> Primitives.text(
+      "(Please select a component from the list)",
+      font_size: 12,
+      fill: :gray,
+      translate: {center_point.x, center_point.y + 25},
+      text_align: :center
+    )
   end
 
   # Prepare component data based on the component type
@@ -652,14 +674,25 @@ defmodule WidgetWorkbench.Scene do
 
   # Render the list of components as buttons
   # x and start_y are in local coordinates (relative to group translate)
-  defp render_component_list(graph, components, x, start_y, width) do
+  # opts: modal_x, list_top, scroll_offset - for calculating absolute positions for MCP
+  defp render_component_list(graph, components, x, start_y, width, opts \\ []) do
     button_height = 40
     button_margin = 5
+
+    # Extract container positioning for absolute coordinate calculation
+    modal_x = Keyword.get(opts, :modal_x, 0)
+    list_top = Keyword.get(opts, :list_top, 0)
+    scroll_offset = Keyword.get(opts, :scroll_offset, 0)
 
     components
     |> Enum.with_index()
     |> Enum.reduce(graph, fn {{name, id}, index}, acc_graph ->
-      y = start_y + (button_height + button_margin) * index
+      local_y = start_y + (button_height + button_margin) * index
+
+      # Calculate absolute position for MCP registration
+      # absolute_y = container_top + local_y - scroll_offset
+      absolute_y = list_top + local_y - scroll_offset
+      absolute_x = modal_x + x + 20
 
       acc_graph
       |> Components.button(
@@ -667,7 +700,9 @@ defmodule WidgetWorkbench.Scene do
         id: {:select_component, id},
         width: width - 40,
         height: button_height,
-        translate: {x + 20, y},
+        translate: {x + 20, local_y},
+        # Pass absolute position as metadata for MCP
+        t: {absolute_x, absolute_y},  # MCP will use this for click positioning
         theme: %{
           text: {:color, {50, 50, 60}},
           background: {:color, {245, 245, 250}},
@@ -1227,6 +1262,12 @@ defmodule WidgetWorkbench.Scene do
     {:noreply, scene}
   end
 
+  # Handle codepoint input (pass through to child components)
+  @impl Scenic.Scene
+  def handle_input({:codepoint, _}, _context, scene) do
+    {:noreply, scene}
+  end
+
   # Helper function to scroll by a number of lines (buttons)
   defp scroll_by_lines(scene, lines) do
     button_height = 40
@@ -1677,6 +1718,9 @@ defmodule WidgetWorkbench.Scene do
           |> assign(modal_visible: false)
           |> assign(selected_component: loaded_component)
           |> push_graph(new_graph)
+
+        # Trigger immediate hot reload to re-render the entire scene properly
+        send(self(), :hot_reload)
 
         {:noreply, scene}
 
