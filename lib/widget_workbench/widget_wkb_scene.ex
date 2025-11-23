@@ -323,6 +323,23 @@ defmodule WidgetWorkbench.Scene do
           theme: custom_theme
         }
 
+      ScenicWidgets.SideNav ->
+        # SideNav needs frame with (0,0) pin and tree data
+        sidenav_frame =
+          Frame.new(%{
+            pin: {0, 0},
+            size: {280, 600}  # Standard sidebar width x height
+          })
+
+        # Use the test tree from Item module
+        tree = ScenicWidgets.SideNav.Item.test_tree()
+
+        %{
+          frame: sidenav_frame,
+          tree: tree,
+          active_id: "introduction"
+        }
+
       ScenicWidgets.IconButton ->
         # Convert Coordinates struct to tuple format for IconButton
         {pin_x, pin_y} =
