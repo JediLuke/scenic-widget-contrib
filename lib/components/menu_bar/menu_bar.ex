@@ -129,8 +129,8 @@ defmodule ScenicWidgets.MenuBar do
 
   @impl Scenic.Component
   def init(scene, data, _opts) do
-    Logger.info("🎯 ScenicWidgets.MenuBar component initializing (regular MenuBar, NOT Enhanced)")
-    Logger.info("MenuBar init called with data: #{inspect(data)}")
+    # Logger.info("🎯 ScenicWidgets.MenuBar component initializing (regular MenuBar, NOT Enhanced)")
+    # Logger.info("MenuBar init called with data: #{inspect(data)}")
 
     # Initialize component state
     state = State.new(data)
@@ -150,7 +150,7 @@ defmodule ScenicWidgets.MenuBar do
     # Register semantic elements for MCP interaction
     register_semantic_elements(scene, state)
 
-    Logger.info("MenuBar initialized successfully")
+    # Logger.info("MenuBar initialized successfully")
 
     {:ok, scene}
 
@@ -207,7 +207,7 @@ defmodule ScenicWidgets.MenuBar do
   # end
 
   def handle_put(:close_all_menus, scene) do
-    Logger.debug("MenuBar received :close_all_menus via handle_put")
+    # Logger.debug("MenuBar received :close_all_menus via handle_put")
     state = scene.assigns.state
 
     # Close all menus
@@ -226,7 +226,7 @@ defmodule ScenicWidgets.MenuBar do
   end
 
   def handle_put({:set_active_menu, menu_id}, scene) do
-    Logger.debug("MenuBar received {:set_active_menu, #{inspect(menu_id)}} via handle_put")
+    # Logger.debug("MenuBar received {:set_active_menu, #{inspect(menu_id)}} via handle_put")
     state = scene.assigns.state
     new_state = Api.set_active_menu(state, menu_id)
 
@@ -261,7 +261,7 @@ defmodule ScenicWidgets.MenuBar do
   end
 
   def handle_input({:cursor_button, {:btn_left, 1, [], coords}}, _context, scene) do
-    Logger.debug("MenuBar handle_input click received at: #{inspect(coords)}")
+    # Logger.debug("MenuBar handle_input click received at: #{inspect(coords)}")
     state = scene.assigns.state
 
     case Reducer.handle_click(state, coords) do
@@ -334,8 +334,7 @@ defmodule ScenicWidgets.MenuBar do
         }
       )
 
-      require Logger
-      Logger.info("🎯 Registered MenuBar button '#{label}' with ID #{inspect(semantic_id)} at {#{x}, #{y}, #{width}x#{height}}")
+      # Logger.info("🎯 Registered MenuBar button '#{label}' with ID #{inspect(semantic_id)} at {#{x}, #{y}, #{width}x#{height}}")
     end)
 
     :ok

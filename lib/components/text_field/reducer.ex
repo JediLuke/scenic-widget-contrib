@@ -23,8 +23,10 @@ defmodule ScenicWidgets.TextField.Reducer do
   # Handle all valid text input characters (letters, numbers, punctuation, space, enter)
   def process_input(%State{focused: true} = state, input) when input in @valid_text_input_characters do
     char = key2string(input)
+    # IO.puts("🔍 TEXT INPUT: '#{char}', selection: #{inspect(state.selection)}")
     # Delete selection first if any, then insert
     state_after_delete = delete_selection(state)
+    # IO.puts("🔍 After delete_selection: cursor #{inspect(state_after_delete.cursor)}, lines: #{inspect(state_after_delete.lines)}")
     new_state = insert_char(state_after_delete, char)
     {:event, {:text_changed, state.id, State.get_text(new_state)}, new_state}
   end
@@ -34,7 +36,7 @@ defmodule ScenicWidgets.TextField.Reducer do
   # Backspace - delete selection or character before cursor
   def process_input(%State{focused: true, selection: selection} = state, @backspace_key) when selection != nil do
     new_state = delete_selection(state)
-    IO.puts("🔍 Backspace with selection: focused before=#{state.focused}, after=#{new_state.focused}")
+    # IO.puts("🔍 Backspace with selection: focused before=#{state.focused}, after=#{new_state.focused}")
     {:event, {:text_changed, state.id, State.get_text(new_state)}, new_state}
   end
 
@@ -81,7 +83,11 @@ defmodule ScenicWidgets.TextField.Reducer do
 
   def process_input(%State{focused: true} = state, {:key, {:key_down, 1, mods}}) do
     if :shift in mods do
-      {:noop, move_cursor_with_selection(state, :down)}
+      # IO.puts("🔍 Shift+Down pressed! Current cursor: #{inspect(state.cursor)}, selection: #{inspect(state.selection)}, lines: #{length(state.lines)}")
+      # IO.puts("🔍 Lines content: #{inspect(state.lines)}")
+      new_state = move_cursor_with_selection(state, :down)
+      # IO.puts("🔍 After Shift+Down: cursor: #{inspect(new_state.cursor)}, selection: #{inspect(new_state.selection)}")
+      {:noop, new_state}
     else
       {:noop, move_cursor(state, :down) |> clear_selection()}
     end
@@ -98,7 +104,7 @@ defmodule ScenicWidgets.TextField.Reducer do
 
   # Escape - clear focus (optionally)
   def process_input(%State{focused: true} = state, @escape_key) do
-    IO.puts("🔍 Focus lost: Escape pressed")
+    # IO.puts("🔍 Focus lost: Escape pressed")
     {:event, {:focus_lost, state.id}, %{state | focused: false}}
   end
 
@@ -106,21 +112,21 @@ defmodule ScenicWidgets.TextField.Reducer do
 
   # Ctrl+A - Select all
   def process_input(%State{focused: true} = state, @ctrl_a) do
-    IO.puts("🔍 Ctrl+A pressed! Focused: #{state.focused}")
+    # IO.puts("🔍 Ctrl+A pressed! Focused: #{state.focused}")
     {:noop, select_all(state)}
   end
 
   # Ctrl+C - Copy selection to clipboard (works even when unfocused)
   def process_input(%State{selection: selection} = state, @ctrl_c) when selection != nil do
     text = get_selected_text(state)
-    IO.puts("🔍 Ctrl+C pressed! Selection: #{inspect(selection)}, Text: #{inspect(text)}, Focused: #{state.focused}")
+    # IO.puts("🔍 Ctrl+C pressed! Selection: #{inspect(selection)}, Text: #{inspect(text)}, Focused: #{state.focused}")
     # Send clipboard event to parent (Scenic doesn't have system clipboard access)
     {:event, {:clipboard_copy, state.id, text}, state}
   end
 
   def process_input(%State{} = state, @ctrl_c) do
     # No selection - do nothing
-    IO.puts("🔍 Ctrl+C pressed but no selection (focused: #{state.focused})")
+    # IO.puts("🔍 Ctrl+C pressed but no selection (focused: #{state.focused})")
     {:noop, state}
   end
 
@@ -128,7 +134,7 @@ defmodule ScenicWidgets.TextField.Reducer do
   def process_input(%State{selection: selection} = state, @ctrl_x) when selection != nil do
     text = get_selected_text(state)
     new_state = delete_selection(state)
-    IO.puts("🔍 Ctrl+X pressed! Focused: #{state.focused}")
+    # IO.puts("🔍 Ctrl+X pressed! Focused: #{state.focused}")
     # Send clipboard event to parent
     {:event, {:clipboard_cut, state.id, text}, new_state}
   end
@@ -140,7 +146,7 @@ defmodule ScenicWidgets.TextField.Reducer do
 
   # Ctrl+V - Paste from clipboard (works even when unfocused for testing)
   def process_input(%State{} = state, @ctrl_v) do
-    IO.puts("🔍 Ctrl+V pressed! Focused: #{state.focused}")
+    # IO.puts("🔍 Ctrl+V pressed! Focused: #{state.focused}")
     # Emit event to request clipboard data from parent
     # Parent will call insert_text action with the clipboard content
     {:event, {:clipboard_paste_requested, state.id}, state}
@@ -169,12 +175,12 @@ defmodule ScenicWidgets.TextField.Reducer do
   # Click inside -> gain focus
   def process_input(%State{focused: false} = state, {:cursor_button, {:btn_left, 1, _, pos}}) do
     inside = State.point_inside?(state, pos)
-    IO.puts("🔍 Click at #{inspect(pos)}, inside=#{inside}, frame=#{inspect(state.frame)}")
+    # IO.puts("🔍 Click at #{inspect(pos)}, inside=#{inside}, frame=#{inspect(state.frame)}")
     if inside do
-      IO.puts("🔍 Focus gained: Click inside at #{inspect(pos)}")
+      # IO.puts("🔍 Focus gained: Click inside at #{inspect(pos)}")
       {:event, {:focus_gained, state.id}, %{state | focused: true}}
     else
-      IO.puts("🔍 Click missed TextField at #{inspect(pos)}")
+      # IO.puts("🔍 Click missed TextField at #{inspect(pos)}")
       {:noop, state}
     end
   end
@@ -185,7 +191,7 @@ defmodule ScenicWidgets.TextField.Reducer do
       # Click inside while focused - move cursor to click position (Phase 3)
       {:noop, state}
     else
-      IO.puts("🔍 Focus lost: Click outside at #{inspect(pos)}")
+      # IO.puts("🔍 Focus lost: Click outside at #{inspect(pos)}")
       {:event, {:focus_lost, state.id}, %{state | focused: false}}
     end
   end
@@ -193,8 +199,8 @@ defmodule ScenicWidgets.TextField.Reducer do
   # ===== FALLBACK - Unhandled input =====
 
   def process_input(state, {:key, {:key_v, 1, [:ctrl]}} = input) do
-    IO.puts("🔍 FALLBACK caught Ctrl+V! Input: #{inspect(input)}")
-    IO.puts("🔍 State focused: #{state.focused}")
+    # IO.puts("🔍 FALLBACK caught Ctrl+V! Input: #{inspect(input)}")
+    # IO.puts("🔍 State focused: #{state.focused}")
     {:noop, state}
   end
 

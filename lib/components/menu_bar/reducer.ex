@@ -11,28 +11,28 @@ defmodule ScenicWidgets.MenuBar.Reducer do
   """
   def handle_cursor_pos(%State{} = state, coords) do
     require Logger
-    Logger.debug("Reducer.handle_cursor_pos: coords=#{inspect(coords)}, active_menu=#{inspect(state.active_menu)}, active_sub_menus=#{inspect(state.active_sub_menus)}")
+    # Logger.debug("Reducer.handle_cursor_pos: coords=#{inspect(coords)}, active_menu=#{inspect(state.active_menu)}, active_sub_menus=#{inspect(state.active_sub_menus)}")
 
     cond do
       # Check if cursor is in menu bar
       State.point_in_menu_bar?(state, coords) ->
         case State.find_hovered_menu(state, coords) do
           nil -> 
-            Logger.debug("No menu hovered")
+            # Logger.debug("No menu hovered")
             %{state | hovered_item: nil}
           menu_id ->
-            Logger.debug("Hovered menu: #{inspect(menu_id)}, current active: #{inspect(state.active_menu)}")
+            # Logger.debug("Hovered menu: #{inspect(menu_id)}, current active: #{inspect(state.active_menu)}")
             new_state = %{state | hovered_item: menu_id}
             
             cond do
               # In hover_activate mode, open menu on hover
               state.hover_activate && state.active_menu == nil ->
-                Logger.debug("Hover activate: opening menu #{inspect(menu_id)}")
+                # Logger.debug("Hover activate: opening menu #{inspect(menu_id)}")
                 %{new_state | active_menu: menu_id, hovered_dropdown: nil, active_sub_menus: %{}}
               
               # If a dropdown is open and we hover a different menu, switch to it
               state.active_menu != nil && state.active_menu != menu_id ->
-                Logger.debug("Switching active menu from #{inspect(state.active_menu)} to #{inspect(menu_id)}")
+                # Logger.debug("Switching active menu from #{inspect(state.active_menu)} to #{inspect(menu_id)}")
                 %{new_state | active_menu: menu_id, hovered_dropdown: nil, active_sub_menus: %{}}
               
               true ->
@@ -46,7 +46,7 @@ defmodule ScenicWidgets.MenuBar.Reducer do
         case State.point_in_sub_menu?(state, coords) do
           {:ok, {parent_menu, sub_menu_id, hovered_item}} ->
             # Mouse is in an active sub-menu!
-            Logger.debug("In sub-menu #{inspect(sub_menu_id)}, hovering item: #{inspect(hovered_item)}")
+            # Logger.debug("In sub-menu #{inspect(sub_menu_id)}, hovering item: #{inspect(hovered_item)}")
 
             # Get the currently active child of this sub-menu (if any)
             old_child = Map.get(state.active_sub_menus, sub_menu_id)
@@ -88,7 +88,7 @@ defmodule ScenicWidgets.MenuBar.Reducer do
             case State.point_in_dropdown?(state, coords) do
               {true, {item_id, :sub_menu}} ->
                 # Hovering over a sub-menu item in main dropdown
-                Logger.debug("Hovering over sub-menu trigger: #{inspect(item_id)}")
+                # Logger.debug("Hovering over sub-menu trigger: #{inspect(item_id)}")
 
                 # Get the currently active sub-menu for this dropdown (if any)
                 old_sub_menu = Map.get(state.active_sub_menus, state.active_menu)
@@ -111,7 +111,7 @@ defmodule ScenicWidgets.MenuBar.Reducer do
               {true, {item_id, :item}} ->
                 # Regular menu item (not a sub-menu)
                 # Close any sub-menus for the current active menu AND their children
-                Logger.debug("Hovering over regular item: #{inspect(item_id)}, clearing sub-menus for #{inspect(state.active_menu)}")
+                # Logger.debug("Hovering over regular item: #{inspect(item_id)}, clearing sub-menus for #{inspect(state.active_menu)}")
 
                 # Get the child sub-menu of the active menu (if any) and close it recursively
                 new_sub_menus = case Map.get(state.active_sub_menus, state.active_menu) do
@@ -145,13 +145,13 @@ defmodule ScenicWidgets.MenuBar.Reducer do
                 # Mouse left dropdown area - check if we should close it
                 # IMPORTANT: Don't close if we have active sub-menus (user might be moving to them)
                 if outside_menu_area?(state, coords) do
-                  Logger.debug("Outside menu area, active_sub_menus: #{inspect(state.active_sub_menus)}")
+                  # Logger.debug("Outside menu area, active_sub_menus: #{inspect(state.active_sub_menus)}")
                   if map_size(state.active_sub_menus) > 0 do
                     # Keep menus open if sub-menus are active
-                    Logger.debug("Keeping menus open due to active sub-menus")
+                    # Logger.debug("Keeping menus open due to active sub-menus")
                     %{state | hovered_dropdown: nil}
                   else
-                    Logger.debug("Closing all menus")
+                    # Logger.debug("Closing all menus")
                     %{state | active_menu: nil, hovered_item: nil, hovered_dropdown: nil, active_sub_menus: %{}}
                   end
                 else
@@ -172,26 +172,26 @@ defmodule ScenicWidgets.MenuBar.Reducer do
   """
   def handle_click(%State{} = state, coords) do
     require Logger
-    Logger.debug("Reducer.handle_click: coords=#{inspect(coords)}, frame=#{inspect(state.frame)}")
+    # Logger.debug("Reducer.handle_click: coords=#{inspect(coords)}, frame=#{inspect(state.frame)}")
     
     cond do
       # Click on menu header
       State.point_in_menu_bar?(state, coords) ->
-        Logger.debug("Click is in menu bar")
+        # Logger.debug("Click is in menu bar")
         case State.find_hovered_menu(state, coords) do
           nil -> 
-            Logger.debug("No menu found at click position")
+            # Logger.debug("No menu found at click position")
             {:noop, state}
           menu_id ->
-            Logger.debug("Clicked on menu: #{inspect(menu_id)}")
+            # Logger.debug("Clicked on menu: #{inspect(menu_id)}")
             if state.active_menu == menu_id do
               # Clicking active menu closes it
-              Logger.debug("Closing active menu: #{inspect(menu_id)}")
+              # Logger.debug("Closing active menu: #{inspect(menu_id)}")
               new_state = %{state | active_menu: nil, hovered_dropdown: nil}
               {:noop, new_state}
             else
               # Open this menu
-              Logger.debug("Opening menu: #{inspect(menu_id)}")
+              # Logger.debug("Opening menu: #{inspect(menu_id)}")
               new_state = %{state | active_menu: menu_id, hovered_dropdown: nil}
               {:noop, new_state}
             end
@@ -202,19 +202,19 @@ defmodule ScenicWidgets.MenuBar.Reducer do
         case State.point_in_dropdown?(state, coords) do
           {true, {item_id, :sub_menu}} ->
             # Clicked on sub-menu - don't close, just activate it
-            Logger.debug("Clicked on sub-menu: #{inspect(item_id)}")
+            # Logger.debug("Clicked on sub-menu: #{inspect(item_id)}")
             new_state = %{state | active_sub_menus: Map.put(state.active_sub_menus, state.active_menu, item_id)}
             {:noop, new_state}
           {true, {item_id, :item}} ->
             # Regular menu item clicked
-            Logger.debug("Clicked on menu item: #{inspect(item_id)}")
+            # Logger.debug("Clicked on menu item: #{inspect(item_id)}")
 
             # Check if this item has an action callback
             action = get_item_action(state, item_id)
 
             # Execute the action if it exists
             if is_function(action, 0) do
-              Logger.debug("Executing action callback for #{inspect(item_id)}")
+              # Logger.debug("Executing action callback for #{inspect(item_id)}")
               action.()
             end
 
@@ -303,12 +303,12 @@ defmodule ScenicWidgets.MenuBar.Reducer do
     # Find the sub-menu's items in dropdown bounds
     case find_sub_menu_items(state, sub_menu_id) do
       nil ->
-        Logger.debug("is_sub_menu_item?: find_sub_menu_items returned nil for sub_menu_id=#{inspect(sub_menu_id)}")
+        # Logger.debug("is_sub_menu_item?: find_sub_menu_items returned nil for sub_menu_id=#{inspect(sub_menu_id)}")
         false
       items ->
         # Check if this item has type :sub_menu or starts with "submenu_"
         result = String.starts_with?(to_string(hovered_item), "submenu_")
-        Logger.debug("is_sub_menu_item?: sub_menu_id=#{inspect(sub_menu_id)}, hovered_item=#{inspect(hovered_item)}, result=#{result}")
+        # Logger.debug("is_sub_menu_item?: sub_menu_id=#{inspect(sub_menu_id)}, hovered_item=#{inspect(hovered_item)}, result=#{result}")
         result
     end
   end
@@ -318,11 +318,11 @@ defmodule ScenicWidgets.MenuBar.Reducer do
     # Search recursively through the menu structure starting from active menu
     case Map.get(menu_map, active_menu) do
       nil ->
-        Logger.debug("find_sub_menu_items: active_menu #{inspect(active_menu)} not found in menu_map")
+        # Logger.debug("find_sub_menu_items: active_menu #{inspect(active_menu)} not found in menu_map")
         nil
       {_label, items} ->
         result = search_items_for_sub_menu(items, sub_menu_id)
-        Logger.debug("find_sub_menu_items: searching for #{inspect(sub_menu_id)} in active_menu #{inspect(active_menu)}, result=#{inspect(result != nil)}")
+        # Logger.debug("find_sub_menu_items: searching for #{inspect(sub_menu_id)} in active_menu #{inspect(active_menu)}, result=#{inspect(result != nil)}")
         result
     end
   end

@@ -103,7 +103,7 @@ defmodule ScenicWidgets.TextField do
 
     # Phase 2: Request input if in direct mode
     if state.input_mode == :direct do
-      IO.puts("🔍 TextField requesting input: [:cursor_button, :key]")
+      # IO.puts("🔍 TextField requesting input: [:cursor_button, :key]")
       request_input(scene, [:cursor_button, :key])
     end
 
@@ -121,11 +121,11 @@ defmodule ScenicWidgets.TextField do
     state = scene.assigns.state
 
     # Debug ALL key input
-    case input do
-      {:key, {key, 1, mods}} ->
-        IO.puts("🔍 TextField.handle_input received: #{inspect(key)} with mods #{inspect(mods)}, focused: #{state.focused}")
-      _ -> :ok
-    end
+    # case input do
+    #   {:key, {key, 1, mods}} ->
+    #     IO.puts("🔍 TextField.handle_input received: #{inspect(key)} with mods #{inspect(mods)}, focused: #{state.focused}")
+    #   _ -> :ok
+    # end
 
     case Reducer.process_input(state, input) do
       {:noop, ^state} ->
@@ -193,7 +193,7 @@ defmodule ScenicWidgets.TextField do
 
     # Debug: Check if blink is changing focus
     if not state.focused do
-      IO.puts("🔍 BLINK with focused=false!")
+      # IO.puts("🔍 BLINK with focused=false!")
     end
 
     # Toggle cursor visibility
@@ -214,8 +214,8 @@ defmodule ScenicWidgets.TextField do
 
   defp update_scene(scene, old_state, new_state) do
     if old_state.focused != new_state.focused do
-      IO.puts("🔍 FOCUS CHANGED in update_scene: #{old_state.focused} -> #{new_state.focused}")
-      IO.puts("🔍 Stacktrace: #{inspect(Process.info(self(), :current_stacktrace), limit: 5)}")
+      # IO.puts("🔍 FOCUS CHANGED in update_scene: #{old_state.focused} -> #{new_state.focused}")
+      # IO.puts("🔍 Stacktrace: #{inspect(Process.info(self(), :current_stacktrace), limit: 5)}")
     end
 
     graph = Renderer.update_render(scene.assigns.graph, old_state, new_state)

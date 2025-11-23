@@ -184,13 +184,32 @@ defmodule ScenicWidgets.TextField.Renderer do
   defp render_lines(graph, %State{
     lines: lines,
     font: font,
-    colors: colors
+    colors: colors,
+    wrap_mode: wrap_mode,
+    frame: frame,
+    show_line_numbers: show_line_numbers,
+    line_number_width: line_number_width
   } = state) do
     x_offset = State.text_x_offset(state)
 
-    # Render each line of text
-    Enum.reduce(Enum.with_index(lines, 1), graph, fn {line_text, line_num}, g ->
-      y_pos = (line_num - 1) * font.size + font.size
+    # Calculate available width for text
+    text_width = if show_line_numbers do
+      frame.size.width - line_number_width - 20  # Account for margins
+    else
+      frame.size.width - 20  # 10px padding on each side
+    end
+
+    # Wrap lines if needed
+    display_lines = if wrap_mode == :word do
+      lines
+      |> Enum.flat_map(&wrap_line(&1, text_width, font))
+    else
+      lines
+    end
+
+    # Render each display line
+    Enum.reduce(Enum.with_index(display_lines, 1), graph, fn {line_text, display_line_num}, g ->
+      y_pos = (display_line_num - 1) * font.size + font.size
 
       g
       |> Primitives.text(
@@ -199,8 +218,48 @@ defmodule ScenicWidgets.TextField.Renderer do
         fill: colors.text,
         font_size: font.size,
         font: font.name,
-        id: {:text_line, line_num}
+        id: {:text_line, display_line_num}
       )
+    end)
+  end
+
+  # Wrap a single line into multiple lines based on available width
+  defp wrap_line(line, max_width, font) do
+    # Approximate character width (monospace)
+    char_width = font.size * 0.6
+    max_chars = trunc(max_width / char_width)
+
+    if String.length(line) <= max_chars do
+      [line]
+    else
+      wrap_line_by_words(line, max_chars)
+    end
+  end
+
+  # Word-based wrapping
+  defp wrap_line_by_words(line, max_chars) do
+    words = String.split(line, " ")
+
+    words
+    |> Enum.reduce({[], ""}, fn word, {wrapped_lines, current_line} ->
+      test_line = if current_line == "", do: word, else: current_line <> " " <> word
+
+      if String.length(test_line) <= max_chars do
+        # Word fits on current line
+        {wrapped_lines, test_line}
+      else
+        # Word doesn't fit, start new line
+        if current_line == "" do
+          # Single word exceeds line - just add it anyway
+          {wrapped_lines ++ [word], ""}
+        else
+          # Move to next line
+          {wrapped_lines ++ [current_line], word}
+        end
+      end
+    end)
+    |> then(fn {wrapped_lines, current_line} ->
+      if current_line == "", do: wrapped_lines, else: wrapped_lines ++ [current_line]
     end)
   end
 

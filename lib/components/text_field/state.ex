@@ -91,7 +91,7 @@ defmodule ScenicWidgets.TextField.State do
       selectable: Map.get(data, :selectable, true),
 
       # Text Wrapping & Scrolling (defaults for Phase 1)
-      wrap_mode: Map.get(data, :wrap_mode, :none),
+      wrap_mode: Map.get(data, :wrap_mode, :word),  # DEMO: Enable word wrap by default
       scroll_mode: Map.get(data, :scroll_mode, :both),
       vertical_scroll_offset: 0,
       horizontal_scroll_offset: 0,
@@ -111,7 +111,7 @@ defmodule ScenicWidgets.TextField.State do
     String.split(text, "\n")
   end
   defp parse_initial_text(_) do
-    # Default to empty for testing
+    # Default to empty
     [""]
   end
 

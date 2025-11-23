@@ -162,6 +162,139 @@ defmodule ScenicWidgets.TestHelpers.ScriptInspector do
     end
   end
 
+  @doc """
+  Gets all text primitives with their positions (x, y coordinates).
+  Returns a list of maps with text content and position information.
+
+  ## Returns
+  List of `%{text: string, x: number, y: number}` maps, sorted by Y then X.
+
+  ## Example
+      iex> ScriptInspector.get_text_with_positions()
+      [
+        %{text: "Hello", x: 100, y: 50},
+        %{text: "World", x: 150, y: 50},
+        %{text: "Next line", x: 100, y: 85}
+      ]
+  """
+  def get_text_with_positions() do
+    try do
+      script_data = get_script_table_directly()
+
+      all_commands = script_data
+      |> Enum.flat_map(fn
+        {_id, commands, _pid} -> commands
+        commands when is_list(commands) -> commands
+        _ -> []
+      end)
+
+      all_commands
+      |> Enum.filter(&is_text_primitive?/1)
+      |> Enum.map(&extract_text_with_position/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.sort_by(fn %{y: y, x: x} -> {y, x} end)
+    rescue
+      error ->
+        Logger.warn("Failed to get text with positions: #{Exception.message(error)}")
+        []
+    end
+  end
+
+  @doc """
+  Gets text primitives grouped by line (Y-coordinate).
+  Text with similar Y-coordinates (within tolerance) are grouped together.
+
+  ## Parameters
+  - `y_tolerance`: Maximum Y-difference to consider text on same line (default: 5)
+
+  ## Returns
+  List of `{line_y, [text_items]}` tuples, sorted by Y coordinate (top to bottom).
+
+  ## Example
+      iex> ScriptInspector.get_text_by_lines()
+      [
+        {50, ["Hello", "World"]},
+        {85, ["Next", "line"]}
+      ]
+  """
+  def get_text_by_lines(y_tolerance \\ 5) do
+    text_items = get_text_with_positions()
+
+    # Group by Y coordinate (with tolerance)
+    text_items
+    |> Enum.group_by(fn %{y: y} ->
+      # Round to nearest tolerance value to group similar Y coords
+      round(y / y_tolerance) * y_tolerance
+    end)
+    |> Enum.map(fn {line_y, items} ->
+      # Sort items on same line by X coordinate (left to right)
+      sorted_items = Enum.sort_by(items, fn %{x: x} -> x end)
+      text_list = Enum.map(sorted_items, fn %{text: text} -> text end)
+      {line_y, text_list}
+    end)
+    |> Enum.sort_by(fn {y, _items} -> y end)  # Sort lines top to bottom
+  end
+
+  @doc """
+  Checks if specific text appears on a given line number (1-indexed).
+
+  ## Parameters
+  - `text`: The text content to search for
+  - `line_number`: Line number (1 = first line, 2 = second line, etc.)
+
+  ## Example
+      iex> ScriptInspector.text_appears_on_line?("Hello", 1)
+      true
+  """
+  def text_appears_on_line?(text, line_number) do
+    lines = get_text_by_lines()
+
+    case Enum.at(lines, line_number - 1) do
+      nil -> false
+      {_y, text_list} ->
+        Enum.any?(text_list, fn item -> String.contains?(item, text) end)
+    end
+  end
+
+  @doc """
+  Checks if text content spans multiple lines (appears on different Y coordinates).
+
+  ## Parameters
+  - `text_pattern`: Text pattern to search for across lines
+
+  ## Returns
+  Boolean indicating if the pattern appears on multiple distinct lines.
+
+  ## Example
+      iex> ScriptInspector.text_wraps_to_lines?("long")
+      true  # If "long" appears on line 1 and line 2
+  """
+  def text_wraps_to_lines?(text_pattern) do
+    text_items = get_text_with_positions()
+
+    matching_items = Enum.filter(text_items, fn %{text: text} ->
+      String.contains?(text, text_pattern)
+    end)
+
+    # Check if matching items have different Y coordinates
+    y_coords = matching_items
+    |> Enum.map(fn %{y: y} -> y end)
+    |> Enum.uniq()
+
+    length(y_coords) > 1
+  end
+
+  @doc """
+  Gets the number of distinct lines (unique Y coordinates) in rendered content.
+
+  ## Example
+      iex> ScriptInspector.get_line_count()
+      3  # Content spans 3 lines
+  """
+  def get_line_count() do
+    get_text_by_lines() |> length()
+  end
+
   # Private helper functions
 
   defp extract_text_primitives(script_data) do
@@ -201,6 +334,41 @@ defmodule ScenicWidgets.TestHelpers.ScriptInspector do
       {:draw_text, text} when is_binary(text) -> text
       _ -> ""
     end
+  end
+
+  defp extract_text_with_position(entry) do
+    case entry do
+      {_id, :text, text_data, opts} when is_binary(text_data) ->
+        extract_position_and_text(text_data, opts)
+
+      {:text, text_data, opts} when is_binary(text_data) ->
+        extract_position_and_text(text_data, opts)
+
+      %{type: :text, data: text_data, opts: opts} when is_binary(text_data) ->
+        extract_position_and_text(text_data, opts)
+
+      {:draw_text, text} ->
+        # draw_text might not have position info, default to (0, 0)
+        %{text: text, x: 0, y: 0}
+
+      _ ->
+        nil
+    end
+  end
+
+  defp extract_position_and_text(text, opts) when is_list(opts) do
+    # Extract translate coordinates from opts list
+    {x, y} = case Keyword.get(opts, :translate, {0, 0}) do
+      {x_val, y_val} -> {x_val, y_val}
+      _ -> {0, 0}
+    end
+
+    %{text: text, x: x, y: y}
+  end
+
+  defp extract_position_and_text(text, _opts) do
+    # Fallback if opts is not a keyword list
+    %{text: text, x: 0, y: 0}
   end
 
   # Filter out Widget Workbench UI elements
