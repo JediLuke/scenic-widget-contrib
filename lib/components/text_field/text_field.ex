@@ -102,11 +102,14 @@ defmodule ScenicWidgets.TextField do
     state = %{state | cursor_timer: timer}
 
     # Phase 2: Request input if in direct mode
-    # scene = if state.input_mode == :direct do
-    #   request_input(scene, [:cursor_button, :key, :codepoint])
-    # else
-    #   scene
-    # end
+    if state.input_mode == :direct do
+      IO.puts("🎯 TextField requesting input: [:cursor_button, :key, :codepoint]")
+      Logger.info("TextField requesting input: [:cursor_button, :key, :codepoint]")
+      request_input(scene, [:cursor_button, :key, :codepoint])
+    else
+      IO.puts("⚠️  TextField in external mode - not requesting input")
+      Logger.info("TextField in external mode - not requesting input")
+    end
 
     scene =
       scene
@@ -118,21 +121,29 @@ defmodule ScenicWidgets.TextField do
 
   # ===== INPUT HANDLING (Phase 2) =====
 
-  # def handle_input(input, _context, scene) do
-  #   state = scene.assigns.state
-  #
-  #   case Reducer.process_input(state, input) do
-  #     {:noop, ^state} ->
-  #       {:noreply, scene}
-  #
-  #     {:noop, new_state} ->
-  #       update_scene(scene, state, new_state)
-  #
-  #     {:event, event_data, new_state} ->
-  #       send_parent_event(scene, event_data)
-  #       update_scene(scene, state, new_state)
-  #   end
-  # end
+  def handle_input(input, _context, scene) do
+    Logger.info("TextField.handle_input received: #{inspect(input)}")
+    state = scene.assigns.state
+    Logger.info("TextField state - focused: #{state.focused}, mode: #{state.input_mode}")
+
+    result = Reducer.process_input(state, input)
+    Logger.info("Reducer returned: #{inspect(result)}")
+
+    case result do
+      {:noop, ^state} ->
+        Logger.info("No change, state unchanged")
+        {:noreply, scene}
+
+      {:noop, new_state} ->
+        Logger.info("State changed without event, updating scene")
+        update_scene(scene, state, new_state)
+
+      {:event, event_data, new_state} ->
+        Logger.info("Event generated: #{inspect(event_data)}, updating scene")
+        send_parent_event(scene, event_data)
+        update_scene(scene, state, new_state)
+    end
+  end
 
   # ===== EXTERNAL CONTROL (Phase 3) =====
 
@@ -180,14 +191,18 @@ defmodule ScenicWidgets.TextField do
 
   # ===== HELPER FUNCTIONS =====
 
-  # defp update_scene(scene, old_state, new_state) do
-  #   graph = Renderer.update_render(scene.assigns.graph, old_state, new_state)
-  #
-  #   scene =
-  #     scene
-  #     |> assign(state: new_state, graph: graph)
-  #     |> push_graph(graph)
-  #
-  #   {:noreply, scene}
-  # end
+  defp update_scene(scene, old_state, new_state) do
+    Logger.info("update_scene called - text changed: #{State.get_text(old_state)} -> #{State.get_text(new_state)}")
+    Logger.info("update_scene - cursor changed: #{inspect(old_state.cursor)} -> #{inspect(new_state.cursor)}")
+    Logger.info("update_scene - focused changed: #{old_state.focused} -> #{new_state.focused}")
+
+    graph = Renderer.update_render(scene.assigns.graph, old_state, new_state)
+
+    scene =
+      scene
+      |> assign(state: new_state, graph: graph)
+      |> push_graph(graph)
+
+    {:noreply, scene}
+  end
 end

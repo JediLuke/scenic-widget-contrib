@@ -417,6 +417,8 @@ defmodule WidgetWorkbench.ComponentGenerator do
       # ============================================================================
 
       defp render_background(%Graph{} = graph, %State{frame: frame} = state) do
+        # Note: Components render at (0,0) - parent positions via translate
+        # So we use frame.pin for positioning primitives WITHIN the component
         x = frame.pin.x
         y = frame.pin.y
         w = frame.size.width

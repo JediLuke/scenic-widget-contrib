@@ -26,14 +26,15 @@ defmodule ScenicWidgets.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:scenic, git: "https://github.com/ScenicFramework/scenic.git", tag: "v0.11.1", override: true},
+      # {:scenic, git: "https://github.com/ScenicFramework/scenic.git", tag: "v0.11.1", override: true},
+      {:scenic, path: "../scenic", override: true},
       {:scenic_driver_local, git: "https://github.com/JediLuke/scenic_driver_local", branch: "flamelex_vsn", override: true},
       {:font_metrics, "~> 0.5"},
       {:ex_doc, "~> 0.25", only: :dev},
       {:earmark, "~> 1.4", only: :dev},
       {:stream_data, "~> 0.5", only: :test},
       # Added dependencies for widget development
-      {:scenic_mcp, path: "../scenic_mcp", optional: true},
+      # {:scenic_mcp, path: "../scenic_mcp_experimental", optional: true},
       {:sexy_spex, path: "../spex", optional: true},
       {:scenic_live_reload, git: "https://github.com/axelson/scenic_live_reload.git", branch: "main", only: :dev},
       {:tidewave, "~> 0.1", only: :dev},
@@ -42,6 +43,6 @@ defmodule ScenicWidgets.MixProject do
   end
 
   # Specifies which paths to compile per environment.
-  defp elixirc_paths(:test), do: ["lib", "test/test_helpers"]
+  defp elixirc_paths(:test), do: ["lib", "test/helpers"]
   defp elixirc_paths(_), do: ["lib"]
 end

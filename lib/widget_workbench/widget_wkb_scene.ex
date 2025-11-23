@@ -77,7 +77,8 @@ defmodule WidgetWorkbench.Scene do
 
     # Request input events including cursor events and scroll
     # We need to request cursor_button to receive it, but we won't consume it in handle_input
-    request_input(scene, [:cursor_pos, :cursor_button, :cursor_scroll, :key, :viewport])
+    # Added :codepoint for TextField support
+    request_input(scene, [:cursor_pos, :cursor_button, :cursor_scroll, :key, :codepoint, :viewport])
 
     {:ok, scene}
   end
@@ -164,8 +165,10 @@ defmodule WidgetWorkbench.Scene do
       _ -> {400, 200}
     end
 
+    # Component renders at (0,0) within its own frame
+    # Parent positions it at anchor point via translate parameter
     component_frame = Frame.new(%{
-      pin: {anchor_x, anchor_y},
+      pin: {0, 0},
       size: default_size
     })
 
@@ -175,15 +178,12 @@ defmodule WidgetWorkbench.Scene do
 
     # Try different component loading strategies with better isolation
     try do
-      # Convert pin to tuple for Scenic compatibility
-      translate_pin = case component_frame.pin do
-        %Widgex.Structs.Coordinates{x: x, y: y} -> {x, y}
-        {x, y} -> {x, y}
-      end
+      # Position component at anchor point via translate
+      anchor_translate = {anchor_x, anchor_y}
 
       # Draw anchor point indicator UNDER the component (rendered first, so it appears below)
       graph = graph
-      |> Primitives.circle(15, fill: {:color, {100, 149, 237, 128}}, id: :anchor_point_indicator, translate: translate_pin)  # Cornflower blue with 50% opacity
+      |> Primitives.circle(15, fill: {:color, {100, 149, 237, 128}}, id: :anchor_point_indicator, translate: anchor_translate)  # Cornflower blue with 50% opacity
 
       # Strategy 1: Check if it has add_to_graph function
       if function_exported?(component_module, :add_to_graph, 3) do
@@ -191,7 +191,7 @@ defmodule WidgetWorkbench.Scene do
         |> component_module.add_to_graph(
           prepare_component_data(component_module, component_frame),
           id: :loaded_component,
-          translate: translate_pin
+          translate: anchor_translate
         )
       else
         # Strategy 2: Use standard Scenic.Component pattern with timeout and isolation
@@ -202,7 +202,7 @@ defmodule WidgetWorkbench.Scene do
         |> component_module.add_to_graph(
           component_data,
           id: :loaded_component,
-          translate: translate_pin
+          translate: anchor_translate
         )
       end
     rescue
@@ -259,6 +259,27 @@ defmodule WidgetWorkbench.Scene do
           text_align: :center
         )
     end
+  end
+
+  # Catch-all for unexpected selected_component values
+  defp render_main_content(graph, frame, unexpected_value) do
+    Logger.warn("Unexpected selected_component value: #{inspect(unexpected_value)}")
+    center_point = Frame.center(frame)
+    graph
+    |> Primitives.text(
+      "Error: Invalid component state",
+      font_size: 16,
+      fill: :orange,
+      translate: {center_point.x, center_point.y},
+      text_align: :center
+    )
+    |> Primitives.text(
+      "(Please select a component from the list)",
+      font_size: 12,
+      fill: :gray,
+      translate: {center_point.x, center_point.y + 25},
+      text_align: :center
+    )
   end
 
   # Prepare component data based on the component type
@@ -579,14 +600,25 @@ defmodule WidgetWorkbench.Scene do
 
   # Render the list of components as buttons
   # x and start_y are in local coordinates (relative to group translate)
-  defp render_component_list(graph, components, x, start_y, width) do
+  # opts: modal_x, list_top, scroll_offset - for calculating absolute positions for MCP
+  defp render_component_list(graph, components, x, start_y, width, opts \\ []) do
     button_height = 40
     button_margin = 5
+
+    # Extract container positioning for absolute coordinate calculation
+    modal_x = Keyword.get(opts, :modal_x, 0)
+    list_top = Keyword.get(opts, :list_top, 0)
+    scroll_offset = Keyword.get(opts, :scroll_offset, 0)
 
     components
     |> Enum.with_index()
     |> Enum.reduce(graph, fn {{name, id}, index}, acc_graph ->
-      y = start_y + (button_height + button_margin) * index
+      local_y = start_y + (button_height + button_margin) * index
+
+      # Calculate absolute position for MCP registration
+      # absolute_y = container_top + local_y - scroll_offset
+      absolute_y = list_top + local_y - scroll_offset
+      absolute_x = modal_x + x + 20
 
       acc_graph
       |> Components.button(
@@ -594,7 +626,9 @@ defmodule WidgetWorkbench.Scene do
         id: {:select_component, id},
         width: width - 40,
         height: button_height,
-        translate: {x + 20, y},
+        translate: {x + 20, local_y},
+        # Pass absolute position as metadata for MCP
+        t: {absolute_x, absolute_y},  # MCP will use this for click positioning
         theme: %{
           text: {:color, {50, 50, 60}},
           background: {:color, {245, 245, 250}},
@@ -1083,6 +1117,12 @@ defmodule WidgetWorkbench.Scene do
     {:noreply, scene}
   end
 
+  # Handle codepoint input (pass through to child components)
+  @impl Scenic.Scene
+  def handle_input({:codepoint, _}, _context, scene) do
+    {:noreply, scene}
+  end
+
   # Helper function to scroll by a number of lines (buttons)
   defp scroll_by_lines(scene, lines) do
     button_height = 40
@@ -1462,24 +1502,60 @@ defmodule WidgetWorkbench.Scene do
 
         # Load the new component automatically
         {loaded_component, new_graph} = case new_component do
-          {_name, module} ->
+          {name, module} = component_tuple ->
             Logger.info("Auto-loading newly created component: #{inspect(module)}")
-            component_frame = Frame.new(%{pin: {100, 100}, size: {400, 300}})
 
-            # Check if the component module defines add_to_graph/3
-            updated_graph = if function_exported?(module, :add_to_graph, 3) do
-              graph
-              |> module.add_to_graph(
-                prepare_component_data(module, component_frame),
-                id: :loaded_component,
-                translate: {100, 100}
-              )
-            else
-              Logger.warn("Component #{inspect(module)} does not export add_to_graph/3")
-              graph
+            # Compile the source files directly
+            snake_name = name |> String.downcase() |> String.replace(" ", "_")
+            component_dir = Path.join([File.cwd!(), "lib", "components", snake_name])
+
+            component_files = [
+              Path.join(component_dir, "#{snake_name}.ex"),
+              Path.join(component_dir, "state.ex"),
+              Path.join(component_dir, "reducer.ex"),
+              Path.join(component_dir, "renderer.ex")
+            ]
+
+            # Compile each file
+            compile_result = Enum.reduce_while(component_files, :ok, fn file, :ok ->
+              if File.exists?(file) do
+                try do
+                  Code.compile_file(file)
+                  {:cont, :ok}
+                rescue
+                  error ->
+                    Logger.error("Failed to compile #{file}: #{inspect(error)}")
+                    {:halt, {:error, error}}
+                end
+              else
+                {:halt, {:error, "File not found: #{file}"}}
+              end
+            end)
+
+            case compile_result do
+              :ok ->
+                Logger.info("Component #{inspect(module)} compiled successfully")
+
+                # Component frame with (0,0) pin - parent will position via translate
+                component_frame = Frame.new(%{pin: {0, 0}, size: {400, 300}})
+
+                # Add component to graph
+                updated_graph = graph
+                |> module.add_to_graph(
+                  prepare_component_data(module, component_frame),
+                  id: :loaded_component,
+                  translate: {100, 100}  # Position at anchor point
+                )
+
+                # Return the TUPLE, not just the module
+                {component_tuple, updated_graph}
+
+              {:error, reason} ->
+                Logger.warning("Component #{inspect(module)} compilation failed: #{inspect(reason)}")
+                Logger.info("Component will be available after hot reload")
+                {component_tuple, graph}
             end
 
-            {module, updated_graph}
           nil ->
             Logger.warn("Could not find newly created component in discovered list")
             {nil, graph}
@@ -1491,6 +1567,9 @@ defmodule WidgetWorkbench.Scene do
           |> assign(modal_visible: false)
           |> assign(selected_component: loaded_component)
           |> push_graph(new_graph)
+
+        # Trigger immediate hot reload to re-render the entire scene properly
+        send(self(), :hot_reload)
 
         {:noreply, scene}
 

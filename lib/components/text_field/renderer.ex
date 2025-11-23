@@ -30,24 +30,125 @@ defmodule ScenicWidgets.TextField.Renderer do
   end
 
   @doc """
-  Update render - for now, just re-renders everything.
-  Phase 2+ will implement incremental updates.
+  Update render - intelligently updates only what changed.
   """
-  def update_render(graph, _old_state, new_state) do
-    # For Phase 1, just rebuild the whole thing
-    # TODO Phase 2: Implement incremental updates
-    Graph.build()
-    |> initial_render(new_state)
+  def update_render(graph, old_state, new_state) do
+    graph
+    |> update_border_if_changed(old_state, new_state)
+    |> update_lines_if_changed(old_state, new_state)
+    |> update_line_numbers_if_changed(old_state, new_state)
+    |> update_cursor_position(old_state, new_state)
   end
+
+  defp update_border_if_changed(graph, %State{focused: old_focused}, %State{focused: new_focused, colors: colors})
+      when old_focused != new_focused do
+    border_color = if new_focused, do: colors.focused_border, else: colors.border
+
+    graph
+    |> Graph.modify(:border, fn primitive ->
+      Primitives.update_opts(primitive, stroke: {1, border_color})
+    end)
+  end
+
+  defp update_border_if_changed(graph, _old_state, _new_state), do: graph
+
+  defp update_lines_if_changed(graph, %State{lines: old_lines}, %State{lines: new_lines} = new_state)
+      when old_lines != new_lines do
+    # Lines changed - update text rendering
+    # For simplicity, re-render all lines if any changed
+    # TODO: Optimize to only update changed lines
+    x_offset = State.text_x_offset(new_state)
+    font = new_state.font
+    colors = new_state.colors
+
+    # Remove old line primitives and add new ones
+    graph = Enum.reduce(1..length(old_lines), graph, fn line_num, g ->
+      Graph.delete(g, {:text_line, line_num})
+    end)
+
+    # Add new lines
+    Enum.reduce(Enum.with_index(new_lines, 1), graph, fn {line_text, line_num}, g ->
+      y_pos = (line_num - 1) * font.size + font.size
+
+      g
+      |> Primitives.text(
+        line_text,
+        translate: {x_offset, y_pos},
+        fill: colors.text,
+        font_size: font.size,
+        font: font.name,
+        id: {:text_line, line_num}
+      )
+    end)
+  end
+
+  defp update_lines_if_changed(graph, _old_state, _new_state), do: graph
+
+  defp update_line_numbers_if_changed(graph, %State{lines: old_lines, show_line_numbers: true},
+                                       %State{lines: new_lines, show_line_numbers: true} = new_state)
+      when length(old_lines) != length(new_lines) do
+    # Line count changed - update line numbers
+    # Remove old line numbers
+    graph = Enum.reduce(1..length(old_lines), graph, fn line_num, g ->
+      Graph.delete(g, {:line_number, line_num})
+    end)
+
+    # Add new line numbers
+    width = new_state.line_number_width
+    font = new_state.font
+    colors = new_state.colors
+
+    Enum.reduce(1..length(new_lines), graph, fn line_num, g ->
+      y_pos = (line_num - 1) * font.size + font.size
+      x_pos = width - 10
+
+      g
+      |> Primitives.text(
+        "#{line_num}",
+        translate: {x_pos, y_pos},
+        fill: colors.line_numbers,
+        font_size: font.size,
+        text_align: :right,
+        id: {:line_number, line_num}
+      )
+    end)
+  end
+
+  defp update_line_numbers_if_changed(graph, _old_state, _new_state), do: graph
+
+  defp update_cursor_position(graph, %State{cursor: old_cursor}, %State{cursor: new_cursor} = new_state)
+      when old_cursor != new_cursor do
+    {line, col} = new_cursor
+    x_offset = State.text_x_offset(new_state)
+    font = new_state.font
+
+    # Calculate cursor position
+    char_width = trunc(font.size * 0.6)
+    cursor_x = x_offset + ((col - 1) * char_width)
+    cursor_y = (line - 1) * font.size
+
+    # Only show cursor if focused AND cursor_visible (for blinking)
+    should_show_cursor = new_state.focused and new_state.cursor_visible
+
+    graph
+    |> Graph.modify(:cursor, fn primitive ->
+      Primitives.update_opts(primitive, translate: {cursor_x, cursor_y}, hidden: !should_show_cursor)
+    end)
+  end
+
+  defp update_cursor_position(graph, _old_state, _new_state), do: graph
 
   @doc """
   Quick update for cursor visibility (blink animation).
   Only updates cursor visibility without re-rendering everything.
   """
-  def update_cursor_visibility(graph, %State{} = state) do
+  def update_cursor_visibility(graph, %State{focused: focused, cursor_visible: cursor_visible} = state) do
+    # Only show cursor if focused AND cursor_visible (for blinking)
+    should_show_cursor = focused and cursor_visible
+
     graph
     |> Graph.modify(:cursor, fn primitive ->
-      Primitives.update_opts(primitive, hidden: !state.cursor_visible)
+      Primitives.update_opts(primitive, hidden: !should_show_cursor)
     end)
   end
 
