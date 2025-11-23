@@ -227,7 +227,7 @@ defmodule ScenicWidgets.TestHelpers.SemanticUI do
   defp get_driver_state() do
     # Get driver name from config (allows test and dev to run simultaneously)
     driver_name = Application.get_env(:scenic_mcp, :driver_name, :scenic_driver)
-    viewport_name = Application.get_env(:scenic_mcp, :viewport_name, :main_viewport)
+    viewport_name = ScenicMcp.Config.viewport_name()
 
     # Get the driver from the registered name or via viewport
     case Process.whereis(driver_name) do
@@ -307,23 +307,22 @@ defmodule ScenicWidgets.TestHelpers.SemanticUI do
           "Tab Bar", "Test Pattern", "Text Button"
         ]
 
-        # Based on actual directory listing alphabetically sorted
-        # Approximate indices (may need scroll for later ones)
+        # Based on alphabetical directory listing from lib/components/
+        # Components are discovered and sorted alphabetically by display name
         case component_name do
           "Buttons" -> 0
-          "Input Modal" -> 3
-          "Inputmodal" -> 2
-          "Markup Widgets" -> 5
-          "Menu Bar" -> 6
-          "Popup Modal" -> 7
-          "Scroll Bars" -> 8
-          "Sidebar" -> 9
-          "Side Nav" -> 10
-          "Spare Parts" -> 11
-          "Tab Bar" -> 12
-          "Text Field" -> 14  # Near bottom, needs scroll
-          "Ubuntu Bar" -> 15
-          _ -> 3  # Default fallback
+          "Frame Box" -> 1
+          "Input Modal" -> 2
+          "Markup Widgets" -> 3
+          "Menu Bar" -> 4
+          "Scroll Bars" -> 5
+          "Side Nav" -> 6
+          "Sidebar" -> 7
+          "Spare Parts" -> 8
+          "Tab Bar" -> 9
+          "Text Field" -> 10  # text_field directory = "Text Field"
+          "Ubuntu Bar" -> 11
+          _ -> 0  # Default to first position
         end
       else
         4  # Default fallback
@@ -333,19 +332,51 @@ defmodule ScenicWidgets.TestHelpers.SemanticUI do
       list_area_height = modal_height - 60 - 55  # Header and footer
       max_visible_index = trunc(list_area_height / (button_height + button_margin)) - 1
 
-      IO.puts("📏 Modal metrics:")
-      IO.puts("     List area height: #{list_area_height}px")
-      IO.puts("     Button height + margin: #{button_height + button_margin}px")
-      IO.puts("     Max visible index: #{max_visible_index}")
-      IO.puts("     #{component_name} is at index: #{component_index}")
+      # Check if we need to scroll to make this component visible
+      # Modal list visible area: modal_y + 60 to modal_y + modal_height - 55
+      list_top = modal_y + 60
+      list_bottom = modal_y + modal_height - 55
 
-      # Calculate which "visible slot" to click (after scrolling, we click a visible position)
-      {visible_slot_index, scroll_amount} = if component_index > max_visible_index do
-        IO.puts("📜 Component #{component_name} at index #{component_index} needs scrolling (max visible: #{max_visible_index})")
-        # Scroll to make it visible - put it in the middle of visible area if possible
-        target_visible_slot = trunc(max_visible_index / 2)
-        scroll_lines = component_index - target_visible_slot
-        scroll_pixels = scroll_lines * (button_height + button_margin)
+      # If button is below visible area, we need to scroll
+      {centroid_x, centroid_y} = if button_y + button_height > list_bottom do
+        # Calculate how many scroll events we need
+        # Each scroll moves by ~45px (button height + margin)
+        scroll_needed = button_y + button_height - list_bottom
+        scroll_events = ceil(scroll_needed / (button_height + button_margin))
+
+        IO.puts("📜 Component #{component_name} at index #{component_index} is below visible area")
+        IO.puts("    Need to scroll down #{scroll_events} times to make it visible")
+
+        # Scroll down by sending down arrow keys
+        IO.puts("    Sending #{scroll_events} down arrow keys...")
+        for i <- 1..scroll_events do
+          ScenicMcp.Probes.send_keys("down", [])
+          IO.puts("      Scroll #{i}/#{scroll_events}")
+          Process.sleep(100)  # Slower to ensure each scroll registers
+        end
+        Process.sleep(300)  # Let the scroll settle
+
+        # After scrolling, the target component should be visible
+        # After scrolling N times, the list has shifted up by N * (button_height + margin)
+        # So the button's new visible Y position is:
+        adjusted_button_y = button_y - (scroll_events * (button_height + button_margin))
+
+        x = round(button_x + button_width / 2)
+        y = round(adjusted_button_y + button_height / 2)
+
+        IO.puts("    After #{scroll_events} scrolls, button should be at Y: #{round(adjusted_button_y)}")
+        IO.puts("    Will click at centroid: (#{x}, #{y})")
+        {x, y}
+      else
+        # Button is already visible, use calculated position
+        x = round(button_x + button_width / 2)
+        y = round(button_y + button_height / 2)
+        {x, y}
+      end
+
+      IO.puts("🖱️  Clicking #{component_name} button in modal")
+      IO.puts("     Original button Y: #{round(button_y)}")
+      IO.puts("     Clicking at centroid: (#{centroid_x}, #{centroid_y})")
 
         # Send scroll event to modal center
         modal_center_x = modal_x + modal_width / 2
@@ -411,6 +442,16 @@ defmodule ScenicWidgets.TestHelpers.SemanticUI do
           {:ok, %{component: component_name, menu_items: found_items, loaded: true}}
         else
           {:error, "MenuBar not loaded. Expected menu items, got: #{inspect(String.slice(rendered_content, 0, 300))}"}
+        end
+
+      "Text Field" ->
+        # TextField now starts empty (for testing)
+        # Just verify the component loaded without errors - we'll check functionality in tests
+        # The workbench UI shows "+" characters which indicates the TextField is rendered
+        if not String.contains?(rendered_content, "Error") do
+          {:ok, %{component: component_name, loaded: true}}
+        else
+          {:error, "TextField failed to load. Got: #{inspect(String.slice(rendered_content, 0, 300))}"}
         end
 
       _ ->

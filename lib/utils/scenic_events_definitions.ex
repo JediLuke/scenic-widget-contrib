@@ -224,6 +224,9 @@ defmodule ScenicWidgets.ScenicEventsDefinitions do
       @ctrl_s {:key, {:key_s, @key_pressed, [:ctrl]}}
       @ctrl_h {:key, {:key_h, @key_pressed, [:ctrl]}}
       @ctrl_a {:key, {:key_a, @key_pressed, [:ctrl]}}
+      @ctrl_c {:key, {:key_c, @key_pressed, [:ctrl]}}
+      @ctrl_v {:key, {:key_v, @key_pressed, [:ctrl]}}
+      @ctrl_x {:key, {:key_x, @key_pressed, [:ctrl]}}
 
       @backtick {:key, {:key_grave, @key_pressed, []}}
       @tilde {:key, {:key_grave, @key_pressed, [:shift]}}

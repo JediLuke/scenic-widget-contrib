@@ -195,13 +195,13 @@ defmodule ScenicWidgets.UbuntuBar do
 
   @impl Scenic.Component
   def handle_input({:cursor_button, _details} = input, _context, scene) do
-    Logger.debug("#{__MODULE__} ignoring input: #{inspect(input)}")
+    # Logger.debug("#{__MODULE__} ignoring input: #{inspect(input)}")
     {:noreply, scene}
   end
 
   @impl Scenic.Component
   def handle_input(input, context, scene) do
-    Logger.debug("#{__MODULE__} unhandled input: #{inspect(input)} context: #{inspect(context)}")
+    # Logger.debug("#{__MODULE__} unhandled input: #{inspect(input)} context: #{inspect(context)}")
     {:noreply, scene}
   end
 

@@ -354,7 +354,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
     end
 
     require Logger
-    Logger.debug("MenuBar interaction layer: translate={0, 0}, size={#{frame.size.width}, #{height}}")
+    # Logger.debug("MenuBar interaction layer: translate={0, 0}, size={#{frame.size.width}, #{height}}")
 
     # Don't capture input - let the parent handle all input routing
     graph
@@ -461,7 +461,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
       :sub_dropdown_item_bg
     end
 
-    Logger.debug("Updating hover for {#{inspect(id_prefix)}, #{inspect(parent_id)}, #{inspect(item_id)}} - hovered: #{is_hovered}")
+    # Logger.debug("Updating hover for {#{inspect(id_prefix)}, #{inspect(parent_id)}, #{inspect(item_id)}} - hovered: #{is_hovered}")
 
     try do
       Graph.modify(graph, {id_prefix, parent_id, item_id}, fn primitive ->
@@ -539,7 +539,7 @@ defmodule ScenicWidgets.MenuBar.OptimizedRenderizer do
   
   defp hide_sub_menu(graph, _menu_id, sub_menu_id) do
     require Logger
-    Logger.debug("Hiding sub-menu: #{inspect(sub_menu_id)}")
+    # Logger.debug("Hiding sub-menu: #{inspect(sub_menu_id)}")
 
     # Hide this sub-menu
     graph = try do

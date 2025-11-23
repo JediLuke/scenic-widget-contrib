@@ -103,12 +103,8 @@ defmodule ScenicWidgets.TextField do
 
     # Phase 2: Request input if in direct mode
     if state.input_mode == :direct do
-      IO.puts("🎯 TextField requesting input: [:cursor_button, :key, :codepoint]")
-      Logger.info("TextField requesting input: [:cursor_button, :key, :codepoint]")
-      request_input(scene, [:cursor_button, :key, :codepoint])
-    else
-      IO.puts("⚠️  TextField in external mode - not requesting input")
-      Logger.info("TextField in external mode - not requesting input")
+      # IO.puts("🔍 TextField requesting input: [:cursor_button, :key]")
+      request_input(scene, [:cursor_button, :key])
     end
 
     scene =
@@ -122,24 +118,44 @@ defmodule ScenicWidgets.TextField do
   # ===== INPUT HANDLING (Phase 2) =====
 
   def handle_input(input, _context, scene) do
-    Logger.info("TextField.handle_input received: #{inspect(input)}")
     state = scene.assigns.state
-    Logger.info("TextField state - focused: #{state.focused}, mode: #{state.input_mode}")
 
-    result = Reducer.process_input(state, input)
-    Logger.info("Reducer returned: #{inspect(result)}")
+    # Debug ALL key input
+    # case input do
+    #   {:key, {key, 1, mods}} ->
+    #     IO.puts("🔍 TextField.handle_input received: #{inspect(key)} with mods #{inspect(mods)}, focused: #{state.focused}")
+    #   _ -> :ok
+    # end
 
-    case result do
+    case Reducer.process_input(state, input) do
       {:noop, ^state} ->
-        Logger.info("No change, state unchanged")
         {:noreply, scene}
 
       {:noop, new_state} ->
-        Logger.info("State changed without event, updating scene")
         update_scene(scene, state, new_state)
 
+      {:event, {:clipboard_copy, _id, text}, new_state} ->
+        # Copy to system clipboard
+        IO.puts("📋 COPYING TO CLIPBOARD: #{inspect(text)}")
+        copy_to_system_clipboard(text)
+        send_parent_event(scene, {:clipboard_copy, state.id, text})
+        update_scene(scene, state, new_state)
+
+      {:event, {:clipboard_cut, _id, text}, new_state} ->
+        # Cut to system clipboard
+        copy_to_system_clipboard(text)
+        send_parent_event(scene, {:clipboard_cut, state.id, text})
+        update_scene(scene, state, new_state)
+
+      {:event, {:clipboard_paste_requested, _id}, new_state} ->
+        # Get text from system clipboard and paste it
+        clipboard_text = paste_from_system_clipboard()
+        IO.puts("📋 PASTING FROM CLIPBOARD: #{inspect(clipboard_text)}")
+        {:event, event_data, final_state} = Reducer.process_action(new_state, {:insert_text, clipboard_text})
+        send_parent_event(scene, event_data)
+        update_scene(scene, state, final_state)
+
       {:event, event_data, new_state} ->
-        Logger.info("Event generated: #{inspect(event_data)}, updating scene")
         send_parent_event(scene, event_data)
         update_scene(scene, state, new_state)
     end
@@ -175,6 +191,11 @@ defmodule ScenicWidgets.TextField do
   def handle_info(:blink, scene) do
     state = scene.assigns.state
 
+    # Debug: Check if blink is changing focus
+    if not state.focused do
+      # IO.puts("🔍 BLINK with focused=false!")
+    end
+
     # Toggle cursor visibility
     new_state = %{state | cursor_visible: !state.cursor_visible}
 
@@ -192,9 +213,10 @@ defmodule ScenicWidgets.TextField do
   # ===== HELPER FUNCTIONS =====
 
   defp update_scene(scene, old_state, new_state) do
-    Logger.info("update_scene called - text changed: #{State.get_text(old_state)} -> #{State.get_text(new_state)}")
-    Logger.info("update_scene - cursor changed: #{inspect(old_state.cursor)} -> #{inspect(new_state.cursor)}")
-    Logger.info("update_scene - focused changed: #{old_state.focused} -> #{new_state.focused}")
+    if old_state.focused != new_state.focused do
+      # IO.puts("🔍 FOCUS CHANGED in update_scene: #{old_state.focused} -> #{new_state.focused}")
+      # IO.puts("🔍 Stacktrace: #{inspect(Process.info(self(), :current_stacktrace), limit: 5)}")
+    end
 
     graph = Renderer.update_render(scene.assigns.graph, old_state, new_state)
 
@@ -204,5 +226,90 @@ defmodule ScenicWidgets.TextField do
       |> push_graph(graph)
 
     {:noreply, scene}
+  end
+
+  # ===== CLIPBOARD HELPERS =====
+
+  defp copy_to_system_clipboard(text) do
+    case :os.type() do
+      {:unix, :darwin} ->
+        # macOS - use Port to pipe text to pbcopy
+        case System.find_executable("pbcopy") do
+          nil -> {:error, "pbcopy not found"}
+          path ->
+            port = Port.open({:spawn_executable, path}, [:binary])
+            send(port, {self(), {:command, text}})
+            send(port, {self(), :close})
+            receive do
+              {^port, :closed} -> :ok
+            after
+              5000 -> {:error, "Clipboard operation timed out"}
+            end
+        end
+
+      {:unix, _} ->
+        # Linux - try xclip
+        case System.find_executable("xclip") do
+          nil ->
+            {:error, "xclip not found"}
+          path ->
+            port = Port.open({:spawn_executable, path}, [:binary, args: ["-selection", "clipboard"]])
+            send(port, {self(), {:command, text}})
+            send(port, {self(), :close})
+            receive do
+              {^port, :closed} -> :ok
+            after
+              5000 -> {:error, "Clipboard operation timed out"}
+            end
+        end
+
+      {:win32, _} ->
+        # Windows - use clip.exe
+        case System.find_executable("clip") do
+          nil -> {:error, "clip not found"}
+          path ->
+            port = Port.open({:spawn_executable, path}, [:binary])
+            send(port, {self(), {:command, text}})
+            send(port, {self(), :close})
+            receive do
+              {^port, :closed} -> :ok
+            after
+              5000 -> {:error, "Clipboard operation timed out"}
+            end
+        end
+
+      _ ->
+        Logger.warn("Clipboard copy not supported on this OS")
+        {:error, "Unsupported OS"}
+    end
+  end
+
+  defp paste_from_system_clipboard() do
+    case :os.type() do
+      {:unix, :darwin} ->
+        # macOS
+        {text, 0} = System.cmd("pbpaste", [])
+        text
+
+      {:unix, _} ->
+        # Linux - try xclip
+        case System.find_executable("xclip") do
+          nil ->
+            Logger.warn("xclip not found, clipboard paste not available")
+            ""
+          _ ->
+            {text, 0} = System.cmd("xclip", ["-selection", "clipboard", "-o"])
+            text
+        end
+
+      {:win32, _} ->
+        # Windows - powershell Get-Clipboard
+        {text, 0} = System.cmd("powershell", ["-command", "Get-Clipboard"])
+        text
+
+      _ ->
+        Logger.warn("Clipboard paste not supported on this OS")
+        ""
+    end
   end
 end

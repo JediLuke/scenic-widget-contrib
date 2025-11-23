@@ -203,14 +203,14 @@ defmodule ScenicWidgets.MenuBar.State do
     result = Enum.find_value(sub_menus, :not_in_sub_menu, fn {parent_id, sub_menu_id} ->
       case check_point_in_specific_sub_menu(state, parent_id, sub_menu_id, {x, y}, state.theme) do
         {:ok, result} ->
-          Logger.debug("Found point in sub-menu: parent=#{inspect(parent_id)}, sub=#{inspect(sub_menu_id)}, result=#{inspect(result)}")
+          # Logger.debug("Found point in sub-menu: parent=#{inspect(parent_id)}, sub=#{inspect(sub_menu_id)}, result=#{inspect(result)}")
           {:ok, result}
         :not_in_sub_menu -> nil  # Continue searching
       end
     end)
 
     if result == :not_in_sub_menu do
-      Logger.debug("Point #{inspect({x, y})} not in any sub-menu. Active sub-menus: #{inspect(Map.keys(sub_menus))}")
+      # Logger.debug("Point #{inspect({x, y})} not in any sub-menu. Active sub-menus: #{inspect(Map.keys(sub_menus))}")
     end
 
     result
@@ -229,24 +229,24 @@ defmodule ScenicWidgets.MenuBar.State do
     # Find the position of the parent (either a menu or another sub-menu)
     case calculate_sub_menu_position(state, parent_id, sub_menu_id, theme) do
       nil ->
-        Logger.debug("calculate_sub_menu_position returned nil for parent=#{inspect(parent_id)}, sub=#{inspect(sub_menu_id)}")
+        # Logger.debug("calculate_sub_menu_position returned nil for parent=#{inspect(parent_id)}, sub=#{inspect(sub_menu_id)}")
         :not_in_sub_menu
       {sub_x, sub_y, sub_items} ->
         # Calculate sub-menu bounds
         sub_width = sub_menu_width
         sub_height = length(sub_items) * dropdown_item_height + (2 * dropdown_padding)
 
-        Logger.debug("Checking sub-menu #{inspect(sub_menu_id)}: bounds=[#{sub_x}, #{sub_y}, #{sub_x + sub_width}, #{sub_y + sub_height}], point=[#{x}, #{y}]")
+        # Logger.debug("Checking sub-menu #{inspect(sub_menu_id)}: bounds=[#{sub_x}, #{sub_y}, #{sub_x + sub_width}, #{sub_y + sub_height}], point=[#{x}, #{y}]")
 
         # Check if point is within sub-menu bounds
         if x >= sub_x && x <= sub_x + sub_width &&
            y >= sub_y && y <= sub_y + sub_height do
           # Find which item is hovered
           hovered_item = find_hovered_sub_menu_item(sub_items, {x, y}, sub_x, sub_y, dropdown_item_height, dropdown_padding, sub_menu_width)
-          Logger.debug("Point IS in sub-menu #{inspect(sub_menu_id)}, hovered_item=#{inspect(hovered_item)}")
+          # Logger.debug("Point IS in sub-menu #{inspect(sub_menu_id)}, hovered_item=#{inspect(hovered_item)}")
           {:ok, {parent_id, sub_menu_id, hovered_item}}
         else
-          Logger.debug("Point NOT in sub-menu #{inspect(sub_menu_id)}")
+          # Logger.debug("Point NOT in sub-menu #{inspect(sub_menu_id)}")
           :not_in_sub_menu
         end
     end
@@ -397,14 +397,14 @@ defmodule ScenicWidgets.MenuBar.State do
     require Logger
     item_width = Map.get(theme, :item_width, 150)
 
-    Logger.debug("find_hovered_menu: x=#{x}")
+    # Logger.debug("find_hovered_menu: x=#{x}")
 
     menu_map
     |> Enum.with_index()
     |> Enum.find_value(fn {{menu_id, _}, index} ->
       # Check relative to component origin
       menu_x = index * item_width
-      Logger.debug("Checking menu #{menu_id} at index #{index}: menu_x=#{menu_x}, x=#{x}")
+      # Logger.debug("Checking menu #{menu_id} at index #{index}: menu_x=#{menu_x}, x=#{x}")
       if x >= menu_x && x <= menu_x + item_width do
         menu_id
       end

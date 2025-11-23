@@ -32,7 +32,7 @@ defmodule ScenicWidgets.MixProject do
       {:font_metrics, "~> 0.5"},
       {:ex_doc, "~> 0.25", only: :dev},
       {:earmark, "~> 1.4", only: :dev},
-      {:stream_data, "~> 0.5", only: :test},
+      # {:stream_data, "~> 1.0", only: :test},
       # Added dependencies for widget development
       # {:scenic_mcp, path: "../scenic_mcp_experimental", optional: true},
       {:sexy_spex, path: "../spex", optional: true},

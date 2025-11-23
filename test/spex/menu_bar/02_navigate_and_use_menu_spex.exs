@@ -149,12 +149,12 @@ defmodule ScenicWidgets.MenuBar.NavigateAndUseMenuSpex do
         IO.puts("🖱️  Hovering over 'File' menu...")
 
         # Calculate File menu position (first button in menu bar)
-        # From logs: Component frame is at (100, 300), size {600, 200}
+        # From logs: Component frame is at (100, 100), size {600, 60}
         # MenuBar is rendered at this position, File is first button
         menu_bar_x = 100
         menu_bar_y = 100
-        button_width = 120
-        button_height = 40
+        button_width = 150  # item_width from theme
+        button_height = 60  # menu_height from theme
 
         file_x = menu_bar_x + button_width / 2
         file_y = menu_bar_y + button_height / 2
@@ -208,8 +208,8 @@ defmodule ScenicWidgets.MenuBar.NavigateAndUseMenuSpex do
         # Click on File menu
         menu_bar_x = 100
         menu_bar_y = 100
-        button_width = 120
-        button_height = 40
+        button_width = 150  # item_width from theme
+        button_height = 60  # menu_height from theme
 
         file_x = menu_bar_x + button_width / 2
         file_y = menu_bar_y + button_height / 2
@@ -259,8 +259,8 @@ defmodule ScenicWidgets.MenuBar.NavigateAndUseMenuSpex do
           IO.puts("Opening File dropdown first...")
           menu_bar_x = 100
           menu_bar_y = 100
-          button_width = 120
-          button_height = 40
+          button_width = 150  # item_width from theme
+          button_height = 60  # menu_height from theme
 
           file_x = menu_bar_x + button_width / 2
           file_y = menu_bar_y + button_height / 2
@@ -277,8 +277,8 @@ defmodule ScenicWidgets.MenuBar.NavigateAndUseMenuSpex do
         # Edit is the second button
         menu_bar_x = 100
         menu_bar_y = 100
-        button_width = 120
-        button_height = 40
+        button_width = 150  # item_width from theme
+        button_height = 60  # menu_height from theme
 
         edit_x = menu_bar_x + button_width * 1.5
         edit_y = menu_bar_y + button_height / 2
@@ -332,8 +332,8 @@ defmodule ScenicWidgets.MenuBar.NavigateAndUseMenuSpex do
         # Now open File menu
         menu_bar_x = 100
         menu_bar_y = 100
-        button_width = 120
-        button_height = 40
+        button_width = 150  # item_width from theme
+        button_height = 60  # menu_height from theme
 
         file_x = menu_bar_x + button_width / 2
         file_y = menu_bar_y + button_height / 2
@@ -347,12 +347,12 @@ defmodule ScenicWidgets.MenuBar.NavigateAndUseMenuSpex do
         IO.puts("🖱️  Clicking 'New File' menu item...")
 
         # New File should be the first item in the dropdown
-        # Dropdown appears below the menu bar at y=300 + 40 = 340
-        # First item is at y=340 + 20 = 360
+        # Dropdown appears below the menu bar at y=100 + 60 = 160
+        # First item is at y=160 + item_height/2
         menu_bar_x = 100
         menu_bar_y = 100
-        dropdown_y = menu_bar_y + 40  # Below the menu bar
-        item_height = 40
+        dropdown_y = menu_bar_y + 60  # Below the menu bar (menu_height = 60)
+        item_height = 35  # item_height from theme
 
         new_file_x = menu_bar_x + 60  # Center of dropdown
         new_file_y = dropdown_y + item_height / 2
@@ -397,8 +397,8 @@ defmodule ScenicWidgets.MenuBar.NavigateAndUseMenuSpex do
         # Open File menu
         menu_bar_x = 100
         menu_bar_y = 100
-        button_width = 120
-        button_height = 40
+        button_width = 150  # item_width from theme
+        button_height = 60  # menu_height from theme
 
         file_x = menu_bar_x + button_width / 2
         file_y = menu_bar_y + button_height / 2
@@ -414,8 +414,8 @@ defmodule ScenicWidgets.MenuBar.NavigateAndUseMenuSpex do
         # Recent Files is the 3rd item in File dropdown
         # (after New File, Open File)
         menu_bar_x = 100
-        dropdown_y = 90
-        item_height = 40
+        dropdown_y = 100 + 60  # menu_bar_y + menu_height
+        item_height = 35  # item_height from theme
 
         recent_x = menu_bar_x + 60
         recent_y = dropdown_y + item_height * 2.5  # Third item
@@ -481,8 +481,8 @@ defmodule ScenicWidgets.MenuBar.NavigateAndUseMenuSpex do
           # Open File
           menu_bar_x = 100
           menu_bar_y = 100
-          button_width = 120
-          button_height = 40
+          button_width = 150  # item_width from theme
+          button_height = 60  # menu_height from theme
 
           file_x = menu_bar_x + button_width / 2
           file_y = menu_bar_y + button_height / 2
@@ -491,8 +491,8 @@ defmodule ScenicWidgets.MenuBar.NavigateAndUseMenuSpex do
           Process.sleep(500)
 
           # Hover Recent Files
-          dropdown_y = 90
-          item_height = 40
+          dropdown_y = 100 + 60  # menu_bar_y + menu_height
+          item_height = 35  # item_height from theme
           recent_x = menu_bar_x + 60
           recent_y = dropdown_y + item_height * 2.5
 
