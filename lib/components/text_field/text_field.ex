@@ -290,7 +290,7 @@ defmodule ScenicWidgets.TextField do
         end
 
       _ ->
-        Logger.warn("Clipboard copy not supported on this OS")
+        Logger.warning("Clipboard copy not supported on this OS")
         {:error, "Unsupported OS"}
     end
   end
@@ -306,7 +306,7 @@ defmodule ScenicWidgets.TextField do
         # Linux - try xclip
         case System.find_executable("xclip") do
           nil ->
-            Logger.warn("xclip not found, clipboard paste not available")
+            Logger.warning("xclip not found, clipboard paste not available")
             ""
           _ ->
             {text, 0} = System.cmd("xclip", ["-selection", "clipboard", "-o"])
@@ -319,8 +319,22 @@ defmodule ScenicWidgets.TextField do
         text
 
       _ ->
-        Logger.warn("Clipboard paste not supported on this OS")
+        Logger.warning("Clipboard paste not supported on this OS")
         ""
     end
+  end
+
+  # ===== SCENIC CALLBACKS =====
+
+  @doc """
+  Handle fetch requests - returns the full TextField state.
+  This allows parent scenes to retrieve the TextField's current state
+  before rebuilding graphs (e.g., on window resize).
+
+  Returns: `{:ok, %ScenicWidgets.TextField.State{}}`
+  """
+  @impl Scenic.Scene
+  def handle_fetch(_from, scene) do
+    {:reply, {:ok, scene.assigns.state}, scene}
   end
 end

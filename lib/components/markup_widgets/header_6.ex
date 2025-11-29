@@ -5,8 +5,7 @@ defmodule ScenicWidgets.Markup.Header6 do
   @left_margin 24
 
   def draw(graph, %Frame{} = f, text) when is_binary(text) do
-    center_point = Frame.center(f)
-
+    # _center_point = Frame.center(f) # Available for alternative centering
     graph
     |> Scenic.Primitives.group(
       fn graph ->

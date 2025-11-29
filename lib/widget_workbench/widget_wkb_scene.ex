@@ -64,7 +64,7 @@ defmodule WidgetWorkbench.Scene do
     frame = Frame.new(%{pin: {0, 0}, size: {width, height}})
 
     # Build the initial graph
-    graph = render(frame, nil, false)
+    graph = render(frame, nil, false, nil, 0)
 
     # Assign the graph and state to the scene
     scene =
@@ -92,10 +92,10 @@ defmodule WidgetWorkbench.Scene do
   # Render function to build the graph using Widgex Grid
   defp render(
          %Frame{} = frame,
-         selected_component_spec \\ nil,
-         show_modal \\ false,
-         click_viz \\ nil,
-         modal_scroll_offset \\ 0
+         selected_component_spec,
+         show_modal,
+         click_viz,
+         modal_scroll_offset
        ) do
     # Create a grid with 2 columns: 2/3 for main area, 1/3 for constructor pane
     grid =
@@ -223,8 +223,8 @@ defmodule WidgetWorkbench.Scene do
       )
     rescue
       error ->
-        Logger.warn("Failed to load component #{component_name}: #{Exception.message(error)}")
-        Logger.warn("Error details: #{inspect(error)}")
+        Logger.warning("Failed to load component #{component_name}: #{Exception.message(error)}")
+        Logger.warning("Error details: #{inspect(error)}")
 
         # Show detailed error message
         error_text =
@@ -258,7 +258,7 @@ defmodule WidgetWorkbench.Scene do
         )
     catch
       :exit, reason ->
-        Logger.warn("Component #{component_name} exited: #{inspect(reason)}")
+        Logger.warning("Component #{component_name} exited: #{inspect(reason)}")
 
         graph
         |> Primitives.text(
@@ -280,7 +280,7 @@ defmodule WidgetWorkbench.Scene do
 
   # Catch-all for unexpected selected_component values
   defp render_main_content(graph, frame, unexpected_value) do
-    Logger.warn("Unexpected selected_component value: #{inspect(unexpected_value)}")
+    Logger.warning("Unexpected selected_component value: #{inspect(unexpected_value)}")
     center_point = Frame.center(frame)
     graph
     |> Primitives.text(
@@ -733,8 +733,8 @@ defmodule WidgetWorkbench.Scene do
     end)
   end
 
-  # Render UI elements using the grid
-  defp render_grid_layout(graph, grid, cell_frames) do
+  # Render UI elements using the grid (unused, kept for potential future use)
+  defp _render_grid_layout(graph, grid, cell_frames) do
     # Define named areas for better organization
     # Using {row, col, row_span, col_span} format
     grid_with_areas =
@@ -755,9 +755,9 @@ defmodule WidgetWorkbench.Scene do
 
     graph
     # Render the header area with menu bar
-    |> render_test_menu_bar(header_frame)
+    |> _render_test_menu_bar(header_frame)
     # Render the sidebar with tools pane
-    |> render_tools_pane(sidebar_frame)
+    |> _render_tools_pane(sidebar_frame)
     # Content area - keep simple for now
     |> Primitives.rect(
       {content_frame.size.width, content_frame.size.height},
@@ -872,13 +872,12 @@ defmodule WidgetWorkbench.Scene do
       render(scene.assigns.frame, component_spec, false, nil, 0)
       |> apply_click_visualizations(scene)
 
-    scene =
-      scene
-      |> assign(selected_component: component_spec)
-      # |> assign(selected_component_name: component_name)
-      # |> assign(component_frame: component_frame)
-      |> assign(graph: new_graph)
-      |> push_graph(new_graph)
+    scene
+    |> assign(selected_component: component_spec)
+    # |> assign(selected_component_name: component_name)
+    # |> assign(component_frame: component_frame)
+    |> assign(graph: new_graph)
+    |> push_graph(new_graph)
   end
 
   # Function to draw a pseudo-grid background of "+"
@@ -903,8 +902,8 @@ defmodule WidgetWorkbench.Scene do
     end)
   end
 
-  # Function to render the tools pane
-  defp render_tools_pane(graph, %Frame{} = frame) do
+  # Function to render the tools pane (unused, kept for potential future use)
+  defp _render_tools_pane(graph, %Frame{} = frame) do
     # Create a grid for the tools pane layout
     # Padding of 20px on all sides, but ensure positive dimensions
     padding = 20
@@ -985,8 +984,8 @@ defmodule WidgetWorkbench.Scene do
     )
   end
 
-  # Function to render test menu bar
-  defp render_test_menu_bar(graph, %Frame{} = frame) do
+  # Function to render test menu bar (unused, kept for potential future use)
+  defp _render_test_menu_bar(graph, %Frame{} = frame) do
     # Sample menu structure for testing
     test_menu_map = %{
       file:
@@ -1040,8 +1039,8 @@ defmodule WidgetWorkbench.Scene do
     |> ScenicWidgets.MenuBar.add_to_graph(menu_bar_data, id: :test_menu_bar)
   end
 
-  # Function to render the tool palette
-  defp render_tool_palette(graph, %Frame{} = frame) do
+  # Function to render the tool palette (unused, kept for potential future use)
+  defp _render_tool_palette(graph, %Frame{} = frame) do
     palette_width = 200
     palette_height = 90
     palette_x = frame.size.width - palette_width - 20
@@ -1081,8 +1080,8 @@ defmodule WidgetWorkbench.Scene do
     )
   end
 
-  # Function to render file tabs
-  defp render_file_tabs(graph, %Frame{} = frame) do
+  # Function to render file tabs (unused, kept for potential future use)
+  defp _render_file_tabs(graph, %Frame{} = frame) do
     tab_width = frame.size.width / 6
     tab_height = 40
     tab_y = frame.size.height - tab_height - 20
@@ -1106,8 +1105,8 @@ defmodule WidgetWorkbench.Scene do
     )
   end
 
-  # Function to render the file editor
-  defp render_file_editor(graph, %Frame{} = frame) do
+  # Function to render the file editor (unused, kept for potential future use)
+  defp _render_file_editor(graph, %Frame{} = frame) do
     editor_width = frame.size.width - 40
     editor_height = frame.size.height - 200
     editor_x = 20
@@ -1176,7 +1175,7 @@ defmodule WidgetWorkbench.Scene do
   # Handle cursor_button - requested but we don't consume it
   # It will still be routed to child buttons via do_listed_input
   @impl Scenic.Scene
-  def handle_input({:cursor_button, {button, state, mods, coords}} = input, _context, scene) do
+  def handle_input({:cursor_button, {_button, _state, _mods, _coords}} = _input, _context, scene) do
     # Logger.info("🎯 Parent handle_input received cursor_button: #{inspect(input)}")
     # Don't consume - but Scenic requires us to return {:noreply, scene}
     # The input routing has ALREADY happened before this is called
@@ -1359,8 +1358,6 @@ defmodule WidgetWorkbench.Scene do
   @impl Scenic.Scene
   def observe_input({:cursor_button, {:btn_left, 1, [], coords}}, _id, scene) do
     # Visualize on button press (state 1)
-    {x, y} = coords
-    # Logger.info("🖱️  Widget Workbench CLICK at (#{x}, #{y})")
 
     # Send visualization message to self
     send(self(), {:visualize_click, coords})
@@ -1440,11 +1437,8 @@ defmodule WidgetWorkbench.Scene do
   end
 
   # Handle async visualization message for hovers
-  def handle_info({:visualize_hover, coords}, scene) do
-    {x, y} = coords
-
+  def handle_info({:visualize_hover, {x, y}}, scene) do
     # Use a single persistent hover indicator that follows the cursor
-    hover_id = :hover_viz
 
     new_graph =
       scene.assigns.graph
@@ -1497,9 +1491,6 @@ defmodule WidgetWorkbench.Scene do
     click = Enum.find(click_history, fn c -> c.timestamp == timestamp end)
 
     if click do
-      {x, y} = click.coords
-      label = click.label
-
       # Calculate alpha values based on opacity
       outer_fill_alpha = trunc(80 * opacity_percent)
       outer_stroke_alpha = trunc(200 * opacity_percent)
@@ -1690,7 +1681,7 @@ defmodule WidgetWorkbench.Scene do
 
     # Create new component files using the new ComponentGenerator
     case WidgetWorkbench.ComponentGenerator.generate(component_name) do
-      {:ok, created_files} ->
+      {:ok, _created_files} ->
         # Logger.info("Successfully created component files: #{inspect(created_files)}")
 
         # Re-discover components to pick up the newly created one
@@ -1705,39 +1696,33 @@ defmodule WidgetWorkbench.Scene do
           end)
 
         # Load the new component automatically
-        {loaded_component, new_graph} =
+        component_spec =
           case new_component do
-            {_name, module} ->
+            {name, module} ->
               Logger.info("Auto-loading newly created component: #{inspect(module)}")
               component_frame = Frame.new(%{pin: {50, 50}, size: {400, 300}})
-
-              # Check if the component module defines add_to_graph/3
-              updated_graph =
-                if function_exported?(module, :add_to_graph, 3) do
-                  graph
-                  |> module.add_to_graph(
-                    prepare_component_data(module, component_frame),
-                    id: :loaded_component,
-                    translate: {50, 50}
-                  )
-                else
-                  Logger.warn("Component #{inspect(module)} does not export add_to_graph/3")
-                  graph
-                end
-
-              {module, updated_graph}
+              component_opts = prepare_component_data(module, component_frame)
+              # Return the proper component_spec tuple: {name, module, opts}
+              {name, module, component_opts}
 
             nil ->
-              Logger.warn("Could not find newly created component in discovered list")
-              {nil, graph}
+              Logger.warning("Could not find newly created component in discovered list")
+              nil
           end
 
+        # Use select_component to properly load and render the component
         scene =
           scene
-          |> assign(graph: new_graph)
           |> assign(modal_visible: false)
-          |> assign(selected_component: loaded_component)
-          |> push_graph(new_graph)
+
+        scene =
+          if component_spec do
+            select_component(scene, component_spec)
+          else
+            scene
+            |> assign(graph: graph)
+            |> push_graph(graph)
+          end
 
         # Trigger immediate hot reload to re-render the entire scene properly
         send(self(), :hot_reload)
@@ -1878,7 +1863,7 @@ defmodule WidgetWorkbench.Scene do
         size: {frame.size.width * 2 / 3, frame.size.height}
       })
 
-    center_point = Frame.center(main_area)
+    _center_point = Frame.center(main_area)
 
     # Component selected - render it at a consistent ANCHOR POINT
     # ANCHOR POINT: Always position components at (50, 50) for predictable testing
@@ -1890,12 +1875,6 @@ defmodule WidgetWorkbench.Scene do
     default_size =
       case component_module do
         # 4 menus * 150px each
-        ScenicWidgets.MenuBar -> {600, 200}
-        _ -> {400, 200}
-      end
-
-    default_size =
-      case component_module do
         ScenicWidgets.MenuBar -> {600, 200}
         _ -> {400, 200}
       end
@@ -1963,8 +1942,8 @@ defmodule WidgetWorkbench.Scene do
     end)
   end
 
-  # Helper to find the loaded component's PID
-  defp find_loaded_component_pid(scene) do
+  # Helper to find the loaded component's PID (unused, kept for potential future use)
+  defp _find_loaded_component_pid(scene) do
     # Look for children with the :loaded_component id
     scene.children
     |> Enum.find_value(fn
@@ -2004,15 +1983,10 @@ defmodule WidgetWorkbench.Scene do
   def handle_info(:hot_reload, scene) do
     # Get size from multiple sources to debug
     stored_frame = scene.assigns.frame
-    scene_viewport_size = scene.viewport.size
-
-    {:ok, viewport_info} = Scenic.ViewPort.info(:main_viewport)
-    vp_info_size = viewport_info.size
-
-    # Logger.info("Hot reload debug:")
-    # Logger.info("  - Stored frame size: #{inspect(stored_frame.size.box)}")
-    # Logger.info("  - scene.viewport.size: #{inspect(scene_viewport_size)}")
-    # Logger.info("  - ViewPort.info size: #{inspect(vp_info_size)}")
+    # Debug info available if needed:
+    # scene_viewport_size = scene.viewport.size
+    # {:ok, viewport_info} = Scenic.ViewPort.info(:main_viewport)
+    # vp_info_size = viewport_info.size
 
     # Use the stored frame size since that's what was last set by resize event
     current_frame = stored_frame
@@ -2068,8 +2042,8 @@ defmodule WidgetWorkbench.Scene do
   # Semantic MCP Registration - Makes buttons clickable via semantic IDs
   # ============================================================================
 
-  defp register_buttons_for_mcp(scene, frame) do
-    viewport = scene.viewport
+  defp _register_buttons_for_mcp(_scene, frame) do
+    # viewport = scene.viewport # For future semantic registration
 
     # Calculate button frames (same logic as render_constructor_pane)
     pane_width = frame.size.width / 3
@@ -2127,7 +2101,7 @@ defmodule WidgetWorkbench.Scene do
 
   # Register all component buttons in the modal for MCP clicking
   defp register_modal_components_for_mcp(scene) do
-    viewport = scene.viewport
+    # viewport = scene.viewport # For future semantic registration
     frame = scene.assigns.frame
 
     # Calculate modal dimensions (same as in render_component_selection_modal)

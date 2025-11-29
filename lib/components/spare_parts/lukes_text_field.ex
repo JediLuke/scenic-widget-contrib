@@ -4,7 +4,6 @@ defmodule ScenicWidgets.SpareParts.LukesTextField do
   """
 
   use Scenic.Component
-  alias Scenic.Graph
   alias Scenic.Primitives
 
   def validate(%{frame: _frame} = data) do
@@ -12,7 +11,7 @@ defmodule ScenicWidgets.SpareParts.LukesTextField do
     {:ok, data}
   end
 
-  def init(scene, %{frame: frame, text: text} = args, _opts) do
+  def init(scene, %{frame: frame, text: text} = _args, _opts) do
     graph =
       Scenic.Graph.build()
       |> Primitives.text(text,

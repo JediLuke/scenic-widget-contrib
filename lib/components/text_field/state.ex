@@ -72,7 +72,7 @@ defmodule ScenicWidgets.TextField.State do
     %__MODULE__{
       frame: frame,
       lines: parse_initial_text(data),
-      cursor: {1, 1},
+      cursor: Map.get(data, :initial_cursor, {1, 1}),
       id: Map.get(data, :id),
 
       # Display

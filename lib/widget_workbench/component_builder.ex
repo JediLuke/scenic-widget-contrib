@@ -233,7 +233,7 @@ defmodule WidgetWorkbench.ComponentBuilder do
         case input do
           # Match on specific inputs and return actions
           _ ->
-            Logger.warn("\#{__MODULE__} received unhandled input: \#{inspect(input)}")
+            Logger.warning("\#{__MODULE__} received unhandled input: \#{inspect(input)}")
             :ignore
         end
       end
