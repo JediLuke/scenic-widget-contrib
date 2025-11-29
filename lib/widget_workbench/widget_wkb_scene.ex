@@ -186,6 +186,12 @@ defmodule WidgetWorkbench.Scene do
               {x, y} -> {x, y}
             end
 
+          %{frame: %Widgex.Frame{pin: pin}} ->
+            case pin do
+              %Widgex.Structs.Coordinates{x: x, y: y} -> {x, y}
+              {x, y} -> {x, y}
+            end
+
           _ ->
             center_point.point
         end
@@ -407,9 +413,9 @@ defmodule WidgetWorkbench.Scene do
         }
 
       ScenicWidgets.TextField ->
-        # TextField needs frame with (0,0) pin since we position via translate
+        # TextField needs frame - use the component_frame pin for positioning
         text_field_frame = Frame.new(%{
-          pin: {0, 0},  # Start at origin - translate will position it
+          pin: component_frame.pin,  # Use the anchor point
           size: component_frame.size
         })
 
@@ -1672,7 +1678,7 @@ defmodule WidgetWorkbench.Scene do
           case new_component do
             {_name, module} ->
               Logger.info("Auto-loading newly created component: #{inspect(module)}")
-              component_frame = Frame.new(%{pin: {100, 100}, size: {400, 300}})
+              component_frame = Frame.new(%{pin: {50, 50}, size: {400, 300}})
 
               # Check if the component module defines add_to_graph/3
               updated_graph =
@@ -1681,7 +1687,7 @@ defmodule WidgetWorkbench.Scene do
                   |> module.add_to_graph(
                     prepare_component_data(module, component_frame),
                     id: :loaded_component,
-                    translate: {100, 100}
+                    translate: {50, 50}
                   )
                 else
                   Logger.warn("Component #{inspect(module)} does not export add_to_graph/3")
@@ -1841,9 +1847,9 @@ defmodule WidgetWorkbench.Scene do
     center_point = Frame.center(main_area)
 
     # Component selected - render it at a consistent ANCHOR POINT
-    # ANCHOR POINT: Always position components at (100, 100) for predictable testing
-    anchor_x = 100
-    anchor_y = 100
+    # ANCHOR POINT: Always position components at (50, 50) for predictable testing
+    anchor_x = 50
+    anchor_y = 50
 
     # Create a reasonable default frame for the component
     # MenuBar needs more width for all menus, other components get 400x200

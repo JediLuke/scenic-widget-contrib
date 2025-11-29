@@ -17,7 +17,9 @@ defmodule ScenicWidgets.TextField.Renderer do
   - Background (optional - supports :clear for transparent)
   - Border
   - Line numbers (if enabled)
+  - Semantic accessibility content (hidden)
   - Text lines
+  - Selection highlighting
   - Cursor
   """
   def initial_render(graph, %State{} = state) do
@@ -25,6 +27,7 @@ defmodule ScenicWidgets.TextField.Renderer do
     |> render_background(state)
     |> render_border(state)
     |> render_line_numbers(state)
+    |> render_semantic_content(state)
     |> render_selection(state)
     |> render_lines(state)
     |> render_cursor(state)
@@ -38,6 +41,7 @@ defmodule ScenicWidgets.TextField.Renderer do
     |> update_border_if_changed(old_state, new_state)
     |> update_lines_if_changed(old_state, new_state)
     |> update_line_numbers_if_changed(old_state, new_state)
+    |> update_semantic_content_if_changed(old_state, new_state)
     |> update_cursor_position(old_state, new_state)
   end
 
@@ -55,32 +59,52 @@ defmodule ScenicWidgets.TextField.Renderer do
 
   defp update_lines_if_changed(graph, %State{lines: old_lines}, %State{lines: new_lines} = new_state)
       when old_lines != new_lines do
-    # Lines changed - update text rendering
-    # For simplicity, re-render all lines if any changed
-    # TODO: Optimize to only update changed lines
+    # Lines changed - use optimized viewport rendering
     x_offset = State.text_x_offset(new_state)
     font = new_state.font
     colors = new_state.colors
+    line_height = State.line_height(new_state)
 
-    # Remove old line primitives and add new ones
-    graph = Enum.reduce(1..length(old_lines), graph, fn line_num, g ->
-      Graph.delete(g, {:text_line, line_num})
+    # Calculate which lines need to be rendered
+    {render_start, render_end} = State.visible_line_range(new_state)
+    max_lines = max(length(old_lines), length(new_lines))
+
+    # Process all potentially affected lines
+    graph = Enum.reduce(1..max_lines, graph, fn line_num, g ->
+      old_line = Enum.at(old_lines, line_num - 1, nil)
+      new_line = Enum.at(new_lines, line_num - 1, nil)
+
+      cond do
+        # Line is outside render range - clean it up
+        line_num < render_start or line_num > render_end ->
+          Graph.delete(g, {:text_line, line_num})
+
+        # Line was removed
+        old_line != nil and new_line == nil ->
+          Graph.delete(g, {:text_line, line_num})
+
+        # Line unchanged - skip
+        old_line == new_line ->
+          g
+
+        # Line added or changed - render it
+        true ->
+          y_pos = (line_num - 1) * line_height + line_height + new_state.vertical_scroll_offset
+
+          g
+          |> Graph.delete({:text_line, line_num})
+          |> Primitives.text(
+            new_line || "",
+            translate: {x_offset, y_pos},
+            fill: colors.text,
+            font_size: font.size,
+            font: font.name,
+            id: {:text_line, line_num}
+          )
+      end
     end)
 
-    # Add new lines
-    Enum.reduce(Enum.with_index(new_lines, 1), graph, fn {line_text, line_num}, g ->
-      y_pos = (line_num - 1) * font.size + font.size
-
-      g
-      |> Primitives.text(
-        line_text,
-        translate: {x_offset, y_pos},
-        fill: colors.text,
-        font_size: font.size,
-        font: font.name,
-        id: {:text_line, line_num}
-      )
-    end)
+    graph
   end
 
   defp update_lines_if_changed(graph, _old_state, _new_state), do: graph
@@ -98,9 +122,10 @@ defmodule ScenicWidgets.TextField.Renderer do
     width = new_state.line_number_width
     font = new_state.font
     colors = new_state.colors
+    line_height = State.line_height(new_state)
 
     Enum.reduce(1..length(new_lines), graph, fn line_num, g ->
-      y_pos = (line_num - 1) * font.size + font.size
+      y_pos = (line_num - 1) * line_height + line_height
       x_pos = width - 10
 
       g
@@ -117,16 +142,37 @@ defmodule ScenicWidgets.TextField.Renderer do
 
   defp update_line_numbers_if_changed(graph, _old_state, _new_state), do: graph
 
+  defp update_semantic_content_if_changed(graph, %State{lines: old_lines}, %State{lines: new_lines} = new_state)
+      when old_lines != new_lines do
+    # Text changed - update semantic content for accessibility
+    full_content = Enum.join(new_lines, "\n")
+
+    graph
+    |> Graph.modify(:semantic_content, fn primitive ->
+      Primitives.text(primitive, full_content)
+    end)
+  end
+
+  defp update_semantic_content_if_changed(graph, _old_state, _new_state), do: graph
+
   defp update_cursor_position(graph, %State{cursor: old_cursor}, %State{cursor: new_cursor} = new_state)
       when old_cursor != new_cursor do
     {line, col} = new_cursor
     x_offset = State.text_x_offset(new_state)
-    font = new_state.font
+    line_height = State.line_height(new_state)
 
-    # Calculate cursor position
-    char_width = trunc(font.size * 0.6)
-    cursor_x = x_offset + ((col - 1) * char_width)
-    cursor_y = (line - 1) * font.size
+    # Get the text before cursor to calculate accurate position
+    current_line = State.get_line(new_state, line)
+    text_before_cursor = String.slice(current_line, 0, col - 1)
+
+    # Use FontMetrics if available for accurate positioning
+    cursor_x = x_offset + State.string_width(new_state, text_before_cursor)
+
+    # Position cursor at line top with small padding
+    # Original QuillEx had cursor at ~4px from line top, text baseline at line_height
+    # This provides visual separation from descenders of previous line
+    line_top = (line - 1) * line_height
+    cursor_y = line_top + 4
 
     # Only show cursor if focused AND cursor_visible (for blinking)
     should_show_cursor = new_state.focused and new_state.cursor_visible
@@ -187,22 +233,31 @@ defmodule ScenicWidgets.TextField.Renderer do
     lines: lines,
     line_number_width: width,
     font: font,
-    colors: colors
-  }) do
-    # Render line numbers in left margin
-    Enum.reduce(Enum.with_index(lines, 1), graph, fn {_line, line_num}, g ->
-      y_pos = (line_num - 1) * font.size + font.size
-      x_pos = width - 10  # Right-align within the margin
+    colors: colors,
+    vertical_scroll_offset: scroll_y
+  } = state) do
+    # Render line numbers in left margin (with viewport optimization)
+    line_height = State.line_height(state)
+    {render_start, render_end} = State.visible_line_range(state)
 
-      g
-      |> Primitives.text(
-        "#{line_num}",
-        translate: {x_pos, y_pos},
-        fill: colors.line_numbers,
-        font_size: font.size,
-        text_align: :right,
-        id: {:line_number, line_num}
-      )
+    # Always render line 1, then only render visible lines
+    Enum.reduce(Enum.with_index(lines, 1), graph, fn {_line, line_num}, g ->
+      if line_num == 1 or (line_num >= render_start and line_num <= render_end) do
+        y_pos = (line_num - 1) * line_height + line_height + scroll_y
+        x_pos = width - 10  # Right-align within the margin
+
+        g
+        |> Primitives.text(
+          "#{line_num}",
+          translate: {x_pos, y_pos},
+          fill: colors.line_numbers,
+          font_size: font.size,
+          text_align: :right,
+          id: {:line_number, line_num}
+        )
+      else
+        g
+      end
     end)
   end
 
@@ -236,10 +291,9 @@ defmodule ScenicWidgets.TextField.Renderer do
     end
   end
 
-  defp render_selection_rectangles(graph, {sel_start_line, sel_start_col}, {sel_end_line, sel_end_col}, lines, font, state) do
+  defp render_selection_rectangles(graph, {sel_start_line, sel_start_col}, {sel_end_line, sel_end_col}, lines, _font, state) do
     x_offset = State.text_x_offset(state)
-    line_height = font.size
-    char_width = trunc(font.size * 0.6)  # Monospace approximation
+    line_height = State.line_height(state)
 
     # Selection color - semi-transparent blue
     selection_color = {:color_rgba, {100, 150, 200, 100}}
@@ -266,10 +320,12 @@ defmodule ScenicWidgets.TextField.Renderer do
             {1, String.length(line_text) + 1}
         end
 
-      # Calculate pixel coordinates for selection rectangle
-      start_x_offset = (start_col_on_line - 1) * char_width
-      selection_length = max(0, end_col_on_line - start_col_on_line)
-      selection_width = selection_length * char_width
+      # Calculate pixel coordinates for selection rectangle using FontMetrics
+      text_before_selection = String.slice(line_text, 0, start_col_on_line - 1)
+      selected_text = String.slice(line_text, start_col_on_line - 1, max(0, end_col_on_line - start_col_on_line))
+
+      start_x_offset = State.string_width(state, text_before_selection)
+      selection_width = State.string_width(state, selected_text)
 
       # Add selection rectangle to graph
       acc_graph
@@ -289,9 +345,11 @@ defmodule ScenicWidgets.TextField.Renderer do
     wrap_mode: wrap_mode,
     frame: frame,
     show_line_numbers: show_line_numbers,
-    line_number_width: line_number_width
+    line_number_width: line_number_width,
+    vertical_scroll_offset: scroll_y
   } = state) do
     x_offset = State.text_x_offset(state)
+    line_height = State.line_height(state)
 
     # Calculate available width for text
     text_width = if show_line_numbers do
@@ -308,27 +366,36 @@ defmodule ScenicWidgets.TextField.Renderer do
       lines
     end
 
-    # Render each display line
-    Enum.reduce(Enum.with_index(display_lines, 1), graph, fn {line_text, display_line_num}, g ->
-      y_pos = (display_line_num - 1) * font.size + font.size
+    # Calculate viewport range for optimization
+    {render_start, render_end} = State.visible_line_range(state)
 
-      g
-      |> Primitives.text(
-        line_text,
-        translate: {x_offset, y_pos},
-        fill: colors.text,
-        font_size: font.size,
-        font: font.name,
-        id: {:text_line, display_line_num}
-      )
+    # Only render lines within viewport + buffer
+    Enum.reduce(Enum.with_index(display_lines, 1), graph, fn {line_text, line_num}, g ->
+      if line_num >= render_start and line_num <= render_end do
+        y_pos = (line_num - 1) * line_height + line_height + scroll_y
+
+        g
+        |> Primitives.text(
+          line_text,
+          translate: {x_offset, y_pos},
+          fill: colors.text,
+          font_size: font.size,
+          font: font.name,
+          id: {:text_line, line_num}
+        )
+      else
+        g
+      end
     end)
   end
 
   # Wrap a single line into multiple lines based on available width
-  defp wrap_line(line, max_width, font) do
-    # Approximate character width (monospace)
-    char_width = font.size * 0.6
-    max_chars = trunc(max_width / char_width)
+  defp wrap_line(line, max_width, _font) do
+    # Simple character-count based wrapping
+    # TODO: Use actual string width measurements for proportional fonts
+    # For now, approximate using average character width
+    avg_char_width = 10  # Rough estimate
+    max_chars = trunc(max_width / avg_char_width)
 
     if String.length(line) <= max_chars do
       [line]
@@ -368,27 +435,68 @@ defmodule ScenicWidgets.TextField.Renderer do
     cursor: {line, col},
     cursor_visible: visible,
     focused: focused,
-    font: font,
+    cursor_mode: cursor_mode,
     colors: colors
   } = state) do
     x_offset = State.text_x_offset(state)
+    line_height = State.line_height(state)
 
-    # Calculate cursor position
-    # TODO Phase 2: Use FontMetrics for accurate character positioning
-    # For now, use rough estimate
-    char_width = trunc(font.size * 0.6)  # Monospace approximation
-    cursor_x = x_offset + ((col - 1) * char_width)
-    cursor_y = (line - 1) * font.size
+    # Get the text before cursor to calculate accurate position
+    current_line = State.get_line(state, line)
+    text_before_cursor = String.slice(current_line, 0, col - 1)
 
-    # Render cursor as thin vertical line
-    # Only show when focused AND visible (for blinking)
+    # Use FontMetrics for accurate positioning
+    cursor_x = x_offset + State.string_width(state, text_before_cursor)
+
+    # Position cursor at line top with small padding
+    # Original QuillEx had cursor at ~4px from line top, text baseline at line_height
+    # This provides visual separation from descenders of previous line
+    line_top = (line - 1) * line_height
+    cursor_y = line_top + 4
+
+    # Calculate cursor width based on mode
+    cursor_width = case cursor_mode do
+      :cursor -> 2  # Thin vertical line
+      :block -> State.char_width(state)  # Full character width
+      :hidden -> 0  # No cursor
+    end
+
+    # Only show when focused AND visible (for blinking) AND not hidden mode
+    should_show = focused and visible and cursor_mode != :hidden
+
+    # Render cursor
     graph
     |> Primitives.rect(
-      {2, font.size},
+      {cursor_width, line_height},
       translate: {cursor_x, cursor_y},
       fill: colors.cursor,
-      hidden: !focused or !visible,
+      hidden: !should_show,
       id: :cursor
+    )
+  end
+
+  @doc """
+  Render hidden semantic content for accessibility.
+  This provides a single text primitive with all buffer content that can be queried
+  by accessibility tools without affecting visual rendering.
+  """
+  defp render_semantic_content(graph, %State{lines: lines, id: id, editable: editable, mode: mode}) do
+    # Join all lines into a single string for semantic access
+    full_content = Enum.join(lines, "\n")
+
+    # Add hidden text primitive with semantic metadata
+    graph
+    |> Primitives.text(
+      full_content,
+      id: :semantic_content,
+      hidden: true,
+      semantic: %{
+        type: :text_field,
+        field_id: id,
+        editable: editable,
+        multiline: mode == :multi_line,
+        role: if(mode == :multi_line, do: :textbox, else: :textfield)
+      }
     )
   end
 end

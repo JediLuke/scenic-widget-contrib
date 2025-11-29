@@ -17,13 +17,14 @@ defmodule ScenicWidgets.TextField.State do
     :focused,                  # Boolean, whether component has focus
     :cursor_visible,           # Boolean, for blink animation
     :cursor_timer,             # Erlang timer reference
+    :cursor_mode,              # :cursor (thin line) | :block (full char) | :hidden
 
     # Configuration
     :mode,                     # :single_line | :multi_line
     :input_mode,               # :direct | :external
     :show_line_numbers,        # Boolean
     :line_number_width,        # Pixels (default 40)
-    :font,                     # %{name: atom, size: int, metrics: FontMetrics}
+    :font,                     # %{name: atom, size: int, metrics: FontMetrics | nil}
     :colors,                   # %{text:, background:, cursor:, line_numbers:, border:, focused_border:}
 
     # Interaction
@@ -37,6 +38,7 @@ defmodule ScenicWidgets.TextField.State do
     :horizontal_scroll_offset, # Horizontal scroll in pixels
     :height_mode,              # :auto | {:fixed_lines, n} | {:fixed_pixels, n}
     :max_visible_lines,        # Calculated from frame height and height_mode
+    :viewport_buffer_lines,    # Number of lines to render outside viewport (default 5)
 
     # Advanced (future)
     :selection,                # {start, end} for text selection
@@ -74,9 +76,10 @@ defmodule ScenicWidgets.TextField.State do
       id: Map.get(data, :id),
 
       # Display
-      focused: false,
+      focused: Map.get(data, :focused, false),
       cursor_visible: true,
       cursor_timer: nil,
+      cursor_mode: Map.get(data, :cursor_mode, :cursor),
 
       # Configuration
       mode: Map.get(data, :mode, :multi_line),
@@ -97,6 +100,7 @@ defmodule ScenicWidgets.TextField.State do
       horizontal_scroll_offset: 0,
       height_mode: Map.get(data, :height_mode, :auto),
       max_visible_lines: calculate_max_lines(frame, font),
+      viewport_buffer_lines: Map.get(data, :viewport_buffer_lines, 5),
 
       # Advanced
       selection: nil,
@@ -177,4 +181,170 @@ defmodule ScenicWidgets.TextField.State do
   """
   def text_x_offset(%__MODULE__{show_line_numbers: false}), do: 10
   def text_x_offset(%__MODULE__{show_line_numbers: true, line_number_width: width}), do: width + 10
+
+  @doc """
+  Calculate character width using FontMetrics if available, otherwise use approximation.
+  """
+  def char_width(%__MODULE__{font: %{metrics: %FontMetrics{} = metrics, size: size}}, char \\ "W") do
+    FontMetrics.width(char, size, metrics)
+  end
+  def char_width(%__MODULE__{font: %{size: size}}, _char) do
+    # Fallback to monospace approximation if FontMetrics not available
+    trunc(size * 0.6)
+  end
+
+  @doc """
+  Calculate the width of a string using FontMetrics if available.
+  """
+  def string_width(%__MODULE__{font: %{metrics: %FontMetrics{} = metrics, size: size}}, string) do
+    FontMetrics.width(string, size, metrics)
+  end
+  def string_width(%__MODULE__{font: %{size: size}}, string) do
+    # Fallback to monospace approximation
+    String.length(string) * trunc(size * 0.6)
+  end
+
+  @doc """
+  Calculate line height from font size and metrics.
+  """
+  def line_height(%__MODULE__{font: %{size: size}}) do
+    # Use font size as line height
+    # Could be enhanced with FontMetrics.ascent + descent if needed
+    size
+  end
+
+  @doc """
+  Get font ascent using FontMetrics if available.
+  """
+  def font_ascent(%__MODULE__{font: %{metrics: %FontMetrics{} = metrics, size: size}}) do
+    FontMetrics.ascent(size, metrics)
+  end
+  def font_ascent(%__MODULE__{font: %{size: size}}) do
+    # Approximation: ~80% of font size
+    trunc(size * 0.8)
+  end
+
+  @doc """
+  Calculate which lines should be rendered based on viewport and scroll position.
+  Returns {render_start, render_end} tuple (1-indexed, inclusive).
+  """
+  def visible_line_range(%__MODULE__{
+    lines: lines,
+    frame: frame,
+    vertical_scroll_offset: scroll_y,
+    viewport_buffer_lines: buffer_lines
+  } = state) do
+    line_height = line_height(state)
+    viewport_height = frame.size.height
+    total_lines = length(lines)
+
+    # Calculate visible range
+    visible_start = max(1, div(-scroll_y, line_height) + 1)
+    visible_end = min(total_lines, div((-scroll_y + viewport_height), line_height) + 2)
+
+    # Add buffer for smooth scrolling
+    render_start = max(1, visible_start - buffer_lines)
+    render_end = min(total_lines, visible_end + buffer_lines)
+
+    {render_start, render_end}
+  end
+
+  @doc """
+  Check if a line number should be rendered based on viewport.
+  """
+  def should_render_line?(%__MODULE__{} = state, line_num) do
+    {render_start, render_end} = visible_line_range(state)
+    line_num >= render_start and line_num <= render_end
+  end
+
+  @doc """
+  Ensure the cursor is visible within the viewport.
+  Automatically adjusts scroll offsets if the cursor is outside the visible area.
+  Returns updated state with adjusted scroll offsets.
+  """
+  def ensure_cursor_visible(%__MODULE__{
+    cursor: {line, col},
+    frame: frame,
+    vertical_scroll_offset: scroll_y,
+    horizontal_scroll_offset: scroll_x
+  } = state) do
+    line_height = line_height(state)
+    viewport_height = frame.size.height
+    viewport_width = frame.size.width
+
+    # Calculate cursor pixel position
+    cursor_y = (line - 1) * line_height
+
+    # Get text before cursor for horizontal position
+    current_line = get_line(state, line)
+    text_before_cursor = String.slice(current_line, 0, col - 1)
+    cursor_x = string_width(state, text_before_cursor)
+
+    # Check vertical scrolling
+    new_scroll_y = cond do
+      # Cursor is above viewport - scroll up
+      cursor_y + scroll_y < 0 ->
+        -cursor_y
+
+      # Cursor is below viewport - scroll down
+      cursor_y + scroll_y > viewport_height - line_height ->
+        -(cursor_y - viewport_height + line_height)
+
+      # Cursor is visible vertically
+      true ->
+        scroll_y
+    end
+
+    # Check horizontal scrolling
+    text_offset = text_x_offset(state)
+    new_scroll_x = cond do
+      # Cursor is left of viewport - scroll left
+      cursor_x + scroll_x < 0 ->
+        -cursor_x
+
+      # Cursor is right of viewport - scroll right
+      cursor_x + scroll_x + text_offset > viewport_width - 10 ->
+        -(cursor_x - viewport_width + text_offset + 10)
+
+      # Cursor is visible horizontally
+      true ->
+        scroll_x
+    end
+
+    %{state | vertical_scroll_offset: new_scroll_y, horizontal_scroll_offset: new_scroll_x}
+  end
+
+  @doc """
+  Scroll the view by a delta amount.
+  Positive values scroll down/right, negative values scroll up/left.
+  """
+  def scroll(%__MODULE__{
+    vertical_scroll_offset: scroll_y,
+    horizontal_scroll_offset: scroll_x
+  } = state, {delta_x, delta_y}) do
+    %{state |
+      vertical_scroll_offset: scroll_y + delta_y,
+      horizontal_scroll_offset: scroll_x + delta_x
+    }
+  end
+
+  @doc """
+  Scroll vertically by a number of lines.
+  Positive values scroll down, negative values scroll up.
+  """
+  def scroll_lines(%__MODULE__{} = state, line_count) do
+    line_height = line_height(state)
+    delta_y = line_count * line_height
+    scroll(state, {0, delta_y})
+  end
+
+  @doc """
+  Scroll horizontally by a number of characters.
+  Positive values scroll right, negative values scroll left.
+  """
+  def scroll_chars(%__MODULE__{} = state, char_count) do
+    char_width = char_width(state)
+    delta_x = char_count * char_width
+    scroll(state, {delta_x, 0})
+  end
 end

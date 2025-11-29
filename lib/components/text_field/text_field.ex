@@ -103,8 +103,8 @@ defmodule ScenicWidgets.TextField do
 
     # Phase 2: Request input if in direct mode
     if state.input_mode == :direct do
-      # IO.puts("🔍 TextField requesting input: [:cursor_button, :key]")
-      request_input(scene, [:cursor_button, :key])
+      # IO.puts("🔍 TextField requesting input: [:cursor_button, :key, :codepoint]")
+      request_input(scene, [:cursor_button, :key, :codepoint])
     end
 
     scene =
@@ -208,6 +208,17 @@ defmodule ScenicWidgets.TextField do
       |> push_graph(graph)
 
     {:noreply, scene}
+  end
+
+  # ===== HANDLE CAST (for Scenic input routing) =====
+
+  @doc """
+  Handle input sent via GenServer.cast from Scenic.
+  This is how Scenic delivers input when a component requests it.
+  """
+  def handle_cast({:user_input, input}, scene) do
+    # Forward to handle_input
+    handle_input(input, nil, scene)
   end
 
   # ===== HELPER FUNCTIONS =====

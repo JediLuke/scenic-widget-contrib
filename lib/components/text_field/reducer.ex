@@ -22,46 +22,74 @@ defmodule ScenicWidgets.TextField.Reducer do
   Uses ScenicEventsDefinitions for key matching and conversion.
   """
 
-  # ===== TEXT INPUT - Using key2string conversion =====
+  # ===== TEXT INPUT - Codepoint events ONLY =====
 
-  # Handle all valid text input characters (letters, numbers, punctuation, space, enter)
-  def process_input(%State{focused: true} = state, input) when input in @valid_text_input_characters do
-    char = key2string(input)
-    # IO.puts("🔍 TEXT INPUT: '#{char}', selection: #{inspect(state.selection)}")
+  # Handle codepoint events (direct character input from driver)
+  # Codepoint is a string (single UTF-8 character)
+  # NOTE: We ONLY handle codepoint events for text input to avoid duplicate insertions.
+  # When a user presses a letter key, Scenic sends BOTH :codepoint and :key events.
+  # We use :codepoint for text input and :key only for non-character keys (arrows, backspace, etc.)
+  def process_input(%State{focused: true} = state, {:codepoint, {char, _mods}}) when is_bitstring(char) do
+    # IO.puts("🔍 CODEPOINT INPUT: '#{char}', selection: #{inspect(state.selection)}")
     # Delete selection first if any, then insert
     state_after_delete = delete_selection(state)
-    # IO.puts("🔍 After delete_selection: cursor #{inspect(state_after_delete.cursor)}, lines: #{inspect(state_after_delete.lines)}")
     new_state = insert_char(state_after_delete, char)
     {:event, {:text_changed, state.id, State.get_text(new_state)}, new_state}
   end
 
+  # ===== TEXT INPUT - Using key2string conversion =====
+  # REMOVED: We no longer handle text input via :key events to avoid duplicate insertions
+  # See codepoint handler above - that's the only way text gets inserted now
+
+  # # Handle all valid text input characters (letters, numbers, punctuation, space, enter)
+  # def process_input(%State{focused: true} = state, input) when input in @valid_text_input_characters do
+  #   char = key2string(input)
+  #   # IO.puts("🔍 TEXT INPUT: '#{char}', selection: #{inspect(state.selection)}")
+  #   # Delete selection first if any, then insert
+  #   state_after_delete = delete_selection(state)
+  #   # IO.puts("🔍 After delete_selection: cursor #{inspect(state_after_delete.cursor)}, lines: #{inspect(state_after_delete.lines)}")
+  #   new_state = insert_char(state_after_delete, char)
+  #   {:event, {:text_changed, state.id, State.get_text(new_state)}, new_state}
+  # end
+
   # ===== SPECIAL KEYS =====
 
+  # Enter key - insert newline (doesn't send codepoint event, only key event)
+  def process_input(%State{focused: true, mode: :multi_line} = state, {:key, {:key_enter, key_state, _mods}}) when key_state > 0 do
+    # key_state > 0 matches both press (1) and repeat (2) events
+    state_after_delete = delete_selection(state)
+    new_state = insert_char(state_after_delete, "\n")
+    {:event, {:text_changed, state.id, State.get_text(new_state)}, new_state}
+  end
+
   # Backspace - delete selection or character before cursor
-  def process_input(%State{focused: true, selection: selection} = state, @backspace_key) when selection != nil do
+  # key_state > 0 matches both press (1) and repeat (2) for key-hold functionality
+  def process_input(%State{focused: true, selection: selection} = state, {:key, {:key_backspace, key_state, _mods}}) when selection != nil and key_state > 0 do
     new_state = delete_selection(state)
     # IO.puts("🔍 Backspace with selection: focused before=#{state.focused}, after=#{new_state.focused}")
     {:event, {:text_changed, state.id, State.get_text(new_state)}, new_state}
   end
 
-  def process_input(%State{focused: true} = state, @backspace_key) do
+  def process_input(%State{focused: true} = state, {:key, {:key_backspace, key_state, _mods}}) when key_state > 0 do
     new_state = delete_before_cursor(state)
     {:event, {:text_changed, state.id, State.get_text(new_state)}, new_state}
   end
 
   # Delete - delete selection or character at cursor
-  def process_input(%State{focused: true, selection: selection} = state, @delete_key) when selection != nil do
+  # key_state > 0 matches both press (1) and repeat (2) for key-hold functionality
+  def process_input(%State{focused: true, selection: selection} = state, {:key, {:key_delete, key_state, _mods}}) when selection != nil and key_state > 0 do
     new_state = delete_selection(state)
     {:event, {:text_changed, state.id, State.get_text(new_state)}, new_state}
   end
 
-  def process_input(%State{focused: true} = state, @delete_key) do
+  def process_input(%State{focused: true} = state, {:key, {:key_delete, key_state, _mods}}) when key_state > 0 do
     new_state = delete_at_cursor(state)
     {:event, {:text_changed, state.id, State.get_text(new_state)}, new_state}
   end
 
   # Arrow keys with Shift - text selection
-  def process_input(%State{focused: true} = state, {:key, {:key_left, 1, mods}}) do
+  # key_state > 0 matches both press (1) and repeat (2) for key-hold functionality
+  def process_input(%State{focused: true} = state, {:key, {:key_left, key_state, mods}}) when key_state > 0 do
     if :shift in mods do
       {:noop, move_cursor_with_selection(state, :left)}
     else
@@ -69,7 +97,7 @@ defmodule ScenicWidgets.TextField.Reducer do
     end
   end
 
-  def process_input(%State{focused: true} = state, {:key, {:key_right, 1, mods}}) do
+  def process_input(%State{focused: true} = state, {:key, {:key_right, key_state, mods}}) when key_state > 0 do
     if :shift in mods do
       {:noop, move_cursor_with_selection(state, :right)}
     else
@@ -77,7 +105,7 @@ defmodule ScenicWidgets.TextField.Reducer do
     end
   end
 
-  def process_input(%State{focused: true} = state, {:key, {:key_up, 1, mods}}) do
+  def process_input(%State{focused: true} = state, {:key, {:key_up, key_state, mods}}) when key_state > 0 do
     if :shift in mods do
       {:noop, move_cursor_with_selection(state, :up)}
     else
@@ -85,7 +113,7 @@ defmodule ScenicWidgets.TextField.Reducer do
     end
   end
 
-  def process_input(%State{focused: true} = state, {:key, {:key_down, 1, mods}}) do
+  def process_input(%State{focused: true} = state, {:key, {:key_down, key_state, mods}}) when key_state > 0 do
     if :shift in mods do
       # IO.puts("🔍 Shift+Down pressed! Current cursor: #{inspect(state.cursor)}, selection: #{inspect(state.selection)}, lines: #{length(state.lines)}")
       # IO.puts("🔍 Lines content: #{inspect(state.lines)}")
@@ -239,6 +267,7 @@ defmodule ScenicWidgets.TextField.Reducer do
   @doc """
   Insert character at cursor position.
   Handles newlines (\n) by splitting the current line.
+  Automatically ensures cursor remains visible after insertion.
   """
   defp insert_char(%State{lines: lines, cursor: {line_num, col}} = state, "\n") do
     # Handle Enter key - split current line
@@ -250,7 +279,8 @@ defmodule ScenicWidgets.TextField.Reducer do
       |> List.replace_at(line_num - 1, before)
       |> List.insert_at(line_num, after_cursor)
 
-    %{state | lines: new_lines, cursor: {line_num + 1, 1}}
+    new_state = %{state | lines: new_lines, cursor: {line_num + 1, 1}}
+    State.ensure_cursor_visible(new_state)
   end
 
   defp insert_char(%State{lines: lines, cursor: {line_num, col}} = state, char) when is_binary(char) do
@@ -260,7 +290,8 @@ defmodule ScenicWidgets.TextField.Reducer do
 
     new_lines = List.replace_at(lines, line_num - 1, new_line)
 
-    %{state | lines: new_lines, cursor: {line_num, col + 1}}
+    new_state = %{state | lines: new_lines, cursor: {line_num, col + 1}}
+    State.ensure_cursor_visible(new_state)
   end
 
   @doc """
@@ -336,9 +367,10 @@ defmodule ScenicWidgets.TextField.Reducer do
 
   @doc """
   Move cursor in specified direction.
+  Automatically ensures cursor remains visible after movement.
   """
   defp move_cursor(%State{cursor: {line, col}, lines: lines} = state, :left) do
-    if col > 1 do
+    new_state = if col > 1 do
       %{state | cursor: {line, col - 1}}
     else
       # At start of line - move to end of previous line
@@ -349,12 +381,14 @@ defmodule ScenicWidgets.TextField.Reducer do
         state
       end
     end
+
+    State.ensure_cursor_visible(new_state)
   end
 
   defp move_cursor(%State{cursor: {line, col}, lines: lines} = state, :right) do
     current_line = Enum.at(lines, line - 1, "")
 
-    if col <= String.length(current_line) do
+    new_state = if col <= String.length(current_line) do
       %{state | cursor: {line, col + 1}}
     else
       # At end of line - move to start of next line
@@ -364,35 +398,43 @@ defmodule ScenicWidgets.TextField.Reducer do
         state
       end
     end
+
+    State.ensure_cursor_visible(new_state)
   end
 
   defp move_cursor(%State{cursor: {line, col}, lines: lines} = state, :up) do
-    if line > 1 do
+    new_state = if line > 1 do
       prev_line = Enum.at(lines, line - 2)
       new_col = min(col, String.length(prev_line) + 1)
       %{state | cursor: {line - 1, new_col}}
     else
       state
     end
+
+    State.ensure_cursor_visible(new_state)
   end
 
   defp move_cursor(%State{cursor: {line, col}, lines: lines} = state, :down) do
-    if line < length(lines) do
+    new_state = if line < length(lines) do
       next_line = Enum.at(lines, line)
       new_col = min(col, String.length(next_line) + 1)
       %{state | cursor: {line + 1, new_col}}
     else
       state
     end
+
+    State.ensure_cursor_visible(new_state)
   end
 
   defp move_cursor(%State{cursor: {line, _col}} = state, :line_start) do
-    %{state | cursor: {line, 1}}
+    new_state = %{state | cursor: {line, 1}}
+    State.ensure_cursor_visible(new_state)
   end
 
   defp move_cursor(%State{cursor: {line, _col}, lines: lines} = state, :line_end) do
     current_line = Enum.at(lines, line - 1, "")
-    %{state | cursor: {line, String.length(current_line) + 1}}
+    new_state = %{state | cursor: {line, String.length(current_line) + 1}}
+    State.ensure_cursor_visible(new_state)
   end
 
   # ===== SELECTION HELPERS =====
@@ -537,25 +579,50 @@ defmodule ScenicWidgets.TextField.Reducer do
 
   @doc """
   Insert text at cursor position (used for paste).
-  Unlike insert_char which handles single characters, this handles multi-line strings.
+  Unlike insert_char which handles single characters, this handles multi-line strings
+  efficiently in a single operation.
+  Returns the final cursor position after all text is inserted.
   """
-  defp insert_text_at_cursor(%State{} = state, text) when is_binary(text) do
-    # Split the pasted text into lines
+  defp insert_text_at_cursor(%State{lines: lines, cursor: {line, col}} = state, text) when is_binary(text) do
     paste_lines = String.split(text, "\n")
 
-    # Insert each line, handling newlines properly
-    Enum.reduce(paste_lines, {state, true}, fn line, {acc_state, is_first} ->
-      # If not the first line, we need to insert a newline first
-      acc_state = if is_first, do: acc_state, else: insert_char(acc_state, "\n")
+    case paste_lines do
+      # Single line - simple insertion
+      [single_line] ->
+        current_line = Enum.at(lines, line - 1, "")
+        {left_text, right_text} = String.split_at(current_line, col - 1)
+        updated_line = left_text <> single_line <> right_text
+        new_lines = List.replace_at(lines, line - 1, updated_line)
+        final_col = col + String.length(single_line)
 
-      # Insert each character of the line
-      final_state =
-        line
-        |> String.graphemes()
-        |> Enum.reduce(acc_state, fn char, s -> insert_char(s, char) end)
+        new_state = %{state | lines: new_lines, cursor: {line, final_col}}
+        State.ensure_cursor_visible(new_state)
 
-      {final_state, false}
-    end)
-    |> elem(0)
+      # Multiple lines - efficient batch insertion
+      [first_line | rest] ->
+        current_line = Enum.at(lines, line - 1, "")
+        {left_text, right_text} = String.split_at(current_line, col - 1)
+
+        # First line: left_text + first_line
+        first_updated = left_text <> first_line
+
+        # Last line: last_line + right_text
+        {middle_lines, [last_line]} = Enum.split(rest, -1)
+        last_updated = last_line <> right_text
+
+        # Build the new lines list
+        {before_lines, after_lines} = Enum.split(lines, line - 1)
+        [_current | remaining_after] = after_lines
+
+        # Combine all parts
+        new_lines = before_lines ++ [first_updated] ++ middle_lines ++ [last_updated] ++ remaining_after
+
+        # Calculate final cursor position
+        final_line = line + length(paste_lines) - 1
+        final_col = String.length(last_line) + 1
+
+        new_state = %{state | lines: new_lines, cursor: {final_line, final_col}}
+        State.ensure_cursor_visible(new_state)
+    end
   end
 end
