@@ -1,4 +1,6 @@
 defmodule ScenicWidgets.SideNav do
+  IO.puts("⚡⚡⚡ SideNav module being compiled/loaded! ⚡⚡⚡")
+
   @moduledoc """
   A hierarchical sidebar navigation component following HexDocs style.
 
@@ -56,6 +58,15 @@ defmodule ScenicWidgets.SideNav do
   alias ScenicWidgets.SideNav.{State, Renderizer, Reducer, Api, Item}
   alias Scenic.Graph
 
+  # Override add_to_graph to add logging
+  def add_to_graph(graph, data, opts \\ []) do
+    IO.puts("🎯🎯🎯 SideNav.add_to_graph called!")
+    IO.puts("   data: #{inspect(data)}")
+    IO.puts("   opts: #{inspect(opts)}")
+    # Call the default implementation provided by `use Scenic.Component`
+    super(graph, data, opts)
+  end
+
   @doc """
   Validate initialization data.
   """
@@ -75,10 +86,14 @@ defmodule ScenicWidgets.SideNav do
 
   @impl Scenic.Component
   def init(scene, data, _opts) do
-    # Logger.info("🎯 SideNav component initializing")
+    IO.puts("🎯🎯🎯 SideNav.init called!!!")
+    Logger.info("🎯 SideNav component initializing!")
 
     # Initialize component state
     state = State.new(data)
+
+    IO.puts("   State created with #{map_size(state.item_bounds)} item bounds")
+    Logger.info("   State created with #{map_size(state.item_bounds)} item bounds")
 
     # Initial render
     graph = Renderizer.initial_render(Graph.build(), state)
@@ -88,10 +103,14 @@ defmodule ScenicWidgets.SideNav do
       |> assign(state: state, graph: graph)
       |> push_graph(graph)
 
+    # Request input events for mouse interaction
+    request_input(scene, [:cursor_button, :cursor_pos, :cursor_scroll, :key])
+
+    Logger.info("   Graph pushed, now calling register_semantic_elements...")
     # Register semantic elements for MCP interaction
     register_semantic_elements(scene, state)
 
-    # Logger.info("SideNav initialized successfully")
+    Logger.info("✅ SideNav initialized successfully")
 
     {:ok, scene}
   end
@@ -179,17 +198,28 @@ defmodule ScenicWidgets.SideNav do
   end
 
   def handle_input({:cursor_button, {:btn_left, 1, [], coords}}, _context, scene) do
+    Logger.info("🖱️ SideNav received click at #{inspect(coords)}")
     state = scene.assigns.state
 
     case Reducer.handle_click(state, coords) do
       {:navigate, item_id, new_state} ->
-        # Send navigation event to parent
+        # Find the item to check if it has an action callback
+        item = Item.find_by_id(state.tree, item_id)
+        action = Item.get_action(item)
+
+        # Log what we're doing
+        Logger.info("📍 LEAF CLICKED: #{item_id}")
+
+        # Send navigation event to parent (ALWAYS happens)
+        Logger.info("   📤 Sending parent message: {:sidebar, :navigate, #{inspect(item_id)}}")
         send_parent_event(scene, {:sidebar, :navigate, item_id})
 
-        # Execute action callback if present
-        item = Item.find_by_id(state.tree, item_id)
-        if action = Item.get_action(item) do
+        # Execute action callback if present (OPTIONAL)
+        if action do
+          Logger.info("   🔥 Executing action callback for #{item_id}")
           action.()
+        else
+          Logger.info("   ℹ️  No action callback - parent message only")
         end
 
         graph = Renderizer.update_render(scene.assigns.graph, state, new_state)
@@ -208,6 +238,11 @@ defmodule ScenicWidgets.SideNav do
           scene
           |> assign(state: new_state, graph: graph)
           |> push_graph(graph)
+
+        # Re-register semantic elements if expansion state changed
+        if state.expanded != new_state.expanded do
+          register_semantic_elements(scene, new_state)
+        end
 
         {:noreply, scene}
     end
@@ -307,38 +342,107 @@ defmodule ScenicWidgets.SideNav do
   end
 
   # Register semantic elements for MCP interaction
+  # Manually registers elements into Phase 1 semantic tables
+  # (Phase 1 doesn't handle component sub-scenes automatically)
   defp register_semantic_elements(scene, %State{} = state) do
     viewport = scene.viewport
-    graph_key = scene.assigns[:id] || :side_nav
+    scene_name = scene.assigns[:id] || :side_nav
 
-    # Register each visible item as a clickable semantic element
-    state.item_bounds
-    |> Enum.each(fn {item_id, bounds} ->
-      item = Item.find_by_id(state.tree, item_id)
+    # Get the component's screen position from frame.pin
+    {offset_x, offset_y} = state.frame.pin.point
 
-      if item do
-        # Create semantic ID
-        semantic_id = String.to_atom("sidebar_item_#{item_id}")
+    Logger.info("🔍 SideNav attempting semantic registration...")
+    Logger.info("   Viewport has semantic_table? #{inspect(!!viewport.semantic_table)}")
+    Logger.info("   Semantic enabled? #{inspect(viewport.semantic_enabled)}")
+    Logger.info("   Component offset: (#{offset_x}, #{offset_y})")
+    Logger.info("   Item bounds count: #{inspect(map_size(state.item_bounds))}")
 
-        # TODO: Re-enable when Scenic.ViewPort.register_semantic/4 is available
-        # Scenic.ViewPort.register_semantic(
-        #   viewport,
-        #   graph_key,
-        #   semantic_id,
-        #   %{
-        #     type: :list_item,
-        #     label: Item.get_title(item),
-        #     clickable: true,
-        #     bounds: %{
-        #       left: bounds.x,
-        #       top: bounds.y,
-        #       width: bounds.width,
-        #       height: bounds.height
-        #     }
-        #   }
-        # )
-      end
-    end)
+    # Only register if semantic tables are available
+    if viewport.semantic_table && viewport.semantic_enabled do
+      # Register chevrons and text for each visible item
+      state.item_bounds
+      |> Enum.each(fn {item_id, bounds} ->
+        item = Item.find_by_id(state.tree, item_id)
+
+        if item do
+          has_children = Item.has_children?(item)
+          theme = state.theme
+
+          # Calculate positions matching render_item logic
+          depth = bounds.depth
+          indent_x = theme.padding_left + (depth * theme.indent)
+          chevron_area_width = theme.chevron_size + theme.chevron_margin
+
+          # Register chevron (if item has children)
+          if has_children do
+            chevron_id = String.to_atom("chevron_#{item_id}")
+
+            # Local bounds (within component)
+            local_left = indent_x
+            local_top = bounds.y
+
+            # Screen bounds (add component offset)
+            screen_left = offset_x + local_left
+            screen_top = offset_y + local_top
+
+            chevron_entry = %Scenic.Semantic.Compiler.Entry{
+              id: chevron_id,
+              type: :button,
+              module: nil,
+              parent_id: nil,
+              children: [],
+              local_bounds: %{left: local_left, top: local_top, width: theme.chevron_size, height: theme.item_height},
+              screen_bounds: %{left: screen_left, top: screen_top, width: theme.chevron_size, height: theme.item_height},
+              clickable: true,
+              focusable: false,
+              label: "Chevron for #{Item.get_title(item)}",
+              role: :toggle,
+              value: nil,
+              hidden: false,
+              z_index: 0
+            }
+            :ets.insert(viewport.semantic_table, {{scene_name, chevron_id}, chevron_entry})
+            :ets.insert(viewport.semantic_index, {chevron_id, {scene_name, chevron_id}})
+            Logger.info("     ✅ Registered chevron: #{chevron_id} at screen (#{screen_left}, #{screen_top})")
+          end
+
+          # Register item text
+          text_id = String.to_atom("item_text_#{item_id}")
+
+          # Text starts after chevron area
+          local_text_left = indent_x + chevron_area_width
+          local_text_top = bounds.y
+          text_width = bounds.width - chevron_area_width
+
+          # Screen bounds
+          screen_text_left = offset_x + local_text_left
+          screen_text_top = offset_y + local_text_top
+
+          text_entry = %Scenic.Semantic.Compiler.Entry{
+            id: text_id,
+            type: :text,
+            module: nil,
+            parent_id: nil,
+            children: [],
+            local_bounds: %{left: local_text_left, top: local_text_top, width: text_width, height: theme.item_height},
+            screen_bounds: %{left: screen_text_left, top: screen_text_top, width: text_width, height: theme.item_height},
+            clickable: true,
+            focusable: false,
+            label: Item.get_title(item),
+            role: :link,
+            value: nil,
+            hidden: false,
+            z_index: 0
+          }
+          :ets.insert(viewport.semantic_table, {{scene_name, text_id}, text_entry})
+          :ets.insert(viewport.semantic_index, {text_id, {scene_name, text_id}})
+        end
+      end)
+
+      Logger.info("✅ SideNav semantic registration complete!")
+    else
+      Logger.warning("⚠️  SideNav semantic registration skipped - semantic tables not available")
+    end
 
     :ok
   end

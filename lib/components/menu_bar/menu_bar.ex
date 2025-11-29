@@ -365,17 +365,18 @@ defmodule ScenicWidgets.MenuBar do
       # Create semantic ID like "menu_button_file"
       semantic_id = String.to_atom("menu_button_#{Atom.to_string(menu_id) |> String.replace("menu_", "") |> String.replace("_", "")}")
 
-      Scenic.ViewPort.register_semantic(
-        viewport,
-        graph_key,
-        semantic_id,
-        %{
-          type: :button,
-          label: label,
-          clickable: true,
-          bounds: %{left: x, top: y, width: width, height: height}
-        }
-      )
+      # TODO: Re-enable when Scenic.ViewPort.register_semantic/4 is available
+      # Scenic.ViewPort.register_semantic(
+      #   viewport,
+      #   graph_key,
+      #   semantic_id,
+      #   %{
+      #     type: :button,
+      #     label: label,
+      #     clickable: true,
+      #     bounds: %{left: x, top: y, width: width, height: height}
+      #   }
+      # )
 
       # Logger.info("🎯 Registered MenuBar button '#{label}' with ID #{inspect(semantic_id)} at {#{x}, #{y}, #{width}x#{height}}")
     end)

@@ -101,7 +101,13 @@ defmodule ScenicWidgets.SideNav.ExpandCollapseSpex do
         case SemanticUI.load_component("Side Nav") do
           {:ok, _} ->
             Process.sleep(500)
-            {:ok, context}
+            # Verify by checking for tree content, not component name
+            rendered = ScriptInspector.get_rendered_text_string()
+            if String.contains?(rendered, "GETTING STARTED") do
+              {:ok, context}
+            else
+              {:error, "SideNav tree not visible"}
+            end
           {:error, reason} -> {:error, reason}
         end
       end
@@ -124,52 +130,108 @@ defmodule ScenicWidgets.SideNav.ExpandCollapseSpex do
       given_ "SideNav is loaded with a collapsed node", context do
         case SemanticUI.load_component("Side Nav") do
           {:ok, _} ->
-            Process.sleep(500)
-            {:ok, context}
+            # Wait longer for component to fully initialize and register semantic elements
+            Process.sleep(2000)
+            IO.puts("⏰ Waited 2s for SideNav to initialize...")
+            # Verify by checking for tree content
+            rendered = ScriptInspector.get_rendered_text_string()
+            if String.contains?(rendered, "GETTING STARTED") do
+              {:ok, context}
+            else
+              {:error, "SideNav tree not visible"}
+            end
           {:error, reason} -> {:error, reason}
         end
       end
 
-      when_ "we click a node's chevron icon", context do
-        # Once semantic IDs are registered, we can click specific chevrons
-        # For now, this is a placeholder for the behavior
-        IO.puts("🎯 Would click chevron for top-level node")
-        {:ok, context}
+      when_ "we click the 'getting_started' node's chevron icon", context do
+        # First, let's see what elements ARE registered
+        IO.puts("\n🔍 Checking what clickable elements are registered:")
+        case SemanticUI.find_clickable_elements() do
+          {:ok, elements} ->
+            IO.puts("Found #{length(elements)} clickable elements:")
+            elements
+            |> Enum.take(20)
+            |> Enum.each(fn elem ->
+              IO.puts("  - #{inspect(elem)}")
+            end)
+          {:error, reason} ->
+            IO.puts("  Failed to get elements: #{inspect(reason)}")
+        end
+
+        # Click the chevron for the "getting_started" node using semantic ID
+        # The chevron ID is built as :chevron_<item_id> in the renderizer
+        IO.puts("\n🎯 Attempting to click chevron_getting_started")
+
+        case SemanticUI.click_element("chevron_getting_started") do
+          :ok ->
+            Process.sleep(300)  # Let the expansion animation complete
+            {:ok, context}
+          {:error, reason} ->
+            IO.puts("❌ Failed to click chevron: #{inspect(reason)}")
+            IO.puts("    Note: This might indicate Phase 1 semantic registration")
+            IO.puts("    isn't picking up elements from component sub-scenes")
+            {:error, reason}
+        end
       end
 
       then_ "node should expand and show children", context do
-        # Verify:
-        # 1. Chevron changes to down-facing
-        # 2. Child nodes become visible
-        # 3. Children are indented correctly
-        IO.puts("✅ Expand behavior verified (placeholder)")
+        rendered = ScriptInspector.get_rendered_text_string()
+
+        # Verify that child items are now visible
+        # From test_tree: children are "Introduction", "Installation", "Interactive mode"
+        children_visible =
+          String.contains?(rendered, "Introduction") and
+          String.contains?(rendered, "Installation")
+
+        assert children_visible,
+               "Expected child nodes to be visible after expanding. Rendered: #{inspect(String.slice(rendered, 0, 500))}"
+
+        IO.puts("✅ Expand behavior verified - children are visible")
         :ok
       end
     end
 
     scenario "Clicking chevron again collapses expanded node", context do
       given_ "SideNav has an expanded node", context do
-        # Load and expand a node
+        # Load component and expand the getting_started node
         case SemanticUI.load_component("Side Nav") do
           {:ok, _} ->
             Process.sleep(500)
-            # TODO: Expand a node first
+            # Expand the node first
+            SemanticUI.click_element("chevron_getting_started")
+            Process.sleep(300)
             {:ok, context}
           {:error, reason} -> {:error, reason}
         end
       end
 
-      when_ "we click the expanded node's chevron", context do
-        IO.puts("🎯 Would click chevron to collapse")
-        {:ok, context}
+      when_ "we click the expanded node's chevron again", context do
+        IO.puts("🎯 Clicking chevron_getting_started again to collapse")
+
+        case SemanticUI.click_element("chevron_getting_started") do
+          :ok ->
+            Process.sleep(300)  # Let the collapse animation complete
+            {:ok, context}
+          {:error, reason} ->
+            IO.puts("❌ Failed to click chevron: #{inspect(reason)}")
+            {:error, reason}
+        end
       end
 
       then_ "node should collapse and hide children", context do
-        # Verify:
-        # 1. Chevron changes to right-facing
-        # 2. Child nodes disappear
-        # 3. Nested children also disappear
-        IO.puts("✅ Collapse behavior verified (placeholder)")
+        rendered = ScriptInspector.get_rendered_text_string()
+
+        # Verify that child items are no longer visible
+        # Children should be hidden after collapsing
+        children_hidden =
+          not String.contains?(rendered, "Introduction") or
+          not String.contains?(rendered, "Installation")
+
+        assert children_hidden,
+               "Expected child nodes to be hidden after collapsing. Rendered: #{inspect(String.slice(rendered, 0, 500))}"
+
+        IO.puts("✅ Collapse behavior verified - children are hidden")
         :ok
       end
     end
@@ -185,15 +247,36 @@ defmodule ScenicWidgets.SideNav.ExpandCollapseSpex do
       end
 
       when_ "we click the node's text (not chevron)", context do
-        IO.puts("🎯 Would click node text")
-        {:ok, context}
+        IO.puts("🎯 Clicking item_text_getting_started")
+
+        # Click the text element (not the chevron)
+        # Text ID is built as :item_text_<item_id> in the renderizer
+        case SemanticUI.click_element("item_text_getting_started") do
+          :ok ->
+            Process.sleep(300)
+            {:ok, context}
+          {:error, reason} ->
+            IO.puts("❌ Failed to click text: #{inspect(reason)}")
+            {:error, reason}
+        end
       end
 
       then_ "node should remain collapsed", context do
+        rendered = ScriptInspector.get_rendered_text_string()
+
         # This matches HexDocs behavior:
-        # - Text click = navigate/select
+        # - Text click = navigate/select (doesn't expand)
         # - Chevron click = expand/collapse
-        IO.puts("✅ Text click behavior verified (placeholder)")
+
+        # Verify children are still hidden (node didn't expand)
+        children_still_hidden =
+          not String.contains?(rendered, "Introduction") or
+          not String.contains?(rendered, "Installation")
+
+        assert children_still_hidden,
+               "Expected node to remain collapsed after clicking text. Rendered: #{inspect(String.slice(rendered, 0, 500))}"
+
+        IO.puts("✅ Text click behavior verified - node stayed collapsed")
         :ok
       end
     end

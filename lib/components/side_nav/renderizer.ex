@@ -21,15 +21,22 @@ defmodule ScenicWidgets.SideNav.Renderizer do
   This builds the complete graph structure.
   """
   def initial_render(graph, %State{} = state) do
+    {width, height} = state.frame.size.box
+    border_color = Map.get(state.theme, :border, {220, 220, 220})
+
+    # Note: Parent component positions us via `translate:` option in add_to_graph
+    # So we render at local origin (0,0) - do NOT apply frame.pin.point here
+    # as that would cause double-positioning
     graph
     |> Primitives.group(
       fn g ->
         g
-        # Background
+        # Background with border
         |> Primitives.rect(
           state.frame.size.box,
           id: :sidebar_background,
-          fill: state.theme.background
+          fill: state.theme.background,
+          stroke: {1, border_color}
         )
         # Scrollable content area (with scissor clipping)
         |> Primitives.group(
@@ -39,10 +46,11 @@ defmodule ScenicWidgets.SideNav.Renderizer do
           end,
           id: :sidebar_scroll_group,
           translate: {0, -state.scroll_offset},
-          scissor: state.frame.size.box
+          scissor: {width - 2, height - 2}  # Account for border
         )
       end,
-      translate: state.frame.pin.point
+      # Render at local origin - parent handles positioning via translate
+      translate: {0, 0}
     )
   end
 
@@ -52,16 +60,9 @@ defmodule ScenicWidgets.SideNav.Renderizer do
   """
   def update_render(graph, old_state, new_state) do
     cond do
-      # Tree structure changed (expand/collapse) - need full re-render of content
+      # Tree structure changed (expand/collapse) - need full re-render
       old_state.expanded != new_state.expanded ->
-        graph
-        |> Graph.modify(:sidebar_scroll_group, fn primitive ->
-          # Clear and rebuild the scroll group
-          Graph.build()
-          |> render_tree(new_state.tree, new_state, 0)
-          |> Graph.get_root()
-        end)
-        |> update_scroll_transform(new_state)
+        initial_render(Graph.build(), new_state)
 
       # Scroll offset changed - just update transform
       old_state.scroll_offset != new_state.scroll_offset ->
@@ -97,7 +98,13 @@ defmodule ScenicWidgets.SideNav.Renderizer do
     end)
   end
 
-  # Render a single item
+  # Render a single item as a self-contained row group
+  # Each row is a group translated to its y position, containing:
+  # - Background rect (full width, at y=0 within group)
+  # - Optional active accent bar
+  # - Optional chevron (vertically centered)
+  # - Text label (vertically centered)
+  # - Optional focus ring
   defp render_item(graph, item, state, depth, is_expanded) do
     item_id = Item.get_id(item)
     bounds = Map.get(state.item_bounds, item_id)
@@ -109,100 +116,112 @@ defmodule ScenicWidgets.SideNav.Renderizer do
       is_hovered = Map.get(state, :hovered_id) == item_id
       has_children = Item.has_children?(item)
 
-      # Calculate positions
-      x = bounds.x + theme.padding_left
-      y = bounds.y
-      text_x = x + if has_children do
-        theme.chevron_size + theme.chevron_margin
-      else
-        0
-      end
+      # Row positioning
+      row_y = bounds.y
+      row_height = theme.item_height
+      row_width = state.frame.size.width
+
+      # X positions within the row (relative to row start)
+      indent_x = theme.padding_left + (depth * theme.indent)
+      chevron_area_width = theme.chevron_size + theme.chevron_margin
+      text_x = indent_x + chevron_area_width
+
+      # Vertical center of the row (for centering elements)
+      v_center = row_height / 2
 
       # Determine colors based on state
       {bg_fill, text_fill} = cond do
-        is_active ->
-          {theme.active_bg, theme.text}
-
-        is_hovered ->
-          {theme.hover_bg, theme.text}
-
-        true ->
-          {theme.background, theme.text}
+        is_active -> {theme.active_bg, theme.text}
+        is_hovered -> {theme.hover_bg, theme.text}
+        true -> {theme.background, theme.text}
       end
 
+      # Build semantic IDs
+      row_id = String.to_atom("row_#{item_id}")
+      text_id = String.to_atom("item_text_#{item_id}")
+
+      # Render the entire row as a group
       graph
-      # Item background (full width)
-      |> Primitives.rect(
-        {state.frame.size.width, theme.item_height},
-        id: {:item_bg, item_id},
-        fill: bg_fill,
-        translate: {0, y}
-      )
-      # Active accent bar (left side, only if active)
-      |> then(fn g ->
-        if is_active do
+      |> Primitives.group(
+        fn g ->
           g
-          |> Primitives.rect(
-            {3, theme.item_height},
-            fill: theme.active_bar,
-            translate: {0, y}
+          # Background (full width, starts at 0,0 within group)
+          |> Primitives.rect({row_width, row_height}, fill: bg_fill)
+          # Active accent bar (left edge)
+          |> then(fn g2 ->
+            if is_active do
+              Primitives.rect(g2, {3, row_height}, fill: theme.active_bar)
+            else
+              g2
+            end
+          end)
+          # Chevron (if has children) - centered vertically
+          |> then(fn g2 ->
+            if has_children do
+              # Chevron centered vertically in the row
+              chevron_y = v_center - theme.chevron_size / 2
+              render_chevron_local(g2, indent_x, chevron_y, theme.chevron_size, is_expanded, theme.chevron, item_id)
+            else
+              g2
+            end
+          end)
+          # Text label - centered vertically
+          |> Primitives.text(
+            Item.get_title(item),
+            id: text_id,
+            fill: text_fill,
+            font: theme.font,
+            font_size: theme.font_size,
+            translate: {text_x, v_center + theme.font_size / 3}
           )
-        else
-          g
-        end
-      end)
-      # Chevron icon (if has children)
-      |> then(fn g ->
-        if has_children do
-          render_chevron(g, {x, y + (theme.item_height - theme.chevron_size) / 2}, is_expanded, theme)
-        else
-          g
-        end
-      end)
-      # Text label
-      |> Primitives.text(
-        Item.get_title(item),
-        id: {:item_text, item_id},
-        fill: text_fill,
-        font: theme.font,
-        font_size: theme.font_size,
-        translate: {text_x, y + theme.item_height / 2 + calculate_v_pos(theme)},
-        t: {text_x, y + theme.item_height / 2}
+          # Focus ring
+          |> then(fn g2 ->
+            if is_focused do
+              Primitives.rect(g2, {row_width - 2, row_height - 2},
+                stroke: {2, theme.focus_ring},
+                fill: :clear,
+                translate: {1, 1}
+              )
+            else
+              g2
+            end
+          end)
+        end,
+        id: row_id,
+        translate: {0, row_y}
       )
-      # Focus ring (if focused)
-      |> then(fn g ->
-        if is_focused do
-          g
-          |> Primitives.rect(
-            {state.frame.size.width - 2, theme.item_height - 2},
-            stroke: {2, theme.focus_ring},
-            fill: :clear,
-            translate: {1, y + 1}
-          )
-        else
-          g
-        end
-      end)
     else
-      # Item not visible (hidden by collapsed parent)
       graph
     end
   end
 
-  # Render chevron icon
-  defp render_chevron(graph, {x, y}, is_expanded, theme) do
-    # For now, use a simple text arrow
-    # TODO: Use proper SVG/image icons like MenuBar does
-    arrow = if is_expanded, do: "▼", else: "▶"
+  # Render chevron with local coordinates (within row group)
+  defp render_chevron_local(graph, x, y, size, is_expanded, color, item_id) do
+    chevron_id = String.to_atom("chevron_#{item_id}")
+
+    # Center of chevron
+    cx = x + size / 2
+    cy = y + size / 2
+
+    # Triangle points
+    points = if is_expanded do
+      # Pointing down
+      [
+        {cx - size * 0.35, cy - size * 0.15},
+        {cx + size * 0.35, cy - size * 0.15},
+        {cx, cy + size * 0.3}
+      ]
+    else
+      # Pointing right
+      [
+        {cx - size * 0.15, cy - size * 0.35},
+        {cx - size * 0.15, cy + size * 0.35},
+        {cx + size * 0.3, cy}
+      ]
+    end
 
     graph
-    |> Primitives.text(
-      arrow,
-      fill: theme.chevron,
-      font: theme.font,
-      font_size: theme.chevron_size,
-      translate: {x, y + theme.chevron_size}
-    )
+    |> Primitives.triangle(List.to_tuple(points), id: chevron_id, fill: color)
   end
 
   # Update scroll transform only
@@ -255,10 +274,14 @@ defmodule ScenicWidgets.SideNav.Renderizer do
         {theme.background, theme.text}
     end
 
+    # Build semantic IDs (must match those in render_item)
+    bg_id = String.to_atom("item_bg_#{item_id}")
+    text_id = String.to_atom("item_text_#{item_id}")
+
     # Try to update background
     graph = try do
       graph
-      |> Graph.modify({:item_bg, item_id}, fn primitive ->
+      |> Graph.modify(bg_id, fn primitive ->
         Scenic.Primitive.put_style(primitive, :fill, bg_fill)
       end)
     rescue
@@ -268,7 +291,7 @@ defmodule ScenicWidgets.SideNav.Renderizer do
     # Try to update text color
     graph = try do
       graph
-      |> Graph.modify({:item_text, item_id}, fn primitive ->
+      |> Graph.modify(text_id, fn primitive ->
         Scenic.Primitive.put_style(primitive, :fill, text_fill)
       end)
     rescue

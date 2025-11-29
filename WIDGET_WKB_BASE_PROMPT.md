@@ -66,6 +66,7 @@ end
   - `take_screenshot()` - Capture current display
   - `inspect_viewport()` - Get text-based UI structure
   - `find_clickable_elements()` - Discover all clickable elements
+- **Automatic Semantic Registration**: Any primitive with an `:id` is automatically registered and queryable via Scenic MCP (Phase 1 - no transform calculations yet)
 
 **Tidewave MCP Server**:
 - **Port**: 4067 (Elixir project evaluation and introspection)
@@ -370,21 +371,38 @@ end
 4. `do_requested_input` (delivers to requesting scenes) runs SECOND
 5. Scenes call `observe_input` then `handle_input`
 
-**Semantic Element Registration**:
+**Semantic Element Registration** (Phase 1 - Automatic):
 ```elixir
-# Register clickable elements for MCP
-Scenic.ViewPort.register_semantic(
-  viewport,
-  :_root_,
-  :my_button_id,
-  %{
+# Elements with IDs are automatically registered!
+graph
+|> rectangle({100, 50}, id: :my_button, translate: {x, y})
+|> text("Click Me", id: :button_label, translate: {x + 10, y + 25})
+
+# Query registered elements
+{:ok, viewport} = Scenic.ViewPort.info(:main_viewport)
+{:ok, button} = Scenic.ViewPort.Semantic.find_element(viewport, :my_button)
+
+# Click by ID (no coordinates needed!)
+{:ok, coords} = Scenic.ViewPort.Semantic.click_element(viewport, :my_button)
+
+# Find all clickable elements
+{:ok, elements} = Scenic.ViewPort.Semantic.find_clickable_elements(viewport)
+
+# For advanced control, use explicit semantic metadata:
+graph
+|> rectangle(
+  {100, 50},
+  semantic: %{
+    id: :custom_button,
     type: :button,
-    label: "My Button",
     clickable: true,
-    bounds: %{left: x, top: y, width: w, height: h}
+    label: "Save",
+    role: :primary_action
   }
 )
 ```
+
+See `scenic_local/guides/testing_and_automation.md` for complete documentation.
 
 ## Troubleshooting
 

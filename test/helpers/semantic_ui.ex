@@ -328,70 +328,26 @@ defmodule ScenicWidgets.TestHelpers.SemanticUI do
         4  # Default fallback
       end
 
-      # Check if we need to scroll to see this component
-      list_area_height = modal_height - 60 - 55  # Header and footer
-      max_visible_index = trunc(list_area_height / (button_height + button_margin)) - 1
+      # Calculate button position based on component index
+      # Buttons start at list_top = modal_y + 60
+      list_top = modal_y + 60
+      button_y = list_top + (component_index * (button_height + button_margin))
 
       # Check if we need to scroll to make this component visible
-      # Modal list visible area: modal_y + 60 to modal_y + modal_height - 55
-      list_top = modal_y + 60
       list_bottom = modal_y + modal_height - 55
+      max_visible_index = trunc((modal_height - 60 - 55) / (button_height + button_margin)) - 1
 
-      # If button is below visible area, we need to scroll
-      {centroid_x, centroid_y} = if button_y + button_height > list_bottom do
-        # Calculate how many scroll events we need
-        # Each scroll moves by ~45px (button height + margin)
-        scroll_needed = button_y + button_height - list_bottom
-        scroll_events = ceil(scroll_needed / (button_height + button_margin))
-
-        IO.puts("📜 Component #{component_name} at index #{component_index} is below visible area")
-        IO.puts("    Need to scroll down #{scroll_events} times to make it visible")
-
-        # Scroll down by sending down arrow keys
+      # If component index is beyond visible area, scroll to make it visible
+      if component_index > max_visible_index do
+        scroll_events = component_index - max_visible_index
+        IO.puts("📜 Component #{component_name} at index #{component_index} needs scrolling")
         IO.puts("    Sending #{scroll_events} down arrow keys...")
-        for i <- 1..scroll_events do
+
+        for _i <- 1..scroll_events do
           ScenicMcp.Probes.send_keys("down", [])
-          IO.puts("      Scroll #{i}/#{scroll_events}")
-          Process.sleep(100)  # Slower to ensure each scroll registers
+          Process.sleep(100)
         end
-        Process.sleep(300)  # Let the scroll settle
-
-        # After scrolling, the target component should be visible
-        # After scrolling N times, the list has shifted up by N * (button_height + margin)
-        # So the button's new visible Y position is:
-        adjusted_button_y = button_y - (scroll_events * (button_height + button_margin))
-
-        x = round(button_x + button_width / 2)
-        y = round(adjusted_button_y + button_height / 2)
-
-        IO.puts("    After #{scroll_events} scrolls, button should be at Y: #{round(adjusted_button_y)}")
-        IO.puts("    Will click at centroid: (#{x}, #{y})")
-        {x, y}
-      else
-        # Button is already visible, use calculated position
-        x = round(button_x + button_width / 2)
-        y = round(button_y + button_height / 2)
-        {x, y}
-      end
-
-      IO.puts("🖱️  Clicking #{component_name} button in modal")
-      IO.puts("     Original button Y: #{round(button_y)}")
-      IO.puts("     Clicking at centroid: (#{centroid_x}, #{centroid_y})")
-
-        # Send scroll event to modal center
-        modal_center_x = modal_x + modal_width / 2
-        modal_center_y = modal_y + modal_height / 2
-
-        IO.puts("     Target visible slot: #{target_visible_slot}")
-        IO.puts("     Scroll lines: #{scroll_lines}")
-        IO.puts("     Scrolling down #{scroll_pixels}px to bring #{component_name} to visible slot #{target_visible_slot}...")
-        send_scroll_event({0, -scroll_pixels}, {modal_center_x, modal_center_y})
-        Process.sleep(500)  # Wait for scroll and button re-registration
-
-        {target_visible_slot, scroll_pixels}
-      else
-        IO.puts("✓ Component #{component_name} is already visible at index #{component_index}")
-        {component_index, 0}
+        Process.sleep(300)
       end
 
       # After scrolling (or if no scroll needed), use semantic clicking
@@ -452,6 +408,14 @@ defmodule ScenicWidgets.TestHelpers.SemanticUI do
           {:ok, %{component: component_name, loaded: true}}
         else
           {:error, "TextField failed to load. Got: #{inspect(String.slice(rendered_content, 0, 300))}"}
+        end
+
+      "Side Nav" ->
+        # SideNav renders a tree with items like "GETTING STARTED"
+        if String.contains?(rendered_content, "GETTING STARTED") do
+          {:ok, %{component: component_name, loaded: true, tree_visible: true}}
+        else
+          {:error, "Side Nav tree not visible. Got: #{inspect(String.slice(rendered_content, 0, 300))}"}
         end
 
       _ ->

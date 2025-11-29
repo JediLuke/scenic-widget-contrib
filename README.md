@@ -43,7 +43,7 @@ The Widget Workbench is a Scenic application that acts as a testing ground for c
 Start the workbench with the mix task, which automatically boots everything:
 
 ```bash
-iex -S mix widget_wkb_start
+iex -S mix lib/mix/tasks/start_widget_wkb
 ```
 
 This will:

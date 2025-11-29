@@ -17,6 +17,7 @@ defmodule ScenicWidgets.SideNav.State do
     :tree,               # Hierarchical tree of Sidebar.Item structs
     :active_id,          # Currently active/selected item ID
     :focused_id,         # Currently focused item (for keyboard nav)
+    :hovered_id,         # Currently hovered item (for hover effects)
     :expanded,           # MapSet of expanded node IDs
     :scroll_offset,      # Current scroll position (pixels)
     :theme,              # Visual theme configuration
@@ -24,30 +25,31 @@ defmodule ScenicWidgets.SideNav.State do
   ]
 
   @default_theme %{
-    # Colors - HexDocs light theme
-    background: {248, 248, 248},           # #F8F8F8
+    # Colors - HexDocs light theme (with visible background)
+    background: :white,                    # Solid white background
     text: {34, 34, 34},                    # #222222
     active_bg: {229, 242, 255},            # #E5F2FF
-    active_bar: {0, 112, 214},             # #0070D6
-    hover_bg: {237, 237, 237},             # #EDEDED
-    chevron: {84, 84, 84},                 # #545454
+    active_bar: {76, 86, 106},             # Darker slate blue for active bar
+    hover_bg: {240, 240, 240},             # Slightly darker hover
+    chevron: {80, 80, 80},                 # Dark gray for chevrons
     focus_ring: {0, 112, 214},             # #0070D6
+    border: {200, 200, 200},               # Visible border
 
     # Dimensions
-    item_height: 32,                        # Height of each item
+    item_height: 28,                        # Slightly smaller item height
     indent: 16,                            # Indentation per level
-    font: :roboto_mono,
-    font_size: 15,                         # Slightly smaller for nested items
-    line_height: 22,
+    font: :roboto,                         # Use roboto
+    font_size: 14,                         # Font size
+    line_height: 20,
 
     # Spacing
     padding_left: 12,                      # Left padding for top-level items
     padding_right: 12,                     # Right padding
-    item_spacing: 4,                       # Vertical spacing between items
+    item_spacing: 0,                       # No spacing between items
 
-    # Chevron
-    chevron_size: 12,                      # 12x12 px chevron icon
-    chevron_margin: 8                      # Space between chevron and text
+    # Chevron - LARGER for visibility
+    chevron_size: 16,                      # Larger chevron
+    chevron_margin: 6                      # Space between chevron and text
   }
 
   @doc """
@@ -92,6 +94,8 @@ defmodule ScenicWidgets.SideNav.State do
     item_id = Item.get_id(item)
 
     # Calculate bounds for this item
+    # Note: x is the INDENT position, not including padding_left
+    # The full row starts at 0, but content starts at padding_left + indent
     x = depth * indent
     bounds = %{
       x: x,
@@ -200,15 +204,25 @@ defmodule ScenicWidgets.SideNav.State do
   def hit_test(%__MODULE__{} = state, {x, y}) do
     # Adjust y for scroll offset
     adjusted_y = y + state.scroll_offset
+    theme = state.theme
 
     Enum.find_value(state.item_bounds, fn {item_id, bounds} ->
-      if x >= bounds.x && x <= bounds.x + bounds.width &&
+      # Row spans full width, starting at x=0
+      # Content starts at padding_left + depth * indent
+      row_left = 0
+      row_right = state.frame.size.width
+
+      if x >= row_left && x <= row_right &&
          adjusted_y >= bounds.y && adjusted_y <= bounds.y + bounds.height do
+
+        # Calculate content positions (matching render_item)
+        indent_x = theme.padding_left + (bounds.depth * theme.indent)
+        chevron_area_width = theme.chevron_size + theme.chevron_margin
 
         # Determine if click is on chevron or text
         hit_region = if bounds.has_children do
-          chevron_right = bounds.x + state.theme.chevron_size + state.theme.chevron_margin
-          if x <= chevron_right do
+          chevron_right = indent_x + chevron_area_width
+          if x >= indent_x && x <= chevron_right do
             :chevron
           else
             :text

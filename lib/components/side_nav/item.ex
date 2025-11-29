@@ -208,6 +208,158 @@ defmodule ScenicWidgets.SideNav.Item do
   end
 
   @doc """
+  Build a deep test tree with 4 levels of nesting.
+  Demonstrates both callback types:
+  - :action callback for leaf items
+  - Parent message via {:sidebar, :navigate, item_id}
+  """
+  def deep_test_tree do
+    [
+      %__MODULE__{
+        id: "level1_docs",
+        title: "Documentation",
+        type: :group,
+        children: [
+          %__MODULE__{
+            id: "level2_guides",
+            title: "Guides",
+            type: :group,
+            children: [
+              %__MODULE__{
+                id: "level3_getting_started",
+                title: "Getting Started",
+                type: :group,
+                children: [
+                  %__MODULE__{
+                    id: "level4_install",
+                    title: "Installation",
+                    type: :page,
+                    url: "/docs/guides/getting-started/install",
+                    # Action callback - logs when clicked
+                    action: fn ->
+                      require Logger
+                      Logger.info("🎯 ACTION CALLBACK: Installation leaf clicked!")
+                    end
+                  },
+                  %__MODULE__{
+                    id: "level4_config",
+                    title: "Configuration",
+                    type: :page,
+                    url: "/docs/guides/getting-started/config"
+                    # No action - will send parent message instead
+                  },
+                  %__MODULE__{
+                    id: "level4_first_app",
+                    title: "Your First App",
+                    type: :page,
+                    url: "/docs/guides/getting-started/first-app",
+                    action: fn ->
+                      require Logger
+                      Logger.info("🎯 ACTION CALLBACK: First App leaf clicked!")
+                    end
+                  }
+                ]
+              },
+              %__MODULE__{
+                id: "level3_advanced",
+                title: "Advanced Topics",
+                type: :group,
+                children: [
+                  %__MODULE__{
+                    id: "level4_perf",
+                    title: "Performance",
+                    type: :page,
+                    url: "/docs/guides/advanced/perf"
+                  },
+                  %__MODULE__{
+                    id: "level4_testing",
+                    title: "Testing",
+                    type: :page,
+                    url: "/docs/guides/advanced/testing",
+                    action: fn ->
+                      require Logger
+                      Logger.info("🎯 ACTION CALLBACK: Testing leaf clicked!")
+                    end
+                  }
+                ]
+              }
+            ]
+          },
+          %__MODULE__{
+            id: "level2_api",
+            title: "API Reference",
+            type: :group,
+            children: [
+              %__MODULE__{
+                id: "level3_modules",
+                title: "Modules",
+                type: :page,
+                url: "/docs/api/modules"
+              },
+              %__MODULE__{
+                id: "level3_types",
+                title: "Types",
+                type: :page,
+                url: "/docs/api/types"
+              }
+            ]
+          }
+        ]
+      },
+      %__MODULE__{
+        id: "level1_examples",
+        title: "Examples",
+        type: :group,
+        children: [
+          %__MODULE__{
+            id: "level2_basic",
+            title: "Basic Examples",
+            type: :page,
+            url: "/examples/basic"
+          },
+          %__MODULE__{
+            id: "level2_advanced",
+            title: "Advanced Examples",
+            type: :group,
+            children: [
+              %__MODULE__{
+                id: "level3_components",
+                title: "Components",
+                type: :group,
+                children: [
+                  %__MODULE__{
+                    id: "level4_buttons",
+                    title: "Buttons",
+                    type: :page,
+                    url: "/examples/advanced/components/buttons",
+                    action: fn ->
+                      require Logger
+                      Logger.info("🎯 ACTION CALLBACK: Buttons example clicked!")
+                    end
+                  },
+                  %__MODULE__{
+                    id: "level4_forms",
+                    title: "Forms",
+                    type: :page,
+                    url: "/examples/advanced/components/forms"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      %__MODULE__{
+        id: "level1_changelog",
+        title: "Changelog",
+        type: :page,
+        url: "/changelog"
+        # Top-level leaf - no action, will send parent message
+      }
+    ]
+  end
+
+  @doc """
   Find an item by ID in a tree.
   """
   def find_by_id(tree, target_id) when is_list(tree) do
