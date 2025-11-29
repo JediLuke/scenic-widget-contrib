@@ -1,0 +1,272 @@
+defmodule ScenicWidgets.SideNav.Api do
+  @moduledoc """
+  Public API for the SideNav component.
+  Provides functions to control the sidebar programmatically.
+
+  ## Usage
+
+      # Set active item (auto-expands ancestors)
+      SideNav.Api.set_active(state, "my_item_id")
+
+      # Toggle expansion
+      SideNav.Api.toggle_expand(state, "parent_id")
+
+      # Update tree data
+      SideNav.Api.update_tree(state, new_tree)
+
+      # Filter/search
+      SideNav.Api.set_filter(state, "search term")
+  """
+
+  alias ScenicWidgets.SideNav.{State, Item}
+
+  @doc """
+  Set the active (selected) item.
+  Automatically expands ancestors to make it visible.
+  """
+  def set_active(%State{} = state, item_id) do
+    State.set_active(state, item_id)
+  end
+
+  @doc """
+  Toggle expansion state of a node.
+  """
+  def toggle_expand(%State{} = state, item_id) do
+    State.toggle_expanded(state, item_id)
+  end
+
+  @doc """
+  Expand a node (if not already expanded).
+  """
+  def expand(%State{} = state, item_id) do
+    State.expand(state, item_id)
+  end
+
+  @doc """
+  Collapse a node (if expanded).
+  """
+  def collapse(%State{} = state, item_id) do
+    State.collapse(state, item_id)
+  end
+
+  @doc """
+  Expand all nodes in the tree.
+  """
+  def expand_all(%State{} = state) do
+    all_ids = Item.flatten(state.tree)
+    |> Enum.filter(&Item.has_children?/1)
+    |> Enum.map(&Item.get_id/1)
+
+    new_expanded = MapSet.new(all_ids)
+    new_bounds = State.calculate_item_bounds(state.tree, state.theme, new_expanded)
+
+    %{state | expanded: new_expanded, item_bounds: new_bounds}
+  end
+
+  @doc """
+  Collapse all nodes in the tree.
+  """
+  def collapse_all(%State{} = state) do
+    new_bounds = State.calculate_item_bounds(state.tree, state.theme, MapSet.new())
+    %{state | expanded: MapSet.new(), item_bounds: new_bounds}
+  end
+
+  @doc """
+  Update the tree structure.
+  Preserves expansion state for items that still exist.
+  """
+  def update_tree(%State{} = state, new_tree) do
+    # Get IDs from new tree
+    new_ids = Item.flatten(new_tree)
+    |> Enum.map(&Item.get_id/1)
+    |> MapSet.new()
+
+    # Keep only expanded IDs that still exist
+    new_expanded = MapSet.intersection(state.expanded, new_ids)
+
+    # Recalculate bounds
+    new_bounds = State.calculate_item_bounds(new_tree, state.theme, new_expanded)
+
+    %{state |
+      tree: new_tree,
+      expanded: new_expanded,
+      item_bounds: new_bounds
+    }
+  end
+
+  @doc """
+  Set a filter/search term.
+  Returns updated state with filtered tree.
+
+  Only items matching the filter (or their ancestors/descendants) are visible.
+  """
+  def set_filter(%State{} = state, filter_term) when is_binary(filter_term) do
+    if String.trim(filter_term) == "" do
+      # Empty filter - show original tree
+      %{state | tree: state.tree}
+    else
+      # Filter tree and auto-expand matches
+      filtered_tree = filter_tree(state.tree, filter_term)
+
+      # Auto-expand all items in filtered view
+      all_ids = Item.flatten(filtered_tree)
+      |> Enum.filter(&Item.has_children?/1)
+      |> Enum.map(&Item.get_id/1)
+
+      new_expanded = MapSet.new(all_ids)
+      new_bounds = State.calculate_item_bounds(filtered_tree, state.theme, new_expanded)
+
+      %{state |
+        tree: filtered_tree,
+        expanded: new_expanded,
+        item_bounds: new_bounds
+      }
+    end
+  end
+
+  @doc """
+  Clear any active filter.
+  """
+  def clear_filter(%State{} = state) do
+    set_filter(state, "")
+  end
+
+  @doc """
+  Update the theme.
+  Recalculates bounds if dimensions changed.
+  """
+  def update_theme(%State{} = state, theme_updates) do
+    new_theme = Map.merge(state.theme, theme_updates)
+
+    # Check if dimension-related properties changed
+    dimension_keys = [:item_height, :indent]
+    dimensions_changed? = Enum.any?(dimension_keys, &Map.has_key?(theme_updates, &1))
+
+    if dimensions_changed? do
+      # Recalculate bounds with new dimensions
+      new_bounds = State.calculate_item_bounds(state.tree, new_theme, state.expanded)
+      %{state | theme: new_theme, item_bounds: new_bounds}
+    else
+      # Just update colors, no need to recalculate bounds
+      %{state | theme: new_theme}
+    end
+  end
+
+  @doc """
+  Scroll to make a specific item visible.
+  """
+  def scroll_to_item(%State{} = state, item_id) do
+    case Map.get(state.item_bounds, item_id) do
+      nil ->
+        state
+
+      bounds ->
+        viewport_height = state.frame.size.height
+        item_top = bounds.y
+        item_bottom = bounds.y + bounds.height
+
+        # Calculate visible range
+        visible_top = state.scroll_offset
+        visible_bottom = state.scroll_offset + viewport_height
+
+        new_offset = cond do
+          # Item is above visible area
+          item_top < visible_top ->
+            item_top
+
+          # Item is below visible area
+          item_bottom > visible_bottom ->
+            item_bottom - viewport_height
+
+          # Item is already visible
+          true ->
+            state.scroll_offset
+        end
+
+        State.set_scroll_offset(state, new_offset)
+    end
+  end
+
+  @doc """
+  Get list of all item IDs in the tree (flat list).
+  """
+  def all_item_ids(%State{} = state) do
+    Item.flatten(state.tree)
+    |> Enum.map(&Item.get_id/1)
+  end
+
+  @doc """
+  Get list of visible item IDs (respecting collapsed parents).
+  """
+  def visible_item_ids(%State{} = state) do
+    State.visible_items(state)
+  end
+
+  @doc """
+  Find an item by ID.
+  """
+  def find_item(%State{} = state, item_id) do
+    Item.find_by_id(state.tree, item_id)
+  end
+
+  @doc """
+  Check if an item is expanded.
+  """
+  def expanded?(%State{} = state, item_id) do
+    MapSet.member?(state.expanded, item_id)
+  end
+
+  @doc """
+  Check if an item is the active item.
+  """
+  def active?(%State{} = state, item_id) do
+    state.active_id == item_id
+  end
+
+  @doc """
+  Check if an item is focused (keyboard navigation).
+  """
+  def focused?(%State{} = state, item_id) do
+    state.focused_id == item_id
+  end
+
+  # Private helpers
+
+  defp filter_tree(tree, filter_term) when is_list(tree) do
+    normalized_filter = String.downcase(filter_term)
+
+    tree
+    |> Enum.map(fn item ->
+      filter_item(item, normalized_filter)
+    end)
+    |> Enum.filter(& &1 != nil)
+  end
+
+  defp filter_item(item, filter_term) do
+    title_matches = String.downcase(Item.get_title(item))
+    |> String.contains?(filter_term)
+
+    has_children = Item.has_children?(item)
+
+    cond do
+      # Title matches - include item and all children
+      title_matches ->
+        item
+
+      # Has children - check if any children match
+      has_children ->
+        filtered_children = filter_tree(Item.get_children(item), filter_term)
+
+        if length(filtered_children) > 0 do
+          # Include this item with filtered children
+          %{item | children: filtered_children}
+        else
+          nil
+        end
+
+      # Leaf item that doesn't match
+      true ->
+        nil
+    end
+  end
+end

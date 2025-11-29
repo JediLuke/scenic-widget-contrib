@@ -178,16 +178,18 @@ defmodule WidgetWorkbench.Scene do
     # Try different component loading strategies with better isolation
     try do
       # Convert pin to tuple for Scenic compatibility
+      # Handle both direct Frame and map containing :frame key
       translate_pin =
         case component_opts do
-          component_frame = %Widgex.Frame{} ->
+          %Widgex.Frame{} = component_frame ->
             case component_frame.pin do
               %Widgex.Structs.Coordinates{x: x, y: y} -> {x, y}
               {x, y} -> {x, y}
             end
 
-          %{frame: %Widgex.Frame{pin: pin}} ->
-            case pin do
+          %{frame: %Widgex.Frame{} = inner_frame} ->
+            # Map with :frame key (e.g., SideNav, MenuBar)
+            case inner_frame.pin do
               %Widgex.Structs.Coordinates{x: x, y: y} -> {x, y}
               {x, y} -> {x, y}
             end
@@ -209,6 +211,9 @@ defmodule WidgetWorkbench.Scene do
       if not function_exported?(component_module, :add_to_graph, 3) do
         raise "Component must define add_to_graph to be compatible (checked #{inspect(component_module)})"
       end
+
+      IO.puts("🔧 Widget Workbench calling #{inspect(component_module)}.add_to_graph")
+      IO.puts("   component_opts: #{inspect(component_opts)}")
 
       graph
       |> component_module.add_to_graph(
@@ -349,6 +354,30 @@ defmodule WidgetWorkbench.Scene do
           frame: better_frame,
           menu_map: menu_map,
           theme: custom_theme
+        }
+
+      ScenicWidgets.SideNav ->
+        # SideNav needs frame with actual screen position for semantic registration
+        {pin_x, pin_y} =
+          case component_frame.pin do
+            %Widgex.Structs.Coordinates{x: x, y: y} -> {x, y}
+            {x, y} -> {x, y}
+          end
+
+        sidenav_frame =
+          Frame.new(%{
+            pin: {pin_x, pin_y},
+            size: {280, 600}  # Standard sidebar width x height
+          })
+
+        # Use the DEEP test tree with 4 levels of nesting
+        # Some items have :action callbacks, others rely on parent message
+        tree = ScenicWidgets.SideNav.Item.deep_test_tree()
+
+        %{
+          frame: sidenav_frame,
+          tree: tree,
+          active_id: nil  # No initial selection
         }
 
       ScenicWidgets.IconButton ->
@@ -837,6 +866,8 @@ defmodule WidgetWorkbench.Scene do
 
   @spec select_component(Scene.t(), component_spec()) :: Scene.t()
   defp select_component(scene, component_spec) do
+    IO.puts("🔧🔧🔧 select_component called with: #{inspect(component_spec)}")
+
     new_graph =
       render(scene.assigns.frame, component_spec, false, nil, 0)
       |> apply_click_visualizations(scene)
@@ -1827,12 +1858,15 @@ defmodule WidgetWorkbench.Scene do
   end
 
   def handle_event({:click, {:select_component, component_module}}, _from, scene) do
+    IO.puts("🔥🔥🔥 handle_event for select_component! Module: #{inspect(component_module)}")
+
     # Find the component info from our discovered list
     components = discover_components()
 
     {component_name, component_module} =
       Enum.find(components, fn {_name, module} -> module == component_module end)
 
+    IO.puts("   Component name: #{component_name}")
     Logger.info("Component selected: #{component_name}")
 
     # Calculate component frame for click-outside detection
@@ -2007,7 +2041,28 @@ defmodule WidgetWorkbench.Scene do
     Scenic.Scene.handle_info({:_input, input, raw_input, id}, scene)
   end
 
-  def handle_info(_msg, scene), do: {:noreply, scene}
+  # Handle navigation events from SideNav component
+  # Note: Scenic wraps events with {:_event, msg, pid} when using send_parent_event/2
+  def handle_info({:_event, {:sidebar, :navigate, item_id}, _sender_pid}, scene) do
+    Logger.info("📬 PARENT RECEIVED: {:sidebar, :navigate, #{inspect(item_id)}}")
+    Logger.info("   Widget Workbench can now respond to this navigation event!")
+    {:noreply, scene}
+  end
+
+  def handle_info({:_event, {:sidebar, :expand, item_id}, _sender_pid}, scene) do
+    Logger.info("📬 PARENT RECEIVED: {:sidebar, :expand, #{inspect(item_id)}}")
+    {:noreply, scene}
+  end
+
+  def handle_info({:_event, {:sidebar, :collapse, item_id}, _sender_pid}, scene) do
+    Logger.info("📬 PARENT RECEIVED: {:sidebar, :collapse, #{inspect(item_id)}}")
+    {:noreply, scene}
+  end
+
+  def handle_info(msg, scene) do
+    Logger.debug("🔍 Unhandled message in WidgetWorkbench: #{inspect(msg)}")
+    {:noreply, scene}
+  end
 
   # ============================================================================
   # Semantic MCP Registration - Makes buttons clickable via semantic IDs
@@ -2043,26 +2098,27 @@ defmodule WidgetWorkbench.Scene do
     width = load_button_frame.size.width
     height = load_button_frame.size.height
 
-    Scenic.ViewPort.register_semantic(
-      viewport,
-      :_root_,
-      :load_component_button,
-      %{
-        type: :button,
-        label: "Load Component",
-        clickable: true,
-        bounds: %{
-          left: left,
-          top: top,
-          width: width,
-          height: height
-        },
-        semantic: %{
-          type: :button,
-          label: "Load Component"
-        }
-      }
-    )
+    # TODO: Re-enable when Scenic.ViewPort.register_semantic/4 is available
+    # Scenic.ViewPort.register_semantic(
+    #   viewport,
+    #   :_root_,
+    #   :load_component_button,
+    #   %{
+    #     type: :button,
+    #     label: "Load Component",
+    #     clickable: true,
+    #     bounds: %{
+    #       left: left,
+    #       top: top,
+    #       width: width,
+    #       height: height
+    #     },
+    #     semantic: %{
+    #       type: :button,
+    #       label: "Load Component"
+    #     }
+    #   }
+    # )
 
     Logger.info(
       "🎯 Registered Load Component button for MCP at {#{left}, #{top}, #{width}x#{height}}"
@@ -2108,30 +2164,31 @@ defmodule WidgetWorkbench.Scene do
         |> then(&"component_#{&1}")
         |> String.to_atom()
 
-      Scenic.ViewPort.register_semantic(
-        viewport,
-        :_root_,
-        semantic_id,
-        %{
-          type: :button,
-          label: name,
+      # Register using Phase 1 semantic format (direct ETS insertion)
+      viewport = scene.viewport
+      if viewport.semantic_table && viewport.semantic_enabled do
+        entry = %Scenic.Semantic.Compiler.Entry{
+          id: semantic_id,
+          type: :component,
+          module: module,
+          parent_id: nil,
+          children: [],
+          local_bounds: %{left: x, top: y, width: button_width, height: button_height},
+          screen_bounds: %{left: x, top: y, width: button_width, height: button_height},
           clickable: true,
-          bounds: %{
-            left: x,
-            top: y,
-            width: button_width,
-            height: button_height
-          },
-          semantic: %{
-            type: :component_selector,
-            module: module,
-            label: name
-          }
+          focusable: false,
+          label: name,
+          role: :button,
+          value: nil,
+          hidden: false,
+          z_index: 10 + index  # Modal buttons have high z-index
         }
-      )
+        :ets.insert(viewport.semantic_table, {{:_root_, semantic_id}, entry})
+        :ets.insert(viewport.semantic_index, {semantic_id, {:_root_, semantic_id}})
+      end
 
       Logger.info(
-        "🎯 Registered component button '#{name}' for MCP at {#{x}, #{y}, #{button_width}x#{button_height}}"
+        "🎯 Registered component button '#{name}' (#{semantic_id}) for MCP at {#{x}, #{y}, #{button_width}x#{button_height}}"
       )
     end)
 
@@ -2139,28 +2196,30 @@ defmodule WidgetWorkbench.Scene do
     cancel_x = modal_x + modal_width - 90
     cancel_y = modal_y + modal_height - 45
 
-    Scenic.ViewPort.register_semantic(
-      viewport,
-      :_root_,
-      :cancel_component_selection,
-      %{
-        type: :button,
-        label: "Cancel",
+    # Register cancel button using Phase 1 semantic format
+    viewport = scene.viewport
+    if viewport.semantic_table && viewport.semantic_enabled do
+      cancel_entry = %Scenic.Semantic.Compiler.Entry{
+        id: :cancel_component_selection,
+        type: :component,
+        module: nil,
+        parent_id: nil,
+        children: [],
+        local_bounds: %{left: cancel_x, top: cancel_y, width: 80, height: 35},
+        screen_bounds: %{left: cancel_x, top: cancel_y, width: 80, height: 35},
         clickable: true,
-        bounds: %{
-          left: cancel_x,
-          top: cancel_y,
-          width: 80,
-          height: 35
-        },
-        semantic: %{
-          type: :button,
-          label: "Cancel"
-        }
+        focusable: false,
+        label: "Cancel",
+        role: :button,
+        value: nil,
+        hidden: false,
+        z_index: 22  # Cancel button on top
       }
-    )
+      :ets.insert(viewport.semantic_table, {{:_root_, :cancel_component_selection}, cancel_entry})
+      :ets.insert(viewport.semantic_index, {:cancel_component_selection, {:_root_, :cancel_component_selection}})
+    end
 
-    # Logger.info("🎯 Registered Cancel button for MCP at {#{cancel_x}, #{cancel_y}, 80x35}")
+    Logger.info("🎯 Registered Cancel button for MCP at {#{cancel_x}, #{cancel_y}, 80x35}")
   end
 
   # Helper to build menu_map with optional action callbacks for testing
