@@ -30,7 +30,6 @@ defmodule ScenicWidgets.TextField.Reducer do
   # When a user presses a letter key, Scenic sends BOTH :codepoint and :key events.
   # We use :codepoint for text input and :key only for non-character keys (arrows, backspace, etc.)
   def process_input(%State{focused: true} = state, {:codepoint, {char, _mods}}) when is_bitstring(char) do
-    # IO.puts("🔍 CODEPOINT INPUT: '#{char}', selection: #{inspect(state.selection)}")
     # Delete selection first if any, then insert
     state_after_delete = delete_selection(state)
     new_state = insert_char(state_after_delete, char)
