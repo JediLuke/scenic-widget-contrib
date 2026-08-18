@@ -93,7 +93,6 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     stroke = if focused?, do: theme.field_focus_border, else: theme.field_border
 
     graph
-    |> maybe_field_label(w, field, theme)
     |> Primitives.rect({w.w, w.h},
       fill: theme.field_background,
       stroke: {1, stroke},
@@ -149,19 +148,6 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     )
   end
 
-  # The exclude row is the one field with a caption; "replace" and "query" are
-  # obvious from their placeholders, an exclude glob is not.
-  defp maybe_field_label(graph, w, :exclude, theme) do
-    Primitives.text(graph, "exclude",
-      translate: {theme.padding, w.y + w.h - 7},
-      fill: theme.dim_text,
-      font: theme.font,
-      font_size: theme.small_font_size
-    )
-  end
-
-  defp maybe_field_label(graph, _w, _field, _theme), do: graph
-
   defp field_text(graph, w, "", field, theme) do
     Primitives.text(graph, placeholder(field),
       translate: {w.x + 5, w.y + w.h - 7},
@@ -182,7 +168,6 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
 
   defp placeholder(:query), do: "Search project"
   defp placeholder(:replace), do: "Replace with"
-  defp placeholder(:exclude), do: "**/deps/**"
 
   defp maybe_caret(graph, _w, _value, false, _state, _field), do: graph
 

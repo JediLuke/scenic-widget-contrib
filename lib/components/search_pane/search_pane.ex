@@ -1,6 +1,6 @@
 defmodule ScenicWidgets.SearchPane do
   @moduledoc """
-  A project-search pane: query, replacement and exclude fields over a
+  A project-search pane: query and replacement fields over a
   scrollable list of matches grouped by file.
 
   It is generic over its data the way `SideNav` and `TabBar` are. The pane
@@ -16,7 +16,6 @@ defmodule ScenicWidgets.SearchPane do
         theme: %{},              # optional, merged over State.default_theme/0
         query: "needle",         # optional initial field contents
         replace: "",
-        exclude: "",
         model: %{
           status: :idle | :searching | {:done, matches, files, ms} | {:error, term},
           error: nil | String.t(),          # e.g. a regex that does not compile
@@ -42,7 +41,6 @@ defmodule ScenicWidgets.SearchPane do
 
   - `{:search_pane, :close}`
   - `{:search_pane, :query_changed, query}`
-  - `{:search_pane, :exclude_changed, glob}`
   - `{:search_pane, :toggle_option, :case_sensitive | :regex}`
   - `{:search_pane, :toggle_scope, id}`
   - `{:search_pane, :open_match, path, line, col}`
@@ -58,7 +56,7 @@ defmodule ScenicWidgets.SearchPane do
   - `{:update_frame, frame}`
   - `{:set_query, query}` — set the query field from outside (e.g. the word
     under the cursor when the pane is opened)
-  - `{:focus_field, :query | :replace | :exclude}`
+  - `{:focus_field, :query | :replace}`
   - `{:set_theme, theme}` — repaint, merging over the current theme
   - `:focus` / `:blur` — keyboard focus, granted by the parent
   """
@@ -272,11 +270,6 @@ defmodule ScenicWidgets.SearchPane do
   # it must not re-run anything by being typed.
   defp announce_field(scene, %State{focused_field: :query} = state) do
     send_parent_event(scene, {:search_pane, :query_changed, state.query})
-    scene
-  end
-
-  defp announce_field(scene, %State{focused_field: :exclude} = state) do
-    send_parent_event(scene, {:search_pane, :exclude_changed, state.exclude})
     scene
   end
 

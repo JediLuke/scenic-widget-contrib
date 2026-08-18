@@ -4,7 +4,7 @@ defmodule ScenicWidgets.SearchPane.State do
 
   The pane is two regions stacked in one frame:
 
-    * a **header** that does not scroll — the query, replacement and exclude
+    * a **header** that does not scroll — the query and replacement
       fields, the `Aa`/`.*` option toggles, Replace All, and a status line;
     * a **body** that does — the SCOPE tree and the results, grouped by file.
 
@@ -49,7 +49,7 @@ defmodule ScenicWidgets.SearchPane.State do
     indent: 14
   }
 
-  @fields [:query, :replace, :exclude]
+  @fields [:query, :replace]
 
   defstruct [
     :frame,
@@ -58,8 +58,7 @@ defmodule ScenicWidgets.SearchPane.State do
     :scroll,
     query: "",
     replace: "",
-    exclude: "",
-    cursors: %{query: 0, replace: 0, exclude: 0},
+    cursors: %{query: 0, replace: 0},
     focused_field: :query,
     focused: false,
     # A query the pane was *seeded* with — from the word under the cursor, say
@@ -93,11 +92,9 @@ defmodule ScenicWidgets.SearchPane.State do
       model: model,
       query: query,
       replace: Map.get(data, :replace, ""),
-      exclude: Map.get(data, :exclude, ""),
       cursors: %{
         query: String.length(query),
-        replace: 0,
-        exclude: String.length(Map.get(data, :exclude, ""))
+        replace: 0
       },
       focused: Map.get(data, :focused, false),
       focused_field: Map.get(data, :focus_field, :query),
@@ -141,8 +138,8 @@ defmodule ScenicWidgets.SearchPane.State do
 
   def header_height(theme) do
     pad = theme.padding
-    # title, query, replace, exclude, status — four gaps between five rows
-    pad + theme.row_height + 3 * (theme.field_height + 4) + theme.row_height + pad
+    # title, query, replace, status — three gaps between four rows
+    pad + theme.row_height + 2 * (theme.field_height + 4) + theme.row_height + pad
   end
 
   @doc "The frame the scrolling body occupies, as its own Widgex.Frame."
@@ -172,7 +169,6 @@ defmodule ScenicWidgets.SearchPane.State do
     title_y = pad
     query_y = title_y + theme.row_height
     replace_y = query_y + fh + 4
-    exclude_y = replace_y + fh + 4
 
     [
       %{id: :close, x: width - pad - 18, y: title_y, w: 18, h: theme.row_height},
@@ -187,8 +183,7 @@ defmodule ScenicWidgets.SearchPane.State do
       %{id: {:toggle, :regex}, x: width - pad - toggle_w, y: query_y, w: toggle_w, h: fh},
       %{id: {:field, :replace}, x: pad, y: replace_y, w: max(width - 2 * pad - all_w - 6, 40), h: fh},
       %{id: :replace_all, x: width - pad - all_w, y: replace_y, w: all_w, h: fh},
-      %{id: {:field, :exclude}, x: pad + 52, y: exclude_y, w: max(width - 2 * pad - 52, 40), h: fh},
-      %{id: :status, x: pad, y: exclude_y + fh + 4, w: width - 2 * pad, h: theme.row_height}
+      %{id: :status, x: pad, y: replace_y + fh + 4, w: width - 2 * pad, h: theme.row_height}
     ]
   end
 
