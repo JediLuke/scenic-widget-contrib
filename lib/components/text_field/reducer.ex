@@ -1099,41 +1099,20 @@ defmodule ScenicWidgets.TextField.Reducer do
 
   defp store_backed_overlay_click?(%State{overlay_open: true}, _coords), do: true
 
-  defp store_backed_overlay_click?(%State{input_mode: :store_backed} = state, coords),
-    do: _legacy_overlay_click?(state, coords)
-
+  # Nothing else suppresses a click. The geometric predecessor — "this landed
+  # past the end of the clicked line's text, so it must have been meant for
+  # something drawn above us" — used to live here, and it was still live for
+  # store_backed hosts long after the `overlay_open` signal replaced it.
+  #
+  # What that cost: a click anywhere in the empty part of a document was
+  # discarded, and with it the FOCUS that click should have granted. Click
+  # below the last line of a file and the editor went dead to the keyboard —
+  # which is most of the surface of most new files. Blank lines between
+  # paragraphs were dead to the mouse for the same reason.
+  #
+  # Guessing from geometry cannot be made right: only the host knows whether
+  # something is drawn over the pane, and the host already says so.
   defp store_backed_overlay_click?(%State{}, _coords), do: false
-
-  # Retained for reference: the geometry-guessing predecessor.
-  defp _legacy_overlay_click?(%State{input_mode: :store_backed} = state, {x, y}) do
-    line_height = State.line_height(state)
-    text_padding = 10
-    gutter_width = if state.show_line_numbers, do: state.line_number_width, else: 0
-    scroll = state.scroll
-
-    content_x = x - gutter_width - text_padding + scroll.offset_x
-    # -4 keeps this row model aligned with click_to_cursor (cursor-block offset)
-    content_y = y + scroll.offset_y - 4
-
-    line_idx = max(1, div(max(trunc(content_y), 0), line_height) + 1)
-
-    cond do
-      line_idx > length(state.lines) ->
-        # Click is below all rendered text — clearly not on a text glyph
-        true
-
-      true ->
-        line_text = Enum.at(state.lines, line_idx - 1, "")
-        # Approximate text width without depending on FontMetrics: monospace
-        # characters are ~0.6 × font_size wide. The tolerance is generous
-        # enough to cover proportional fonts and trailing whitespace clicks.
-        approx_text_width = String.length(line_text) * state.font.size * 0.6
-        tolerance = state.font.size * 4
-        content_x > approx_text_width + tolerance
-    end
-  end
-
-  defp _legacy_overlay_click?(_state, _coords), do: false
 
   # ===== SEARCH HELPER =====
 
