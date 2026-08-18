@@ -139,7 +139,8 @@ defmodule ScenicWidgets.SearchPane do
       state
       | query: query,
         cursors: Map.put(state.cursors, :query, String.length(query)),
-        focused_field: :query
+        focused_field: :query,
+        replace_query_on_input: query != ""
     }
 
     {:noreply, redraw(scene, new_state)}
@@ -294,7 +295,7 @@ defmodule ScenicWidgets.SearchPane do
         {:noreply, scene}
 
       {:field, field} ->
-        {:noreply, redraw(scene, State.focus_field(state, field))}
+        {:noreply, redraw(scene, State.focus_field(State.keep_seeded_query(state), field))}
 
       {:toggle, option} ->
         send_parent_event(scene, {:search_pane, :toggle_option, option})

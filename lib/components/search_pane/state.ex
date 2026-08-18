@@ -62,6 +62,11 @@ defmodule ScenicWidgets.SearchPane.State do
     cursors: %{query: 0, replace: 0, exclude: 0},
     focused_field: :query,
     focused: false,
+    # A query the pane was *seeded* with — from the word under the cursor, say
+    # — is shown selected: the next character typed replaces it. Otherwise
+    # opening the pane and typing what you actually wanted appends to a guess,
+    # and you have to notice and delete it first.
+    replace_query_on_input: false,
     hovered: nil,
     collapsed_files: MapSet.new(),
     expanded_scope: MapSet.new(),
@@ -96,6 +101,7 @@ defmodule ScenicWidgets.SearchPane.State do
       },
       focused: Map.get(data, :focused, false),
       focused_field: Map.get(data, :focus_field, :query),
+      replace_query_on_input: query != "",
       scroll: ScrollState.new(data.frame, content_height: 0, direction: :vertical)
     }
 
@@ -383,14 +389,32 @@ defmodule ScenicWidgets.SearchPane.State do
   def focus_field(%__MODULE__{} = state, field) when field in @fields,
     do: %{state | focused_field: field}
 
+  @doc """
+  The seeded query stops being provisional.
+
+  Called for the gestures that mean "I am keeping this": clicking into a
+  field, tabbing between them, moving the caret. NOT called when the parent
+  sets the initial focus, which happens in the same breath as the seeding.
+  """
+  def keep_seeded_query(%__MODULE__{} = state), do: commit_seed(state)
+
   def next_field(%__MODULE__{focused_field: field} = state) do
     idx = Enum.find_index(@fields, &(&1 == field))
-    %{state | focused_field: Enum.at(@fields, rem(idx + 1, length(@fields)))}
+    %{commit_seed(state) | focused_field: Enum.at(@fields, rem(idx + 1, length(@fields)))}
   end
 
   def prev_field(%__MODULE__{focused_field: field} = state) do
     idx = Enum.find_index(@fields, &(&1 == field))
-    %{state | focused_field: Enum.at(@fields, rem(idx - 1 + length(@fields), length(@fields)))}
+
+    %{
+      commit_seed(state)
+      | focused_field: Enum.at(@fields, rem(idx - 1 + length(@fields), length(@fields)))
+    }
+  end
+
+  def insert_char(%__MODULE__{focused_field: :query, replace_query_on_input: true} = state, char) do
+    %{state | query: "", cursors: Map.put(state.cursors, :query, 0), replace_query_on_input: false}
+    |> insert_char(char)
   end
 
   def insert_char(%__MODULE__{focused_field: field} = state, char) do
@@ -404,7 +428,12 @@ defmodule ScenicWidgets.SearchPane.State do
     |> put_cursor(field, cursor + String.length(char))
   end
 
-  def backspace(%__MODULE__{focused_field: field} = state) do
+  def backspace(%__MODULE__{} = state), do: do_backspace(commit_seed(state))
+
+  # Anything other than typing over it means the person means to keep it.
+  defp commit_seed(state), do: %{state | replace_query_on_input: false}
+
+  defp do_backspace(%__MODULE__{focused_field: field} = state) do
     cursor = Map.fetch!(state.cursors, field)
 
     if cursor == 0 do
@@ -434,7 +463,7 @@ defmodule ScenicWidgets.SearchPane.State do
   end
 
   def cursor_left(%__MODULE__{focused_field: field} = state),
-    do: put_cursor(state, field, max(Map.fetch!(state.cursors, field) - 1, 0))
+    do: put_cursor(commit_seed(state), field, max(Map.fetch!(state.cursors, field) - 1, 0))
 
   def cursor_right(%__MODULE__{focused_field: field} = state) do
     limit = String.length(Map.fetch!(state, field))
