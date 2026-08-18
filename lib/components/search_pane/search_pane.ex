@@ -59,6 +59,7 @@ defmodule ScenicWidgets.SearchPane do
   - `{:set_query, query}` — set the query field from outside (e.g. the word
     under the cursor when the pane is opened)
   - `{:focus_field, :query | :replace | :exclude}`
+  - `{:set_theme, theme}` — repaint, merging over the current theme
   - `:focus` / `:blur` — keyboard focus, granted by the parent
   """
 
@@ -124,6 +125,11 @@ defmodule ScenicWidgets.SearchPane do
 
   def handle_put({:update_frame, frame}, scene) do
     {:noreply, redraw(scene, State.put_frame(scene.assigns.state, frame))}
+  end
+
+  def handle_put({:set_theme, theme}, scene) when is_map(theme) do
+    state = scene.assigns.state
+    {:noreply, redraw(scene, State.resync_scroll(%{state | theme: Map.merge(state.theme, theme)}))}
   end
 
   def handle_put({:set_query, query}, scene) do

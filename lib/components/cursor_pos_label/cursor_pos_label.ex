@@ -35,6 +35,10 @@ defmodule ScenicWidgets.CursorPosLabel do
   import Scenic.Primitives
 
   @default_color {160, 160, 170}
+  # The strip the label sits in is part of the top bar, so it has to be painted
+  # rather than left transparent: on a light theme an unpainted strip shows the
+  # viewport's clear colour and reads as a hole punched through the chrome.
+  @default_background {45, 45, 45}
   @default_font %{name: :roboto, size: 13}
 
   @impl Scenic.Component
@@ -50,10 +54,17 @@ defmodule ScenicWidgets.CursorPosLabel do
   def init(scene, data, _opts) do
     font = Map.get(data, :font) || @default_font
     color = Map.get(data, :color) || @default_color
+    background = Map.get(data, :background) || @default_background
 
     scene =
       scene
-      |> assign(frame: data.frame, font: font, color: color, cursor: {1, 1})
+      |> assign(
+        frame: data.frame,
+        font: font,
+        color: color,
+        background: background,
+        cursor: {1, 1}
+      )
 
     graph = render(scene.assigns)
     scene = scene |> assign(graph: graph) |> push_graph(graph)
@@ -89,13 +100,25 @@ defmodule ScenicWidgets.CursorPosLabel do
   def handle_info({{Scenic.PubSub, :registered}, _}, scene), do: {:noreply, scene}
   def handle_info({{Scenic.PubSub, :unregistered}, _}, scene), do: {:noreply, scene}
 
+  # Repaint: `%{color: _, background: _}`, either key optional.
+  def handle_put({:set_theme, theme}, scene) when is_map(theme) do
+    scene =
+      assign(scene,
+        color: Map.get(theme, :color) || scene.assigns.color,
+        background: Map.get(theme, :background) || scene.assigns.background
+      )
+
+    graph = render(scene.assigns)
+    {:noreply, scene |> assign(graph: graph) |> push_graph(graph)}
+  end
+
   def handle_put({:update_frame, frame}, scene) do
     scene = assign(scene, frame: frame)
     graph = render(scene.assigns)
     {:noreply, scene |> assign(graph: graph) |> push_graph(graph)}
   end
 
-  defp render(%{frame: frame, font: font, color: color, cursor: {line, col}}) do
+  defp render(%{frame: frame, font: font, color: color, cursor: {line, col}} = assigns) do
     %{size: %{width: w, height: h}} = frame
 
     # Centred, not right-aligned. Right-aligning pinned the text 8px off the
@@ -103,6 +126,7 @@ defmodule ScenicWidgets.CursorPosLabel do
     # padding was visibly lopsided — and it shifted every time the digit count
     # changed. Centring makes the two gaps equal by construction at any width.
     Graph.build()
+    |> rect({w, h}, fill: assigns.background, id: :cursor_pos_background)
     |> text("Ln #{line}, Col #{col}",
       translate: {w / 2, h / 2 + font.size / 3},
       text_align: :center,

@@ -530,16 +530,35 @@ defmodule ScenicWidgets.TextField.State do
     raise "FontMetrics not available for font #{inspect(name)}. Either provide pre-loaded metrics or a path to the TTF file."
   end
 
-  defp default_colors do
-    %{
-      text: :white,
-      background: {30, 30, 30},
-      cursor: :white,
-      line_numbers: {100, 100, 100},
-      border: {60, 60, 60},
-      focused_border: {100, 150, 200}
-    }
-  end
+  @default_colors %{
+    text: :white,
+    background: {30, 30, 30},
+    cursor: :white,
+    line_numbers: {100, 100, 100},
+    border: {60, 60, 60},
+    focused_border: {100, 150, 200},
+    selection: {70, 130, 180, 180},
+    search_match: {255, 255, 0, 120},
+    search_current_match: {255, 165, 0, 180},
+    matching_brace: {255, 215, 0},
+    cursor_guide: {255, 215, 0, 30},
+    scrollbar_track: {80, 80, 80, 200},
+    scrollbar_thumb: {160, 160, 160, 255}
+  }
+
+  # Every colour the field draws with, in one map. A host that supplies only
+  # some keys keeps these for the rest, so an existing caller sees no change.
+  defp default_colors, do: @default_colors
+
+
+  @doc """
+  One of the field's colours, falling back to the built-in default.
+
+  Themed hosts pass a full palette; everyone else passes none, or the few keys
+  they care about. Reading through here is what lets both work.
+  """
+  def color(%__MODULE__{colors: colors}, key) when is_map(colors),
+    do: Map.get(colors, key) || Map.fetch!(@default_colors, key)
 
   defp calculate_max_lines(frame, font) do
     line_height = font.size

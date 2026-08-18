@@ -199,6 +199,24 @@ defmodule ScenicWidgets.IconMenu do
     {:noreply, scene}
   end
 
+  @doc """
+  Repaint with new theme keys, merged over the current theme.
+
+  Colour is an application-wide decision that can change while the menu is on
+  screen; the alternative — deleting and rebuilding the component — throws away
+  which dropdown is open.
+  """
+  def handle_put({:set_theme, theme}, scene) when is_map(theme) do
+    state = scene.assigns.state
+    new_state = %{state | theme: Map.merge(state.theme, theme)}
+    new_state = %{new_state | dropdown_bounds: State.calculate_dropdown_bounds(new_state)}
+    graph = Renderer.initial_render(Graph.build(), new_state)
+
+    scene = scene |> assign(state: new_state, graph: graph) |> push_graph(graph)
+    register_semantic_elements(scene, new_state)
+    {:noreply, scene}
+  end
+
   def handle_put({:show_shortcuts, show?}, scene) when is_boolean(show?) do
     state = scene.assigns.state
 

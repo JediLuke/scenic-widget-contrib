@@ -188,6 +188,23 @@ defmodule ScenicWidgets.SideNav do
     {:noreply, scene}
   end
 
+  @doc """
+  Repaint with new theme keys, merged over the current theme.
+
+  A colour scheme can change while the tree is on screen, and rebuilding the
+  component to apply it would throw away the expanded folders, the selection
+  and the scroll offset — the very thing that made the navigator feel broken
+  when a status toast rebuilt it.
+  """
+  def handle_put({:set_theme, theme}, scene) when is_map(theme) do
+    state = scene.assigns.state
+    new_state = %{state | theme: Map.merge(state.theme, theme)}
+    graph = Renderizer.initial_render(Graph.build(), new_state)
+
+    scene = scene |> assign(state: new_state, graph: graph) |> push_graph(graph)
+    {:noreply, scene}
+  end
+
   def handle_put({:set_filter, filter_term}, scene) do
     state = scene.assigns.state
     new_state = Api.set_filter(state, filter_term)

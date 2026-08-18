@@ -207,6 +207,20 @@ defmodule ScenicWidgets.TabBar do
   instead of delete+recreating it — recreation churn under rapid successive
   updates can kill a TabBar instance mid-init.
   """
+  @doc """
+  Repaint with new theme keys, merged over the current theme.
+  """
+  def handle_put({:set_theme, theme}, scene) when is_map(theme) do
+    state = scene.assigns.state
+    new_state = %{state | theme: Map.merge(state.theme, theme)}
+    new_state = %{new_state | tab_widths: State.calculate_tab_widths(new_state)}
+    graph = Renderer.initial_render(Graph.build(), new_state)
+
+    scene = scene |> assign(state: new_state, graph: graph) |> push_graph(graph)
+    register_semantic_elements(scene, new_state)
+    {:noreply, scene}
+  end
+
   def handle_put({:set_tabs, tabs, selected_id}, scene) do
     state = scene.assigns.state
     new_state = %{state | tabs: State.normalize_tabs(tabs), selected_id: selected_id}

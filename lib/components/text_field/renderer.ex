@@ -361,7 +361,7 @@ defmodule ScenicWidgets.TextField.Renderer do
         id: id,
         translate: translate,
         fill: :clear,
-        stroke: {1, {255, 215, 0}},
+        stroke: {1, State.color(state, :matching_brace)},
         hidden: hidden?
       )
     end)
@@ -369,7 +369,7 @@ defmodule ScenicWidgets.TextField.Renderer do
 
   defp render_cursor_guides(graph, state, width, height, padding, line_height) do
     {x, y} = cursor_guide_position(state, padding, line_height)
-    color = {255, 215, 0, 30}
+    color = State.color(state, :cursor_guide)
 
     graph
     |> Primitives.rect({width, line_height},
@@ -423,9 +423,10 @@ defmodule ScenicWidgets.TextField.Renderer do
   end
 
   # Render scrollbars inside content_group (positioned relative to content area)
-  defp render_scrollbars_in_content(graph, %State{scroll: scroll}, content_width, frame_height) do
+  defp render_scrollbars_in_content(graph, %State{scroll: scroll} = state, content_width, frame_height) do
     scrollbar_width = 10
     scrollbar_padding = 2
+    colors = {State.color(state, :scrollbar_track), State.color(state, :scrollbar_thumb)}
 
     graph
     |> render_v_scrollbar_in_content(
@@ -433,14 +434,16 @@ defmodule ScenicWidgets.TextField.Renderer do
       content_width,
       frame_height,
       scrollbar_width,
-      scrollbar_padding
+      scrollbar_padding,
+      colors
     )
     |> render_h_scrollbar_in_content(
       scroll,
       content_width,
       frame_height,
       scrollbar_width,
-      scrollbar_padding
+      scrollbar_padding,
+      colors
     )
   end
 
@@ -450,7 +453,8 @@ defmodule ScenicWidgets.TextField.Renderer do
          content_width,
          frame_height,
          scrollbar_width,
-         scrollbar_padding
+         scrollbar_padding,
+         {track_color, thumb_color}
        ) do
     if Widgex.Scroll.ScrollState.scrollable_y?(scroll) do
       # Position at right edge of content area
@@ -473,12 +477,12 @@ defmodule ScenicWidgets.TextField.Renderer do
       graph
       |> Primitives.rrect({scrollbar_width, track_height, 4},
         id: :scrollbar_y_track,
-        fill: {80, 80, 80, 200},
+        fill: track_color,
         translate: {track_x, scrollbar_padding}
       )
       |> Primitives.rrect({scrollbar_width, thumb_height, 4},
         id: :scrollbar_y_thumb,
-        fill: {160, 160, 160, 255},
+        fill: thumb_color,
         translate: {track_x, scrollbar_padding + thumb_y}
       )
     else
@@ -492,7 +496,8 @@ defmodule ScenicWidgets.TextField.Renderer do
          content_width,
          frame_height,
          scrollbar_width,
-         scrollbar_padding
+         scrollbar_padding,
+         {track_color, thumb_color}
        ) do
     if Widgex.Scroll.ScrollState.scrollable_x?(scroll) do
       # Position at bottom of content area
@@ -516,12 +521,12 @@ defmodule ScenicWidgets.TextField.Renderer do
       graph
       |> Primitives.rrect({track_width, scrollbar_width, 4},
         id: :scrollbar_x_track,
-        fill: {80, 80, 80, 200},
+        fill: track_color,
         translate: {track_x, track_y}
       )
       |> Primitives.rrect({thumb_width, scrollbar_width, 4},
         id: :scrollbar_x_thumb,
-        fill: {160, 160, 160, 255},
+        fill: thumb_color,
         translate: {track_x + thumb_x, track_y}
       )
     else
@@ -852,8 +857,7 @@ defmodule ScenicWidgets.TextField.Renderer do
        ) do
     x_offset = 10
     line_height = State.line_height(state)
-    # Selection highlight - steel blue with good visibility on dark backgrounds
-    selection_color = {:color_rgba, {70, 130, 180, 180}}
+    selection_color = {:color_rgba, State.color(state, :selection)}
 
     {display_lines, mapping} = projection(state)
     {first, last} = State.visible_display_range(state, length(display_lines))
@@ -921,8 +925,8 @@ defmodule ScenicWidgets.TextField.Renderer do
        ) do
     x_offset = 10
     line_height = State.line_height(state)
-    match_color = {:color_rgba, {255, 255, 0, 120}}
-    current_match_color = {:color_rgba, {255, 165, 0, 180}}
+    match_color = {:color_rgba, State.color(state, :search_match)}
+    current_match_color = {:color_rgba, State.color(state, :search_current_match)}
 
     {display_lines, mapping} = projection(state)
     {first, last} = State.visible_display_range(state, length(display_lines))

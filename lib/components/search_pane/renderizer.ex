@@ -247,14 +247,16 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   defp render_row(graph, row, %State{theme: theme} = state) do
     hovered? = state.hovered == row.id
     x = theme.padding + row.depth * theme.indent
+    room = state.frame.size.width - x - 60
+    label = clip(row.label, room, theme.font_size)
 
     Primitives.group(
       graph,
       fn g ->
         g
         |> row_background(row, hovered?, state)
-        |> maybe_match_highlight(row, x, theme)
-        |> Primitives.text(clip(row.label, state.frame.size.width - x - 60, theme.font_size),
+        |> maybe_match_highlight(row, x, String.length(label), theme)
+        |> Primitives.text(label,
           translate: {x, row.height - 6},
           fill: row_colour(row, theme),
           font: theme.font,
@@ -278,16 +280,25 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   # The whole point of drawing matches in a pane of their own: the matched text
   # is marked inside the line, so a result reads as a hit rather than as a line
   # that happens to be listed.
-  defp maybe_match_highlight(graph, %{kind: :match} = row, x, theme) do
-    cw = char_width(theme.font_size)
+  defp maybe_match_highlight(graph, %{kind: :match} = row, x, drawn_chars, theme) do
+    # The row's text is clipped to the pane's width, so the highlight has to be
+    # clipped with it. Drawing the full match regardless left a stray block
+    # floating past the end of a truncated line, marking nothing.
+    visible = min(row.match_len, drawn_chars - row.match_start)
 
-    Primitives.rect(graph, {row.match_len * cw, theme.font_size + 2},
-      fill: theme.match_highlight,
-      translate: {x + row.match_start * cw, @highlight_top}
-    )
+    if visible > 0 do
+      cw = char_width(theme.font_size)
+
+      Primitives.rect(graph, {visible * cw, theme.font_size + 2},
+        fill: theme.match_highlight,
+        translate: {x + row.match_start * cw, @highlight_top}
+      )
+    else
+      graph
+    end
   end
 
-  defp maybe_match_highlight(graph, _row, _x, _theme), do: graph
+  defp maybe_match_highlight(graph, _row, _x, _drawn_chars, _theme), do: graph
 
   defp row_colour(%{kind: :file}, theme), do: theme.text
   defp row_colour(%{kind: :scope_header}, theme), do: theme.heading
