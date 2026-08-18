@@ -90,6 +90,8 @@ defmodule ScenicWidgets.TextField do
 
   - `{:insert, text, :at_cursor}` / `{:delete, :selection}` /
     `{:delete, :before_cursor}` / `{:delete, :after_cursor}`
+  - `{:newline, :at_cursor}` / `{:newline, :no_indent}` — the second when the
+    host has turned auto-indent off
   - `{:set_cursor, {line, col}}` / `{:move_cursor, direction}`
   - `{:select, ...}` / `:select_all` / `:clear_selection`
   - `{:select_to, {line, col}}` — extend (or start) the selection to an
@@ -441,6 +443,7 @@ defmodule ScenicWidgets.TextField do
           GenServer.cast(state.dispatch, {:action, [action]})
         end
 
+        announce_focus_taken(scene, state, new_state)
         update_scene(scene, state, new_state)
 
       {:drag_select, new_state, action} ->
@@ -457,6 +460,7 @@ defmodule ScenicWidgets.TextField do
           GenServer.cast(state.dispatch, {:action, [action]})
         end
 
+        announce_focus_taken(scene, state, new_state)
         update_scene(scene, state, new_state)
 
       {:find_requested, id} ->
@@ -628,6 +632,21 @@ defmodule ScenicWidgets.TextField do
     update_scene(scene, scene.assigns.state, state)
   end
 
+  # A click focuses this field on the spot, because waiting for a round trip to
+  # the host before the caret appears feels broken. But the host is the only
+  # thing that knows what ELSE holds the keyboard — a sibling pane, a sidebar —
+  # and clicks never reach it: they are positional, and they land here.
+  #
+  # So say so. A host that ignores the event keeps the old behaviour; a host
+  # that handles it can blur whatever was focused before. Without this, two
+  # panes can hold the keyboard at once and every keystroke is typed twice —
+  # once into the document, once into a search field.
+  defp announce_focus_taken(scene, %State{focused: false}, %State{focused: true} = new_state) do
+    send_parent_event(scene, {:focus_taken, new_state.id})
+  end
+
+  defp announce_focus_taken(_scene, _old_state, _new_state), do: :ok
+
   def handle_put(:focus, scene) do
     # Focus the text field
     # Being told to focus means this field owns the keyboard now, so any
@@ -682,6 +701,7 @@ defmodule ScenicWidgets.TextField do
           :highlight_current_line,
           :highlight_current_column,
           :wrap_mode,
+          :auto_indent,
           :tab_width,
           :frame,
           :colors,

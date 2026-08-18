@@ -449,6 +449,60 @@ defmodule ScenicWidgets.SearchPane.State do
     end
   end
 
+  # Ctrl+Backspace / Ctrl+Delete. Word boundaries here mean the same thing they
+  # mean in the buffer: skip any run of spaces, then the run of non-spaces.
+  def backspace_word(%__MODULE__{} = state), do: do_backspace_word(commit_seed(state))
+
+  defp do_backspace_word(%__MODULE__{focused_field: field} = state) do
+    cursor = Map.fetch!(state.cursors, field)
+    value = Map.fetch!(state, field)
+
+    target = word_start(String.graphemes(value), cursor)
+    before = String.slice(value, 0, target)
+    rest = String.slice(value, cursor, String.length(value) - cursor)
+
+    state
+    |> Map.put(field, before <> rest)
+    |> put_cursor(field, target)
+  end
+
+  def delete_word(%__MODULE__{focused_field: field} = state) do
+    state = commit_seed(state)
+    cursor = Map.fetch!(state.cursors, field)
+    value = Map.fetch!(state, field)
+    graphemes = String.graphemes(value)
+
+    target = word_end(graphemes, cursor)
+    before = String.slice(value, 0, cursor)
+    rest = String.slice(value, target, String.length(value) - target)
+
+    Map.put(state, field, before <> rest)
+  end
+
+  defp word_start(graphemes, cursor) do
+    cursor
+    |> skip_left(graphemes, &(&1 == " "))
+    |> skip_left(graphemes, &(&1 != " "))
+  end
+
+  defp skip_left(cursor, graphemes, condition) do
+    if cursor > 0 and condition.(Enum.at(graphemes, cursor - 1)),
+      do: skip_left(cursor - 1, graphemes, condition),
+      else: cursor
+  end
+
+  defp word_end(graphemes, cursor) do
+    cursor
+    |> skip_right(graphemes, &(&1 != " "))
+    |> skip_right(graphemes, &(&1 == " "))
+  end
+
+  defp skip_right(cursor, graphemes, condition) do
+    if cursor < length(graphemes) and condition.(Enum.at(graphemes, cursor)),
+      do: skip_right(cursor + 1, graphemes, condition),
+      else: cursor
+  end
+
   def delete(%__MODULE__{focused_field: field} = state) do
     value = Map.fetch!(state, field)
     cursor = Map.fetch!(state.cursors, field)

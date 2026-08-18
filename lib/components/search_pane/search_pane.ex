@@ -217,13 +217,21 @@ defmodule ScenicWidgets.SearchPane do
     {:noreply, redraw(scene, new_state)}
   end
 
-  defp key_press(scene, :key_backspace, _mods) do
-    state = State.backspace(scene.assigns.state)
+  defp key_press(scene, :key_backspace, mods) do
+    state =
+      if :ctrl in mods,
+        do: State.backspace_word(scene.assigns.state),
+        else: State.backspace(scene.assigns.state)
+
     {:noreply, scene |> redraw(state) |> announce_field(state)}
   end
 
-  defp key_press(scene, :key_delete, _mods) do
-    state = State.delete(scene.assigns.state)
+  defp key_press(scene, :key_delete, mods) do
+    state =
+      if :ctrl in mods,
+        do: State.delete_word(scene.assigns.state),
+        else: State.delete(scene.assigns.state)
+
     {:noreply, scene |> redraw(state) |> announce_field(state)}
   end
 
@@ -295,6 +303,11 @@ defmodule ScenicWidgets.SearchPane do
         {:noreply, scene}
 
       {:field, field} ->
+        # Clicking a field means the keyboard belongs to this pane now. The
+        # host is the only thing that can take it off the editor, and the
+        # click never reaches the host — so tell it.
+        unless state.focused, do: send_parent_event(scene, {:focus_taken, :project_search_pane})
+
         {:noreply, redraw(scene, State.focus_field(State.keep_seeded_query(state), field))}
 
       {:toggle, option} ->

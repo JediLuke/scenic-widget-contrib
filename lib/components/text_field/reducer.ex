@@ -669,11 +669,18 @@ defmodule ScenicWidgets.TextField.Reducer do
 
   # Enter key - insert newline
   def input_to_buffer_action(
-        %State{focused: true, mode: :multi_line},
+        %State{focused: true, mode: :multi_line} = state,
         {:key, {:key_enter, key_state, _mods}}
       )
       when key_state > 0 do
-    {:newline, :at_cursor}
+    # Two different actions rather than one action plus a flag: whether Enter
+    # carries the indentation down is a decision the FRONTEND makes, and the
+    # backend should only ever be told what to do.
+    if state.auto_indent == false do
+      {:newline, :no_indent}
+    else
+      {:newline, :at_cursor}
+    end
   end
 
   # Shift+Tab - remove one indentation unit from the current line.
@@ -691,16 +698,16 @@ defmodule ScenicWidgets.TextField.Reducer do
     {:insert, "\t", :at_cursor}
   end
 
-  # Backspace
-  def input_to_buffer_action(%State{focused: true}, {:key, {:key_backspace, key_state, _mods}})
+  # Backspace, and Ctrl+Backspace for a whole word.
+  def input_to_buffer_action(%State{focused: true}, {:key, {:key_backspace, key_state, mods}})
       when key_state > 0 do
-    {:delete, :before_cursor}
+    if :ctrl in mods, do: {:delete, :prev_word}, else: {:delete, :before_cursor}
   end
 
-  # Delete
-  def input_to_buffer_action(%State{focused: true}, {:key, {:key_delete, key_state, _mods}})
+  # Delete, and Ctrl+Delete for a whole word.
+  def input_to_buffer_action(%State{focused: true}, {:key, {:key_delete, key_state, mods}})
       when key_state > 0 do
-    {:delete, :at_cursor}
+    if :ctrl in mods, do: {:delete, :next_word}, else: {:delete, :at_cursor}
   end
 
   # Arrow keys - cursor movement
@@ -741,21 +748,36 @@ defmodule ScenicWidgets.TextField.Reducer do
   end
 
 
-  # Home/End keys
-  def input_to_buffer_action(%State{focused: true}, {:key, {:key_home, key_state, _mods}})
+  # Home/End keys. With Shift they extend the selection, like every other
+  # movement key — the position is resolved here and sent absolutely, because
+  # "the end of this line" is a fact about the document that the direction
+  # alone cannot carry.
+  def input_to_buffer_action(%State{focused: true} = state, {:key, {:key_home, key_state, mods}})
       when key_state > 0 do
-    {:move_cursor, :line_start}
+    if :shift in mods do
+      {line, _col} = state.cursor
+      {:select_to, {line, 1}}
+    else
+      {:move_cursor, :line_start}
+    end
   end
 
-  def input_to_buffer_action(%State{focused: true}, {:key, {:key_end, key_state, _mods}})
+  def input_to_buffer_action(%State{focused: true} = state, {:key, {:key_end, key_state, mods}})
       when key_state > 0 do
-    {:move_cursor, :line_end}
+    if :shift in mods do
+      {line, _col} = state.cursor
+      text = Enum.at(state.lines, line - 1, "")
+      {:select_to, {line, String.length(text) + 1}}
+    else
+      {:move_cursor, :line_end}
+    end
   end
 
   # Ctrl+A - Select all
   def input_to_buffer_action(%State{focused: true}, {:key, {:key_a, 1, [:ctrl]}}) do
     :select_all
   end
+
 
   # Ctrl+C - Copy. In store_backed mode the store is the source of truth for
   # the selection shape; TextField's local `selection` mirror can lag behind a

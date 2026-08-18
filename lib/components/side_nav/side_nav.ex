@@ -594,6 +594,12 @@ defmodule ScenicWidgets.SideNav do
     Logger.debug("🖱️ SideNav row clicked: #{item_id}")
     state = scene.assigns.state
 
+    # This click gives the sidebar the keyboard. Clicks never reach the host —
+    # they are positional, and they land here — so unless it is told, whatever
+    # had the keyboard before keeps it, and the arrow keys then move the
+    # sidebar selection AND the document cursor at the same time.
+    unless state.focused, do: send_parent_event(scene, {:focus_taken, :file_nav})
+
     # Find the item to determine its type
     item = Item.find_by_id(state.tree, item_id)
 

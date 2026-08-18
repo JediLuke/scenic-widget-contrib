@@ -80,6 +80,11 @@ defmodule ScenicWidgets.TextField.State do
     :selectable,
 
     # Text Wrapping & Scrolling
+    # Should Enter copy the current line's leading whitespace onto the new
+    # line? Editors disagree about this and people feel strongly, so it is the
+    # host's call — and the widget expresses it as a different ACTION rather
+    # than as a flag the backend has to carry.
+    :auto_indent,
     # :none | :word | :char
     :wrap_mode,
     # Widgex.Scroll.ScrollState (replaces manual scroll offsets)
@@ -280,6 +285,7 @@ defmodule ScenicWidgets.TextField.State do
       selectable: Map.get(data, :selectable, true),
 
       # Text Wrapping & Scrolling
+      auto_indent: Map.get(data, :auto_indent, true),
       wrap_mode: wrap_mode,
       scroll:
         init_scroll(content_frame,
