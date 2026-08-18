@@ -58,14 +58,8 @@ defmodule ScenicWidgets.SearchPane.State do
     :scroll,
     query: "",
     replace: "",
-    cursors: %{query: 0, replace: 0},
     focused_field: :query,
     focused: false,
-    # A query the pane was *seeded* with — from the word under the cursor, say
-    # — is shown selected: the next character typed replaces it. Otherwise
-    # opening the pane and typing what you actually wanted appends to a guess,
-    # and you have to notice and delete it first.
-    replace_query_on_input: false,
     hovered: nil,
     collapsed_files: MapSet.new(),
     expanded_scope: MapSet.new(),
@@ -92,13 +86,8 @@ defmodule ScenicWidgets.SearchPane.State do
       model: model,
       query: query,
       replace: Map.get(data, :replace, ""),
-      cursors: %{
-        query: String.length(query),
-        replace: 0
-      },
       focused: Map.get(data, :focused, false),
       focused_field: Map.get(data, :focus_field, :query),
-      replace_query_on_input: query != "",
       scroll: ScrollState.new(data.frame, content_height: 0, direction: :vertical)
     }
 
@@ -376,156 +365,34 @@ defmodule ScenicWidgets.SearchPane.State do
   defp inside?(%{x: bx, y: by, w: bw, h: bh}, x, y),
     do: x >= bx and x < bx + bw and y >= by and y < by + bh
 
-  # ── Field editing ─────────────────────────────────────────────────────────
+  # ── Fields ────────────────────────────────────────────────────────────────
+  #
+  # The fields are TextField components. This module remembers WHAT is in them
+  # and WHICH one the keyboard belongs to; it no longer implements typing —
+  # there used to be a cursor, a backspace, a word-delete and a Home/End here,
+  # all of them a worse version of what TextField already did, and none of
+  # them offering selection or the clipboard at all.
 
   def field_value(%__MODULE__{} = state, field) when field in @fields,
     do: Map.fetch!(state, field)
 
+  @doc "Record what a field now contains, as reported by the field itself."
+  def put_field_value(%__MODULE__{} = state, field, text)
+      when field in @fields and is_binary(text),
+      do: Map.put(state, field, text)
+
   def focus_field(%__MODULE__{} = state, field) when field in @fields,
     do: %{state | focused_field: field}
 
-  @doc """
-  The seeded query stops being provisional.
-
-  Called for the gestures that mean "I am keeping this": clicking into a
-  field, tabbing between them, moving the caret. NOT called when the parent
-  sets the initial focus, which happens in the same breath as the seeding.
-  """
-  def keep_seeded_query(%__MODULE__{} = state), do: commit_seed(state)
-
   def next_field(%__MODULE__{focused_field: field} = state) do
     idx = Enum.find_index(@fields, &(&1 == field))
-    %{commit_seed(state) | focused_field: Enum.at(@fields, rem(idx + 1, length(@fields)))}
+    %{state | focused_field: Enum.at(@fields, rem(idx + 1, length(@fields)))}
   end
 
   def prev_field(%__MODULE__{focused_field: field} = state) do
     idx = Enum.find_index(@fields, &(&1 == field))
-
-    %{
-      commit_seed(state)
-      | focused_field: Enum.at(@fields, rem(idx - 1 + length(@fields), length(@fields)))
-    }
+    %{state | focused_field: Enum.at(@fields, rem(idx - 1 + length(@fields), length(@fields)))}
   end
-
-  def insert_char(%__MODULE__{focused_field: :query, replace_query_on_input: true} = state, char) do
-    %{state | query: "", cursors: Map.put(state.cursors, :query, 0), replace_query_on_input: false}
-    |> insert_char(char)
-  end
-
-  def insert_char(%__MODULE__{focused_field: field} = state, char) do
-    value = Map.fetch!(state, field)
-    cursor = Map.fetch!(state.cursors, field)
-    before = String.slice(value, 0, cursor)
-    rest = String.slice(value, cursor, String.length(value) - cursor)
-
-    state
-    |> Map.put(field, before <> char <> rest)
-    |> put_cursor(field, cursor + String.length(char))
-  end
-
-  def backspace(%__MODULE__{} = state), do: do_backspace(commit_seed(state))
-
-  # Anything other than typing over it means the person means to keep it.
-  defp commit_seed(state), do: %{state | replace_query_on_input: false}
-
-  defp do_backspace(%__MODULE__{focused_field: field} = state) do
-    cursor = Map.fetch!(state.cursors, field)
-
-    if cursor == 0 do
-      state
-    else
-      value = Map.fetch!(state, field)
-      before = String.slice(value, 0, cursor - 1)
-      rest = String.slice(value, cursor, String.length(value) - cursor)
-
-      state
-      |> Map.put(field, before <> rest)
-      |> put_cursor(field, cursor - 1)
-    end
-  end
-
-  # Ctrl+Backspace / Ctrl+Delete. Word boundaries here mean the same thing they
-  # mean in the buffer: skip any run of spaces, then the run of non-spaces.
-  def backspace_word(%__MODULE__{} = state), do: do_backspace_word(commit_seed(state))
-
-  defp do_backspace_word(%__MODULE__{focused_field: field} = state) do
-    cursor = Map.fetch!(state.cursors, field)
-    value = Map.fetch!(state, field)
-
-    target = word_start(String.graphemes(value), cursor)
-    before = String.slice(value, 0, target)
-    rest = String.slice(value, cursor, String.length(value) - cursor)
-
-    state
-    |> Map.put(field, before <> rest)
-    |> put_cursor(field, target)
-  end
-
-  def delete_word(%__MODULE__{focused_field: field} = state) do
-    state = commit_seed(state)
-    cursor = Map.fetch!(state.cursors, field)
-    value = Map.fetch!(state, field)
-    graphemes = String.graphemes(value)
-
-    target = word_end(graphemes, cursor)
-    before = String.slice(value, 0, cursor)
-    rest = String.slice(value, target, String.length(value) - target)
-
-    Map.put(state, field, before <> rest)
-  end
-
-  defp word_start(graphemes, cursor) do
-    cursor
-    |> skip_left(graphemes, &(&1 == " "))
-    |> skip_left(graphemes, &(&1 != " "))
-  end
-
-  defp skip_left(cursor, graphemes, condition) do
-    if cursor > 0 and condition.(Enum.at(graphemes, cursor - 1)),
-      do: skip_left(cursor - 1, graphemes, condition),
-      else: cursor
-  end
-
-  defp word_end(graphemes, cursor) do
-    cursor
-    |> skip_right(graphemes, &(&1 != " "))
-    |> skip_right(graphemes, &(&1 == " "))
-  end
-
-  defp skip_right(cursor, graphemes, condition) do
-    if cursor < length(graphemes) and condition.(Enum.at(graphemes, cursor)),
-      do: skip_right(cursor + 1, graphemes, condition),
-      else: cursor
-  end
-
-  def delete(%__MODULE__{focused_field: field} = state) do
-    value = Map.fetch!(state, field)
-    cursor = Map.fetch!(state.cursors, field)
-
-    if cursor >= String.length(value) do
-      state
-    else
-      before = String.slice(value, 0, cursor)
-      rest = String.slice(value, cursor + 1, String.length(value) - cursor - 1)
-      Map.put(state, field, before <> rest)
-    end
-  end
-
-  def cursor_left(%__MODULE__{focused_field: field} = state),
-    do: put_cursor(commit_seed(state), field, max(Map.fetch!(state.cursors, field) - 1, 0))
-
-  def cursor_right(%__MODULE__{focused_field: field} = state) do
-    limit = String.length(Map.fetch!(state, field))
-    put_cursor(state, field, min(Map.fetch!(state.cursors, field) + 1, limit))
-  end
-
-  def cursor_home(%__MODULE__{focused_field: field} = state), do: put_cursor(state, field, 0)
-
-  def cursor_end(%__MODULE__{focused_field: field} = state),
-    do: put_cursor(state, field, String.length(Map.fetch!(state, field)))
-
-  defp put_cursor(state, field, position),
-    do: %{state | cursors: Map.put(state.cursors, field, position)}
 
   # ── Body state ────────────────────────────────────────────────────────────
 

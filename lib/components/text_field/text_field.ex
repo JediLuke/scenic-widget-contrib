@@ -615,6 +615,25 @@ defmodule ScenicWidgets.TextField do
     end
   end
 
+  # Seed the field with text and show it SELECTED, so the next character typed
+  # replaces it. A field seeded with a guess — the word under the cursor, the
+  # last thing searched for — otherwise makes you notice the guess and delete
+  # it before you can type what you actually wanted.
+  def handle_put({:seed_text, text}, scene) when is_bitstring(text) do
+    state = %{
+      scene.assigns.state
+      | lines: [text],
+        cursor: {1, String.length(text) + 1},
+        selection: selection_over(text)
+    }
+
+    send_parent_event(scene, {:text_changed, scene.assigns.state.id, text})
+    update_scene(scene, scene.assigns.state, state)
+  end
+
+  defp selection_over(""), do: nil
+  defp selection_over(text), do: {{1, 1}, {1, String.length(text) + 1}}
+
   def handle_put(text, scene) when is_bitstring(text) do
     # Text replacement - also move cursor to end of text
     lines = String.split(text, "\n")
@@ -707,7 +726,8 @@ defmodule ScenicWidgets.TextField do
           :colors,
           :font,
           :overlay_open,
-          :highlight_styles
+          :highlight_styles,
+          :placeholder
         ],
         old_state,
         fn

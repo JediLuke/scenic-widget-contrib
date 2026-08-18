@@ -110,6 +110,16 @@ defmodule ScenicWidgets.TextField.Reducer do
     {:event, {:enter_pressed, state.id, State.get_text(state)}, state}
   end
 
+  # Tab in a single-line field means "the next field", which only the host
+  # knows about — a one-line input has nothing to indent.
+  def process_input(
+        %State{focused: true, mode: :single_line} = state,
+        {:key, {:key_tab, key_state, mods}}
+      )
+      when key_state > 0 do
+    {:event, {:tab_pressed, state.id, :shift in mods}, state}
+  end
+
   # Escape key - emit :escape_pressed event for parent to handle (close dialogs, etc.)
   #
   # The key is `:key_esc`. That is what the driver emits (scenic_driver_local
@@ -135,10 +145,20 @@ defmodule ScenicWidgets.TextField.Reducer do
     {:event, {:text_changed, state.id, State.get_text(new_state)}, new_state}
   end
 
-  def process_input(%State{focused: true} = state, {:key, {:key_backspace, key_state, _mods}})
+  # Ctrl+Backspace and Ctrl+Delete take a word. This lives in the DIRECT input
+  # path as well as the store-backed one — the two are separate, and a field
+  # embedded in another component (the search pane's, say) runs through this
+  # one. Wired into only half of them, the shortcut works in the document and
+  # quietly does nothing in every dialog and pane.
+  def process_input(%State{focused: true} = state, {:key, {:key_backspace, key_state, mods}})
       when key_state > 0 do
     state_with_undo = State.push_undo(state)
-    new_state = delete_before_cursor(state_with_undo)
+
+    new_state =
+      if :ctrl in mods,
+        do: delete_word_before_cursor(state_with_undo),
+        else: delete_before_cursor(state_with_undo)
+
     {:event, {:text_changed, state.id, State.get_text(new_state)}, new_state}
   end
 
@@ -154,10 +174,15 @@ defmodule ScenicWidgets.TextField.Reducer do
     {:event, {:text_changed, state.id, State.get_text(new_state)}, new_state}
   end
 
-  def process_input(%State{focused: true} = state, {:key, {:key_delete, key_state, _mods}})
+  def process_input(%State{focused: true} = state, {:key, {:key_delete, key_state, mods}})
       when key_state > 0 do
     state_with_undo = State.push_undo(state)
-    new_state = delete_at_cursor(state_with_undo)
+
+    new_state =
+      if :ctrl in mods,
+        do: delete_word_at_cursor(state_with_undo),
+        else: delete_at_cursor(state_with_undo)
+
     {:event, {:text_changed, state.id, State.get_text(new_state)}, new_state}
   end
 
@@ -1481,6 +1506,68 @@ defmodule ScenicWidgets.TextField.Reducer do
     last_col = String.length(last_line) + 1
 
     %{state | selection: {{1, 1}, {last_line_num, last_col}}, cursor: {last_line_num, last_col}}
+  end
+
+  # Word boundaries are the ones the word-wise cursor movement uses: skip any
+  # run of spaces, then the run of non-spaces. Deleting a word and stepping
+  # over one therefore agree about where words begin.
+  defp delete_word_before_cursor(%State{cursor: {line, col}} = state) do
+    text = Enum.at(state.lines, line - 1, "")
+    target = word_start(String.graphemes(text), col - 1) + 1
+
+    if target == col do
+      state
+    else
+      replace_span(state, line, target, col)
+    end
+  end
+
+  defp delete_word_at_cursor(%State{cursor: {line, col}} = state) do
+    text = Enum.at(state.lines, line - 1, "")
+    target = word_end(String.graphemes(text), col - 1) + 1
+
+    if target == col do
+      state
+    else
+      replace_span(state, line, col, target)
+    end
+  end
+
+  defp replace_span(%State{} = state, line, from_col, to_col) do
+    text = Enum.at(state.lines, line - 1, "")
+    before = String.slice(text, 0, from_col - 1)
+    rest = String.slice(text, to_col - 1, String.length(text) - to_col + 1)
+
+    %{
+      state
+      | lines: List.replace_at(state.lines, line - 1, before <> rest),
+        cursor: {line, from_col},
+        selection: nil
+    }
+  end
+
+  defp word_start(graphemes, cursor) do
+    cursor
+    |> skip_left(graphemes, &(&1 == " "))
+    |> skip_left(graphemes, &(&1 != " "))
+  end
+
+  defp skip_left(cursor, graphemes, condition) do
+    if cursor > 0 and condition.(Enum.at(graphemes, cursor - 1)),
+      do: skip_left(cursor - 1, graphemes, condition),
+      else: cursor
+  end
+
+  defp word_end(graphemes, cursor) do
+    cursor
+    |> skip_right(graphemes, &(&1 != " "))
+    |> skip_right(graphemes, &(&1 == " "))
+  end
+
+  defp skip_right(cursor, graphemes, condition) do
+    if cursor < length(graphemes) and condition.(Enum.at(graphemes, cursor)),
+      do: skip_right(cursor + 1, graphemes, condition),
+      else: cursor
   end
 
   @doc """

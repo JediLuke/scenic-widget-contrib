@@ -14,6 +14,8 @@ defmodule ScenicWidgets.TextField.State do
     # Core
     # Widgex.Frame for positioning/sizing
     :frame,
+    # Dimmed prompt drawn while a single-line field is empty
+    :placeholder,
     # List of strings: ["line 1", "line 2", ...]
     :lines,
     # {line, col} tuple (1-indexed)
@@ -272,6 +274,9 @@ defmodule ScenicWidgets.TextField.State do
       tab_width: Map.get(data, :tab_width, 4),
       font: font,
       colors: Map.get(data, :colors) || default_colors(),
+      # A one-line field embedded in a pane has no room for a caption beside
+      # it, so it says what it is for itself.
+      placeholder: Map.get(data, :placeholder),
       border_sides: Map.get(data, :border_sides, [:top, :right, :bottom, :left]),
       overlay_open: Map.get(data, :overlay_open, false),
 
@@ -311,7 +316,12 @@ defmodule ScenicWidgets.TextField.State do
       horizontal_scroll_offset: 0,
 
       # Advanced
-      selection: nil,
+      #
+      # `initial_selection: :all` starts with the text selected, so the first
+      # character typed replaces it. A field seeded with a guess — the word
+      # under the cursor, the last thing searched for — otherwise makes you
+      # notice the guess and delete it before typing what you wanted.
+      selection: initial_selection(data, lines),
       max_lines: Map.get(data, :max_lines),
       cursor_blink_rate: Map.get(data, :cursor_blink_rate, 500),
       show_scrollbars: Map.get(data, :show_scrollbars, true),
@@ -475,6 +485,11 @@ defmodule ScenicWidgets.TextField.State do
     end
   end
 
+  defp initial_selection(%{initial_selection: :all}, [line]) when line != "",
+    do: {{1, 1}, {1, String.length(line) + 1}}
+
+  defp initial_selection(_data, _lines), do: nil
+
   defp parse_initial_text(%{initial_text: text}) when is_bitstring(text) do
     String.split(text, "\n")
   end
@@ -538,6 +553,9 @@ defmodule ScenicWidgets.TextField.State do
 
   @default_colors %{
     text: :white,
+    # What an empty field says it is for. Dim enough to read as a prompt
+    # rather than as something someone typed.
+    placeholder: {130, 130, 130},
     background: {30, 30, 30},
     cursor: :white,
     line_numbers: {100, 100, 100},

@@ -2,10 +2,27 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   @moduledoc """
   Draws `ScenicWidgets.SearchPane`.
 
-  The pane is rebuilt from scratch on every change. Its content is bounded by
-  what fits in a sidebar, so there is nothing here worth the bookkeeping of an
-  incremental update — except the scroll transform, which moves on every wheel
-  tick and is handled by `Widgex.Scrollable`.
+  ## Why this is incremental
+
+  It used to rebuild the whole graph on every change, on the grounds that a
+  sidebar's worth of content is small enough not to be worth the bookkeeping.
+  That is true right up until the pane wants to contain a **component** — a
+  TextField for its query, say — because a graph built from scratch takes the
+  component with it, and a child that is destroyed and recreated on every
+  keystroke loses its cursor, its selection and its input registration.
+
+  So the pane is drawn as four independent pieces, and a change replaces only
+  the pieces it actually affects:
+
+      :search_pane_background   the pane's own rect            (theme/frame)
+      :search_pane_chrome       header backdrop, title, close  (theme/frame)
+      :search_pane_widgets      fields, toggles, status        (typing, results)
+      :search_pane_body         result rows and scrollbars     (results, hover)
+
+  None of the four overlap another, so replacing one and letting it land at
+  the end of the graph cannot put it over the top of something it should be
+  under. Anything that does not fit that — a change of theme or frame —
+  rebuilds the lot, which is rare enough to be free.
   """
 
   use Widgex.Scrollable, direction: :vertical
@@ -17,22 +34,141 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   # Where a match's highlight rectangle sits relative to the text baseline.
   @highlight_top 3
 
+  @doc "The whole pane, from nothing. Used on init and nowhere else."
   def render(%State{} = state) do
     Graph.build()
-    |> Primitives.group(
-      fn g ->
-        g
-        |> Primitives.rect(state.frame.size.box,
-          id: :search_pane_background,
-          fill: state.theme.background,
-          stroke: {1, state.theme.border},
-          input: [:cursor_button, :cursor_pos]
-        )
-        |> render_body(state)
-        |> render_header(state)
-      end,
-      translate: {0, 0}
+    |> render_backdrop(state)
+    |> render_widgets(state)
+    |> render_fields(state)
+    |> render_body(state)
+  end
+
+  # Everything the live widgets sit ON TOP of. Each piece carries an id and is
+  # modified in place rather than replaced, because a replacement lands at the
+  # END of the graph — and a backdrop drawn last is a backdrop drawn over the
+  # things it is supposed to be behind.
+  defp render_backdrop(graph, %State{theme: theme} = state) do
+    height = State.header_height(state)
+    width = state.frame.size.width
+    close = Enum.find(State.header_widgets(state), &(&1.id == :close))
+
+    graph
+    |> Primitives.rect(state.frame.size.box,
+      id: :search_pane_background,
+      fill: theme.background,
+      stroke: {1, theme.border},
+      input: [:cursor_button, :cursor_pos]
     )
+    |> Primitives.rect({width, height}, id: :search_pane_header_bg, fill: theme.header_background)
+    |> Primitives.line({{0, height}, {width, height}},
+      id: :search_pane_header_rule,
+      stroke: {1, theme.border}
+    )
+    |> Primitives.text("SEARCH",
+      id: :search_pane_title,
+      translate: {theme.padding, theme.padding + theme.row_height - 6},
+      fill: theme.heading,
+      font: theme.font,
+      font_size: theme.small_font_size
+    )
+    |> Primitives.text("×",
+      id: :search_pane_close_glyph,
+      translate: {close.x + 4, close.y + close.h - 6},
+      fill: theme.dim_text,
+      font: theme.font,
+      font_size: theme.font_size
+    )
+  end
+
+  defp update_backdrop(graph, %State{theme: theme} = state) do
+    height = State.header_height(state)
+    width = state.frame.size.width
+    close = Enum.find(State.header_widgets(state), &(&1.id == :close))
+
+    graph
+    |> Graph.modify(:search_pane_background, fn p ->
+      Primitives.rect(p, state.frame.size.box, fill: theme.background, stroke: {1, theme.border})
+    end)
+    |> Graph.modify(:search_pane_header_bg, fn p ->
+      Primitives.rect(p, {width, height}, fill: theme.header_background)
+    end)
+    |> Graph.modify(:search_pane_header_rule, fn p ->
+      Primitives.line(p, {{0, height}, {width, height}}, stroke: {1, theme.border})
+    end)
+    |> Graph.modify(:search_pane_title, fn p ->
+      Primitives.text(p, "SEARCH",
+        translate: {theme.padding, theme.padding + theme.row_height - 6},
+        fill: theme.heading,
+        font_size: theme.small_font_size
+      )
+    end)
+    |> Graph.modify(:search_pane_close_glyph, fn p ->
+      Primitives.text(p, "×",
+        translate: {close.x + 4, close.y + close.h - 6},
+        fill: theme.dim_text,
+        font_size: theme.font_size
+      )
+    end)
+  end
+
+  @doc """
+  Redraw only what changed between two states.
+
+  The pane is drawn as four sibling pieces (see the moduledoc); this replaces
+  the ones the change touched and leaves the rest — and anything living
+  alongside them — alone.
+  """
+  def update_render(graph, %State{} = old_state, %State{} = new_state) do
+    moved? = geometry_changed?(old_state, new_state)
+
+    graph
+    |> then(fn g -> if moved?, do: update_backdrop(g, new_state), else: g end)
+    |> maybe_replace(
+      :search_pane_widgets,
+      moved? or widgets_changed?(old_state, new_state),
+      &render_widgets(&1, new_state)
+    )
+    |> maybe_replace(
+      :search_pane_body,
+      moved? or body_changed?(old_state, new_state),
+      &render_body(&1, new_state)
+    )
+  end
+
+  defp maybe_replace(graph, _id, false, _render), do: graph
+
+  defp maybe_replace(graph, id, true, render) do
+    graph |> Graph.delete(id) |> render.()
+  end
+
+  # A different theme or a different frame moves or recolours everything. It
+  # arrives on every mouse move while the sidebar divider is being dragged, so
+  # it has to be as cheap as it can be — and in particular must not disturb
+  # anything living in the graph alongside these pieces.
+  defp geometry_changed?(old_state, new_state),
+    do: old_state.theme != new_state.theme or old_state.frame != new_state.frame
+
+  # Everything the header's live widgets are drawn from. A search changes the
+  # status line, a click changes a toggle. Typing is NOT here: the fields draw
+  # themselves, so a keystroke costs this module nothing at all.
+  defp widgets_changed?(old_state, new_state) do
+    widget_signature(old_state) != widget_signature(new_state)
+  end
+
+  defp widget_signature(%State{model: model} = state) do
+    {state.focused, state.focused_field, model.status, model.error, model.case_sensitive,
+     model.regex}
+  end
+
+  # The rows are derived from a good deal of state — results, dismissals, which
+  # scope nodes are open, which file groups are collapsed — so they are
+  # compared directly rather than by guessing at their inputs. Building the
+  # list is cheap; building its primitives is not, and that is what this
+  # avoids.
+  defp body_changed?(old_state, new_state) do
+    old_state.hovered != new_state.hovered or
+      old_state.scroll != new_state.scroll or
+      State.rows(old_state) != State.rows(new_state)
   end
 
   @doc "Move the already-rendered body to a new scroll offset."
@@ -50,57 +186,105 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
 
   # ── Header ────────────────────────────────────────────────────────────────
 
-  defp render_header(graph, %State{theme: theme} = state) do
-    height = State.header_height(state)
+  # The parts that change while the pane is being used, and that this module
+  # draws itself. The two editable fields are NOT among them: they are
+  # TextField components (see render_fields/2), created once and updated by
+  # message, never redrawn from here.
+  defp render_widgets(graph, %State{} = state) do
+    live =
+      State.header_widgets(state)
+      |> Enum.reject(&(&1.id == :close))
+      |> Enum.reject(&match?(%{id: {:field, _}}, &1))
 
-    graph
-    |> Primitives.group(
-      fn g ->
-        g
-        |> Primitives.rect({state.frame.size.width, height}, fill: theme.header_background)
-        |> Primitives.line({{0, height}, {state.frame.size.width, height}},
-          stroke: {1, theme.border}
-        )
-        |> Primitives.text("SEARCH",
-          translate: {theme.padding, theme.padding + theme.row_height - 6},
-          fill: theme.heading,
-          font: theme.font,
-          font_size: theme.small_font_size
-        )
-        |> render_header_widgets(state)
-      end,
-      id: :search_pane_header,
+    Primitives.group(
+      graph,
+      fn g -> Enum.reduce(live, g, &render_header_widget(&2, &1, state)) end,
+      id: :search_pane_widgets,
       translate: {0, 0}
     )
   end
 
-  defp render_header_widgets(graph, state) do
-    Enum.reduce(State.header_widgets(state), graph, &render_header_widget(&2, &1, state))
+  @doc """
+  The editable fields, as real TextFields.
+
+  Called once, from `render/1`. Everything a one-line input should do —
+  selection, the clipboard, word-wise movement, Ctrl+Backspace — is behaviour
+  this pane used to reimplement, badly and partially, and now simply gets. The
+  cost is that they are processes: they have to survive every redraw, which is
+  why the rest of this module is written the way it is.
+  """
+  def render_fields(graph, %State{} = state) do
+    State.header_widgets(state)
+    |> Enum.filter(&match?(%{id: {:field, _}}, &1))
+    |> Enum.reduce(graph, fn %{id: {:field, field}} = w, g ->
+      ScenicWidgets.TextField.add_to_graph(g, field_data(w, field, state), id: field_id(field))
+    end)
   end
 
-  defp render_header_widget(graph, %{id: :close} = w, %State{theme: theme}) do
-    Primitives.text(graph, "×",
-      translate: {w.x + 4, w.y + w.h - 6},
-      fill: theme.dim_text,
-      font: theme.font,
-      font_size: theme.font_size
-    )
+  @doc "Where a field is and how it looks — everything it takes from the pane."
+  def field_settings(%State{theme: theme} = state, field) do
+    w = Enum.find(State.header_widgets(state), &(&1.id == {:field, field}))
+
+    %{
+      frame: Widgex.Frame.new(%{pin: {w.x, w.y}, size: {w.w, w.h}}),
+      colors: field_colors(theme),
+      font: field_font(theme),
+      placeholder: placeholder(field)
+    }
   end
 
-  defp render_header_widget(graph, %{id: {:field, field}} = w, %State{theme: theme} = state) do
-    focused? = state.focused and state.focused_field == field
-    value = State.field_value(state, field)
-    stroke = if focused?, do: theme.field_focus_border, else: theme.field_border
+  @doc "The component id a field's TextField is registered under."
+  def field_id(:query), do: :search_pane_query_field
+  def field_id(:replace), do: :search_pane_replace_field
 
-    graph
-    |> Primitives.rect({w.w, w.h},
-      fill: theme.field_background,
-      stroke: {1, stroke},
-      translate: {w.x, w.y}
-    )
-    |> field_text(w, value, field, theme)
-    |> maybe_caret(w, value, focused?, state, field)
+  defp field_data(w, field, %State{theme: theme} = state) do
+    %{
+      id: field_id(field),
+      frame: Widgex.Frame.new(%{pin: {w.x, w.y}, size: {w.w, w.h}}),
+      initial_text: State.field_value(state, field),
+      # A pane opened on a seeded query shows it selected. The seed arrives as
+      # part of the pane's own construction, before there is a field to send
+      # it to, so it has to be part of how the field starts.
+      initial_selection: if(field == :query and state.query != "", do: :all, else: nil),
+      mode: :single_line,
+      input_mode: :direct,
+      show_line_numbers: false,
+      placeholder: placeholder(field),
+      focused: state.focused and state.focused_field == field,
+      editable: true,
+      colors: field_colors(theme),
+      font: field_font(theme)
+    }
   end
+
+  # A TextField measures text, so it needs real metrics rather than a font
+  # name. The theme names a font the host has registered as a static asset,
+  # which is where the metrics live; if it has not, that is a mistake worth
+  # hearing about rather than a reason to draw with the wrong widths.
+  defp field_font(theme) do
+    {:ok, {Scenic.Assets.Static.Font, metrics}} = Scenic.Assets.Static.meta(theme.font)
+    %{name: theme.font, size: theme.font_size, metrics: metrics}
+  end
+
+  # The field draws its own backdrop and border now. The pane used to draw a
+  # rect underneath it and repaint the border on every focus change.
+  defp field_colors(theme) do
+    %{
+      text: theme.text,
+      placeholder: theme.dim_text,
+      background: theme.field_background,
+      border: theme.field_border,
+      focused_border: theme.field_focus_border,
+      cursor: theme.field_focus_border,
+      # Selection is drawn OVER the text, so it has to be translucent — and
+      # Scenic wants that said explicitly: a three-part colour here is not a
+      # colour it will accept.
+      selection: with_alpha(theme.match_highlight, 160)
+    }
+  end
+
+  defp with_alpha({r, g, b}, a), do: {r, g, b, a}
+  defp with_alpha({r, g, b, _a}, a), do: {r, g, b, a}
 
   defp render_header_widget(graph, %{id: {:toggle, option}} = w, %State{theme: theme} = state) do
     on? = Map.fetch!(state.model, option)
@@ -148,39 +332,8 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     )
   end
 
-  defp field_text(graph, w, "", field, theme) do
-    Primitives.text(graph, placeholder(field),
-      translate: {w.x + 5, w.y + w.h - 7},
-      fill: theme.dim_text,
-      font: theme.font,
-      font_size: theme.font_size
-    )
-  end
-
-  defp field_text(graph, w, value, _field, theme) do
-    Primitives.text(graph, clip(value, w.w - 10, theme.font_size),
-      translate: {w.x + 5, w.y + w.h - 7},
-      fill: theme.text,
-      font: theme.font,
-      font_size: theme.font_size
-    )
-  end
-
   defp placeholder(:query), do: "Search project"
   defp placeholder(:replace), do: "Replace with"
-
-  defp maybe_caret(graph, _w, _value, false, _state, _field), do: graph
-
-  defp maybe_caret(graph, w, _value, true, state, field) do
-    theme = state.theme
-    cursor = Map.fetch!(state.cursors, field)
-    visible = min(cursor, max_chars(w.w - 10, theme.font_size))
-    x = w.x + 5 + visible * char_width(theme.font_size)
-
-    Primitives.line(graph, {{x, w.y + 4}, {x, w.y + w.h - 4}},
-      stroke: {1, theme.field_focus_border}
-    )
-  end
 
   defp status_line(%State{model: %{error: error}, theme: theme}) when is_binary(error),
     do: {error, theme.error_text}

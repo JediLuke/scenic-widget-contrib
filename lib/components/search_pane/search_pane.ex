@@ -61,7 +61,11 @@ defmodule ScenicWidgets.SearchPane do
   - `:focus` / `:blur` — keyboard focus, granted by the parent
   """
 
-  use Scenic.Component, has_children: false
+  # It has children now: its two editable fields are TextFields. Declared
+  # false, Scenic takes the graph's component primitives at their word and
+  # simply never starts them — the fields appear in the graph, are never
+  # instantiated, and every keystroke goes nowhere.
+  use Scenic.Component, has_children: true
   require Logger
 
   alias ScenicWidgets.SearchPane.{Renderizer, State}
@@ -130,30 +134,36 @@ defmodule ScenicWidgets.SearchPane do
     {:noreply, redraw(scene, State.resync_scroll(%{state | theme: Map.merge(state.theme, theme)}))}
   end
 
+  # Seeded from outside — the word under the cursor, or the last thing
+  # searched for. The field shows it SELECTED so the next character typed
+  # replaces it, rather than appending to a guess you then have to notice and
+  # delete.
   def handle_put({:set_query, query}, scene) do
     state = scene.assigns.state
+    Scenic.Scene.put_child(scene, Renderizer.field_id(:query), {:seed_text, query})
 
-    new_state = %{
-      state
-      | query: query,
-        cursors: Map.put(state.cursors, :query, String.length(query)),
-        focused_field: :query,
-        replace_query_on_input: query != ""
-    }
+    new_state = %{state | query: query, focused_field: :query}
 
     {:noreply, redraw(scene, new_state)}
   end
 
   def handle_put({:focus_field, field}, scene) do
-    {:noreply, redraw(scene, State.focus_field(scene.assigns.state, field))}
+    state = State.focus_field(scene.assigns.state, field)
+    {:noreply, focus_fields(redraw(scene, state), state)}
   end
 
+  # The parent gives the pane the keyboard; the pane hands it to whichever of
+  # its fields is current. Both halves are needed: the fields gate on their own
+  # flags, so a pane that is blurred while a field still thinks it is focused
+  # would go on eating every keystroke meant for the editor.
   def handle_put(:focus, scene) do
-    {:noreply, redraw(scene, %{scene.assigns.state | focused: true})}
+    state = %{scene.assigns.state | focused: true}
+    {:noreply, focus_fields(redraw(scene, state), state)}
   end
 
   def handle_put(:blur, scene) do
-    {:noreply, redraw(scene, %{scene.assigns.state | focused: false})}
+    state = %{scene.assigns.state | focused: false}
+    {:noreply, focus_fields(redraw(scene, state), state)}
   end
 
   def handle_put(_value, scene), do: {:noreply, scene}
@@ -177,19 +187,85 @@ defmodule ScenicWidgets.SearchPane do
   def handle_input({:cursor_scroll, {_dx, dy, x, y}}, _context, scene),
     do: wheel(scene, dy, {x, y})
 
-  # Keyboard belongs to the fields, and only while the parent has given the
-  # pane focus — otherwise typing in the editor would also edit the query.
-  def handle_input({:codepoint, {char, _}}, _context, %{assigns: %{state: %{focused: true}}} = scene)
-      when char != "" do
-    state = State.insert_char(scene.assigns.state, char)
-    {:noreply, scene |> redraw(state) |> announce_field(state)}
-  end
-
-  def handle_input({:key, {key, @key_pressed, mods}}, _context, %{assigns: %{state: %{focused: true}}} = scene) do
-    key_press(scene, key, mods)
-  end
-
+  # The keyboard belongs to the fields, and they are TextFields now — they
+  # gate on their own focus flag and report what happened. Everything this
+  # pane used to reimplement (a cursor, backspace, word deletion, Home and
+  # End) it now simply has, along with selection and the clipboard, which it
+  # never had at all.
   def handle_input(_input, _context, scene), do: {:noreply, scene}
+
+  # ── Events from the fields ────────────────────────────────────────────────
+
+  @impl Scenic.Scene
+  def handle_event({:text_changed, id, text}, _from, scene) do
+    state = State.put_field_value(scene.assigns.state, field_of(id), text)
+    {:noreply, scene |> assign(state: state) |> announce_field(field_of(id), state)}
+  end
+
+  # Enter in the replacement field means "replace everything", the only
+  # destructive thing the pane can do from the keyboard. From the query field
+  # it means nothing, because the search already ran as it was typed.
+  def handle_event({:enter_pressed, id, _text}, _from, scene) do
+    if field_of(id) == :replace do
+      send_parent_event(scene, {:search_pane, :replace_all, scene.assigns.state.replace})
+    end
+
+    {:noreply, scene}
+  end
+
+  def handle_event({:escape_pressed, _id}, _from, scene) do
+    send_parent_event(scene, {:search_pane, :close})
+    {:noreply, scene}
+  end
+
+  def handle_event({:tab_pressed, _id, shift?}, _from, scene) do
+    state = scene.assigns.state
+    next = if shift?, do: State.prev_field(state), else: State.next_field(state)
+    {:noreply, focus_fields(redraw(scene, next), next)}
+  end
+
+  # A click in a field gives it the keyboard; the pane's job is to take it off
+  # the other one, and to remember which is current for Tab.
+  def handle_event({:focus_taken, id}, _from, scene)
+      when id in [:search_pane_query_field, :search_pane_replace_field] do
+    state = State.focus_field(scene.assigns.state, field_of(id))
+    {:noreply, focus_fields(redraw(scene, state), state)}
+  end
+
+  def handle_event(_event, _from, scene), do: {:noreply, scene}
+
+  # A resize or a theme change moves and recolours the fields. They are told,
+  # rather than redrawn: dragging the sidebar divider delivers a new frame on
+  # every mouse move, and recreating a component that often would throw away
+  # its cursor and its selection sixty times a second.
+  defp reframe_fields(scene, %State{} = old_state, %State{} = new_state) do
+    if old_state.frame != new_state.frame or old_state.theme != new_state.theme do
+      for field <- State.fields() do
+        Scenic.Scene.put_child(
+          scene,
+          Renderizer.field_id(field),
+          {:update_settings, Renderizer.field_settings(new_state, field)}
+        )
+      end
+    end
+
+    :ok
+  end
+
+  defp field_of(:search_pane_query_field), do: :query
+  defp field_of(:search_pane_replace_field), do: :replace
+
+  # Exactly one field holds the keyboard, and only while the pane itself has
+  # it. Told rather than derived, so a field cannot keep the keyboard after
+  # the parent has taken it off the pane.
+  defp focus_fields(scene, %State{} = state) do
+    for field <- State.fields() do
+      focus? = state.focused and state.focused_field == field
+      Scenic.Scene.put_child(scene, Renderizer.field_id(field), if(focus?, do: :focus, else: :blur))
+    end
+
+    scene
+  end
 
   defp wheel(scene, dy, {x, y}) do
     state = scene.assigns.state
@@ -206,74 +282,15 @@ defmodule ScenicWidgets.SearchPane do
     end
   end
 
-  defp key_press(scene, :key_tab, mods) do
-    state = scene.assigns.state
-
-    new_state =
-      if :shift in mods, do: State.prev_field(state), else: State.next_field(state)
-
-    {:noreply, redraw(scene, new_state)}
-  end
-
-  defp key_press(scene, :key_backspace, mods) do
-    state =
-      if :ctrl in mods,
-        do: State.backspace_word(scene.assigns.state),
-        else: State.backspace(scene.assigns.state)
-
-    {:noreply, scene |> redraw(state) |> announce_field(state)}
-  end
-
-  defp key_press(scene, :key_delete, mods) do
-    state =
-      if :ctrl in mods,
-        do: State.delete_word(scene.assigns.state),
-        else: State.delete(scene.assigns.state)
-
-    {:noreply, scene |> redraw(state) |> announce_field(state)}
-  end
-
-  defp key_press(scene, :key_left, _mods),
-    do: {:noreply, redraw(scene, State.cursor_left(scene.assigns.state))}
-
-  defp key_press(scene, :key_right, _mods),
-    do: {:noreply, redraw(scene, State.cursor_right(scene.assigns.state))}
-
-  defp key_press(scene, :key_home, _mods),
-    do: {:noreply, redraw(scene, State.cursor_home(scene.assigns.state))}
-
-  defp key_press(scene, :key_end, _mods),
-    do: {:noreply, redraw(scene, State.cursor_end(scene.assigns.state))}
-
-  # Enter in the replacement field means "replace everything", which is the
-  # only destructive thing the pane can do from the keyboard; from the query
-  # field it means nothing, because the search already ran as you typed.
-  defp key_press(scene, :key_enter, _mods) do
-    state = scene.assigns.state
-
-    if state.focused_field == :replace do
-      send_parent_event(scene, {:search_pane, :replace_all, state.replace})
-    end
-
-    {:noreply, scene}
-  end
-
-  defp key_press(scene, :key_esc, _mods) do
-    send_parent_event(scene, {:search_pane, :close})
-    {:noreply, scene}
-  end
-
-  defp key_press(scene, _key, _mods), do: {:noreply, scene}
-
-  # A field's contents changed: tell the parent, but only for the two fields
-  # that steer the search. The replacement is carried on the action instead —
-  # it must not re-run anything by being typed.
-  defp announce_field(scene, %State{focused_field: :query} = state) do
+  # A field's contents changed: tell the parent, but only for the query. The
+  # replacement is carried on the action instead — it must not re-run anything
+  # by being typed.
+  defp announce_field(scene, :query, %State{} = state) do
     send_parent_event(scene, {:search_pane, :query_changed, state.query})
     scene
   end
 
-  defp announce_field(scene, _state), do: scene
+  defp announce_field(scene, _field, _state), do: scene
 
   # ── Pointer ───────────────────────────────────────────────────────────────
 
@@ -301,7 +318,11 @@ defmodule ScenicWidgets.SearchPane do
         # click never reaches the host — so tell it.
         unless state.focused, do: send_parent_event(scene, {:focus_taken, :project_search_pane})
 
-        {:noreply, redraw(scene, State.focus_field(State.keep_seeded_query(state), field))}
+        # The field itself handles placing the caret — it gets the click too,
+        # and reports back with {:focus_taken, id}. All this has to do is
+        # remember which field Tab should move on from.
+        new_state = State.focus_field(state, field)
+        {:noreply, focus_fields(redraw(scene, new_state), new_state)}
 
       {:toggle, option} ->
         send_parent_event(scene, {:search_pane, :toggle_option, option})
@@ -380,8 +401,12 @@ defmodule ScenicWidgets.SearchPane do
 
   # ── Plumbing ──────────────────────────────────────────────────────────────
 
+  # Only what changed. The pane holds child components now, and a graph built
+  # from scratch would take them with it on every keystroke.
   defp redraw(scene, state) do
-    graph = Renderizer.render(state)
+    old_state = scene.assigns.state
+    graph = Renderizer.update_render(scene.assigns.graph, old_state, state)
+    reframe_fields(scene, old_state, state)
 
     scene = scene |> assign(state: state, graph: graph) |> push_graph(graph)
     register_semantic_elements(scene, state)

@@ -540,7 +540,7 @@ defmodule ScenicWidgets.TextField.Renderer do
   # For single-line mode, uses text_base: :middle for perfect vertical centering
   defp render_text_lines(
          graph,
-         %State{mode: mode, frame: frame} = state,
+         %State{} = state,
          display_lines,
          x_offset,
          line_height,
@@ -552,6 +552,45 @@ defmodule ScenicWidgets.TextField.Renderer do
     # primitive per line — seconds of work on a large file.
     {first, last} = State.visible_display_range(state, length(display_lines))
     row_segments = highlight_row_segments(state, display_lines, first, last)
+
+    if placeholder_showing?(state, display_lines) do
+      render_placeholder(graph, state, x_offset)
+    else
+      render_lines(graph, state, display_lines, x_offset, line_height, first, last, row_segments)
+    end
+  end
+
+  # An empty single-line field draws what it is for, dimmed, instead of
+  # nothing. It is never part of the document and it goes the moment there is
+  # any content.
+  defp placeholder_showing?(%State{placeholder: p}, _lines) when not is_binary(p), do: false
+
+  defp placeholder_showing?(%State{mode: :single_line}, lines),
+    do: lines == [""] or lines == []
+
+  defp placeholder_showing?(_state, _lines), do: false
+
+  defp render_placeholder(graph, %State{frame: frame} = state, x_offset) do
+    Primitives.text(graph, state.placeholder,
+      translate: {x_offset, frame.size.height / 2 + 2},
+      fill: State.color(state, :placeholder),
+      font_size: state.font.size,
+      font: state.font.name,
+      text_base: :middle,
+      id: :placeholder_text
+    )
+  end
+
+  defp render_lines(
+         graph,
+         %State{mode: mode, frame: frame} = state,
+         display_lines,
+         x_offset,
+         line_height,
+         first,
+         last,
+         row_segments
+       ) do
 
     display_lines
     |> Enum.slice(first - 1, max(last - first + 1, 0))
