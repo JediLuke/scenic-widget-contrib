@@ -27,6 +27,8 @@ defmodule ScenicWidgets.TabBar do
 
   TabBar sends these events to the parent scene:
   - `{:tab_selected, tab_id}` - When a tab is clicked/selected
+  - `{:tab_double_clicked, tab_id}` - When a tab is clicked twice in quick
+    succession; the gesture an editor uses to promote a provisional tab
   - `{:tab_closed, tab_id}` - When a tab's close button is clicked
 
   Handle in your scene:
@@ -130,6 +132,10 @@ defmodule ScenicWidgets.TabBar do
 
       {:tab_selected, tab_id, new_state} ->
         send_parent_event(scene, {:tab_selected, tab_id})
+        update_scene(scene, state, new_state)
+
+      {:tab_double_clicked, tab_id, new_state} ->
+        send_parent_event(scene, {:tab_double_clicked, tab_id})
         update_scene(scene, state, new_state)
 
       {:tab_closed, tab_id, _new_state} ->

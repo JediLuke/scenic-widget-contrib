@@ -47,6 +47,9 @@ defmodule ScenicWidgets.TabBar.State do
     # every ordinary tab click starts as one.
     drag_origin_x: nil,
     drag_active?: false,
+    # {tab_id, monotonic milliseconds} of the last press, so a second press on
+    # the same tab inside the double-click window can be recognised as one.
+    last_press: nil,
     theme: %{},
     tab_widths: %{}
   ]
@@ -92,6 +95,7 @@ defmodule ScenicWidgets.TabBar.State do
 
     # Typography
     font: :roboto_mono,
+    italic_font: :roboto_mono,
     font_size: 13
   }
 
@@ -131,6 +135,7 @@ defmodule ScenicWidgets.TabBar.State do
       drag_reordered?: false,
       drag_origin_x: nil,
       drag_active?: false,
+      last_press: nil,
       theme: theme,
       tab_widths: %{}
     }
@@ -148,7 +153,11 @@ defmodule ScenicWidgets.TabBar.State do
       %{
         id: Map.fetch!(tab, :id),
         label: Map.get(tab, :label, "Untitled"),
-        closeable: Map.get(tab, :closeable, true)
+        closeable: Map.get(tab, :closeable, true),
+        # `:italic` marks a tab as provisional — the reusable preview slot an
+        # editor gives to a file you are only looking at. Purely presentational
+        # here; what "provisional" means is the parent's business.
+        style: Map.get(tab, :style, :normal)
       }
     end)
   end

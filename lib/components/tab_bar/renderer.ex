@@ -148,7 +148,7 @@ defmodule ScenicWidgets.TabBar.Renderer do
           truncated_label,
           id: {:tab_label, tab.id},
           fill: text_color,
-          font: theme.font,
+          font: tab_font(tab, theme),
           font_size: theme.font_size,
           translate: {theme.tab_padding, height / 2 + theme.font_size / 3}
         )
@@ -503,6 +503,11 @@ defmodule ScenicWidgets.TabBar.Renderer do
   # ===========================================================================
   # Helpers
   # ===========================================================================
+
+  # A provisional ("preview") tab is set in the theme's italic face. Slant, not
+  # colour: it survives every palette and every kind of colour vision.
+  defp tab_font(%{style: :italic}, theme), do: Map.get(theme, :italic_font, theme.font)
+  defp tab_font(_tab, theme), do: theme.font
 
   defp truncate_label(label, max_width, font_size) do
     char_width = font_size * 0.6

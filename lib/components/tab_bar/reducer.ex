@@ -14,6 +14,10 @@ defmodule ScenicWidgets.TabBar.Reducer do
   # Horizontal travel, in pixels, before a press on a tab becomes a reorder drag.
   @drag_threshold 5
 
+  # How long after a press a second press on the same tab still counts as a
+  # double click.
+  @double_click_ms 450
+
   @doc """
   Process user input and return state transitions.
 
@@ -125,19 +129,31 @@ defmodule ScenicWidgets.TabBar.Reducer do
         handle_click(state, coords)
 
       {:tab, id} ->
-        {:noop,
-         %{
-           state
-           | dragging_tab_id: id,
-             drag_reordered?: false,
-             drag_origin_x: x,
-             drag_active?: false
-         }}
+        now = System.monotonic_time(:millisecond)
+
+        pressed = %{
+          state
+          | dragging_tab_id: id,
+            drag_reordered?: false,
+            drag_origin_x: x,
+            drag_active?: false,
+            last_press: {id, now}
+        }
+
+        if double_click?(state.last_press, id, now),
+          do: {:tab_double_clicked, id, %{pressed | last_press: nil}},
+          else: {:noop, pressed}
 
       :none ->
         {:noop, state}
     end
   end
+
+  # Two presses on the same tab inside the window are a double click. The
+  # window is generous: the gesture promotes a preview tab to a permanent one,
+  # and a missed promotion is far more annoying than a late one.
+  defp double_click?({id, at}, id, now), do: now - at <= @double_click_ms
+  defp double_click?(_last_press, _id, _now), do: false
 
   defp handle_drag(state, {x, _y} = coords) do
     index = Enum.find_index(state.tabs, &(&1.id == state.dragging_tab_id))
