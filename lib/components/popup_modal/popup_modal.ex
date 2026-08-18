@@ -62,6 +62,7 @@ defmodule ScenicWidgets.PopupModal do
       frame: data.frame,
       title: data.title,
       body: data.body,
+      body_font: Map.get(data, :body_font),
       btn_id: btn_id,
       btn_label: btn_label,
       accent: Map.get(data, :accent) || @default_accent
@@ -100,12 +101,34 @@ defmodule ScenicWidgets.PopupModal do
 
   # ==========================================================================
 
-  defp render(state) do
-    %{size: %{width: fw, height: fh}} = state.frame
+  @doc """
+  Where the panel lands and how big it is: `%{x:, y:, width:, height:,
+  columns:, per_column:}`.
 
-    panel_h = @pad * 2 + @title_height + length(state.body) * @line_height + @button_h + 16
-    panel_w = @panel_width
-    bounds = ScenicWidgets.ModalShell.bounds(state.frame, {panel_w, panel_h})
+  Public because the layout is the interesting part — a body longer than the
+  window is exactly the case worth asserting on from outside, and recomputing
+  it in a test would assert the test's arithmetic rather than the widget's.
+  """
+  def panel_bounds(state) do
+    %{size: %{height: fh}} = state.frame
+
+    # A body longer than the window has to go somewhere. Columns rather than a
+    # taller panel: a reference nobody can read the bottom of is no reference,
+    # and a keyboard-shortcut list is exactly the body that grows.
+    per_column = lines_per_column(fh)
+    columns = max(ceil(length(state.body) / per_column), 1)
+    rows = min(length(state.body), per_column)
+
+    panel_h = @pad * 2 + @title_height + rows * @line_height + @button_h + 16
+    panel_w = @panel_width * columns
+
+    state.frame
+    |> ScenicWidgets.ModalShell.bounds({panel_w, panel_h})
+    |> Map.merge(%{width: panel_w, height: panel_h, columns: columns, per_column: per_column})
+  end
+
+  defp render(state) do
+    %{width: panel_w, height: panel_h, per_column: per_column} = bounds = panel_bounds(state)
 
     Graph.build()
     |> ScenicWidgets.ModalShell.overlay(state.frame, :popup_overlay, fill: @overlay)
@@ -119,7 +142,7 @@ defmodule ScenicWidgets.PopupModal do
           font_size: 30,
           fill: state.accent
         )
-        |> render_body_lines(state.body)
+        |> render_body_lines(state.body, per_column, state.body_font)
         |> render_button(state, panel_w, panel_h)
       end,
       translate: {bounds.x, bounds.y},
@@ -127,7 +150,17 @@ defmodule ScenicWidgets.PopupModal do
     )
   end
 
-  defp render_body_lines(g, lines) do
+  defp lines_per_column(frame_height) do
+    chrome = @pad * 2 + @title_height + @button_h + 16 + @pad
+    max(trunc((frame_height * 0.9 - chrome) / @line_height), 4)
+  end
+
+  # One column keeps the original centred look, which is what every short body
+  # (the About dialog) wants. More than one and centring stops meaning
+  # anything, so each column is laid out from its own left edge.
+  defp render_body_lines(g, lines, per_column, font) do
+    single_column? = length(lines) <= per_column
+
     lines
     |> Enum.with_index()
     |> Enum.reduce(g, fn
@@ -135,14 +168,24 @@ defmodule ScenicWidgets.PopupModal do
         acc
 
       {line, i}, acc ->
-        text(acc, line,
-          translate: {@panel_width / 2, @pad + @title_height + 8 + i * @line_height},
-          text_align: :center,
-          font_size: 15,
-          fill: @text_color
-        )
+        column = div(i, per_column)
+        row = rem(i, per_column)
+        y = @pad + @title_height + 8 + row * @line_height
+
+        opts = [font_size: 15, fill: @text_color] ++ font_opt(font)
+
+        if single_column? do
+          text(acc, line, [translate: {@panel_width / 2, y}, text_align: :center] ++ opts)
+        else
+          text(acc, line, [translate: {column * @panel_width + @pad * 2, y}] ++ opts)
+        end
     end)
   end
+
+  # A body whose columns are aligned with padding needs a monospaced face to
+  # line up at all. Optional, so a prose body keeps the default.
+  defp font_opt(nil), do: []
+  defp font_opt(font), do: [font: font]
 
   defp render_button(g, state, panel_w, panel_h) do
     bx = (panel_w - @button_w) / 2
