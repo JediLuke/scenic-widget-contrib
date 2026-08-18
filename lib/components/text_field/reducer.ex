@@ -276,10 +276,21 @@ defmodule ScenicWidgets.TextField.Reducer do
     {:event, {:replace_mode_requested, state.id}, state}
   end
 
-  # Ctrl+G - Go to next match (if searching)
+  # Ctrl+G - Go to line (emit event; the parent owns the prompt).
+  #
+  # This key used to mean "next match", which is gedit's binding. It was moved
+  # to F3 — the near-universal find-next key — so that Ctrl+G could take the
+  # equally universal Go to Line. Note the old handler was guarded on
+  # `length(matches) > 0`, so Ctrl+G did nothing at all unless a search was
+  # already running; nothing that worked has been taken away.
+  def process_input(%State{focused: true} = state, @ctrl_g) do
+    {:event, {:goto_line_requested, state.id}, state}
+  end
+
+  # F3 - Go to next match (if searching)
   def process_input(
         %State{focused: true, search_matches: matches, search_current_index: idx} = state,
-        @ctrl_g
+        {:key, {:key_f3, 1, []}}
       )
       when length(matches) > 0 do
     # Cycle to next match
@@ -788,6 +799,21 @@ defmodule ScenicWidgets.TextField.Reducer do
   # Ctrl+H - Find & Replace (emit event to parent)
   def input_to_buffer_action(%State{focused: true} = state, {:key, {:key_h, 1, [:ctrl]}}) do
     {:replace_mode_requested, state.id}
+  end
+
+  # Ctrl+G - Go to Line (emit event to parent; the parent owns the prompt).
+  #
+  # This must live here, not only in process_input/2: store_backed consumers
+  # never reach process_input/2 at all — handle_store_backed_input/2 routes
+  # every event through input_to_buffer_action/2 instead. A shortcut added only
+  # to the other path is dead code for them.
+  def input_to_buffer_action(%State{focused: true} = state, {:key, {:key_g, 1, [:ctrl]}}) do
+    {:goto_line_requested, state.id}
+  end
+
+  # F3 - next search match, for store_backed consumers.
+  def input_to_buffer_action(%State{focused: true}, {:key, {:key_f3, 1, []}}) do
+    :find_next
   end
 
   # ===== SCROLLBAR DRAG (store_backed mode) =====

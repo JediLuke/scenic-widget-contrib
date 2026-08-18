@@ -462,6 +462,11 @@ defmodule ScenicWidgets.TextField do
         send_parent_event(scene, {:replace_mode_requested, id})
         {:noreply, scene}
 
+      {:goto_line_requested, id} ->
+        # Emit goto_line_requested event to parent scene (Ctrl+G)
+        send_parent_event(scene, {:goto_line_requested, id})
+        {:noreply, scene}
+
       :save ->
         # Emit save_requested event to parent scene
         send_parent_event(scene, {:save_requested, state.id, State.get_text(state)})
