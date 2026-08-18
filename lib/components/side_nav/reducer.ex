@@ -14,6 +14,7 @@ defmodule ScenicWidgets.SideNav.Reducer do
   use Widgex.Scrollable, direction: :vertical
 
   alias ScenicWidgets.SideNav.{State, Item}
+  alias Widgex.Scroll.ScrollReducer
 
   @doc """
   Handle mouse click input.
@@ -239,6 +240,29 @@ defmodule ScenicWidgets.SideNav.Reducer do
   defp do_scroll(%State{} = state, dx, dy) when is_number(dx) and is_number(dy) do
     # Negate for natural scrolling (scroll down/right = content moves up/left)
     new_scroll = handle_scroll_2d(state.scroll, -dx, -dy)
+
+    if scroll_changed?(state.scroll, new_scroll) do
+      {:scroll_changed, %{state | scroll: new_scroll}}
+    else
+      {:noop, state}
+    end
+  end
+
+  @doc """
+  Scroll by an exact pixel amount; positive `dy` moves the view down.
+
+  Distinct from `handle_scroll_input/2`, which multiplies the delta by
+  `scroll_speed` — the right feel for a notched wheel, and far too coarse for
+  the steady glide an edge-of-pane drag wants.
+
+  Returns `{:scroll_changed, new_state}` or `{:noop, state}`, so a caller at the
+  end of the content can tell it has stopped moving.
+  """
+  def drag_scroll(%State{} = state, dy) when is_number(dy) do
+    new_scroll =
+      state.scroll
+      |> ScrollReducer.scroll_by(0, dy)
+      |> show_scrollbars()
 
     if scroll_changed?(state.scroll, new_scroll) do
       {:scroll_changed, %{state | scroll: new_scroll}}

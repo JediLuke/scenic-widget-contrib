@@ -42,6 +42,11 @@ defmodule ScenicWidgets.TabBar.State do
     hovered_close_id: nil,
     dragging_tab_id: nil,
     drag_reordered?: false,
+    # Pointer x when the tab was pressed, and whether it has since travelled far
+    # enough to count as a drag. A press alone must not show drop feedback —
+    # every ordinary tab click starts as one.
+    drag_origin_x: nil,
+    drag_active?: false,
     theme: %{},
     tab_widths: %{}
   ]
@@ -68,6 +73,12 @@ defmodule ScenicWidgets.TabBar.State do
     selection_indicator_color: {0, 150, 255},
     # Subtle separator between tabs
     separator_color: {60, 60, 60},
+    # The line marking where a dragged tab will land, and the lifted look the
+    # tab itself takes on while in flight. Same blue as the selection stripe by
+    # default: it reads as "this is the tab you are placing".
+    drop_indicator_color: {0, 150, 255},
+    drop_indicator_width: 3,
+    tab_drag_background: {70, 74, 84},
 
     # Dimensions
     height: 35,
@@ -118,6 +129,8 @@ defmodule ScenicWidgets.TabBar.State do
       hovered_close_id: nil,
       dragging_tab_id: nil,
       drag_reordered?: false,
+      drag_origin_x: nil,
+      drag_active?: false,
       theme: theme,
       tab_widths: %{}
     }

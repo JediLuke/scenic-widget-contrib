@@ -58,6 +58,22 @@ defmodule ScenicWidgets.SideNav do
   alias Scenic.Graph
   alias Widgex.Scroll.{ScrollController, ScrollState}
 
+  # Pointer travel, in pixels, before a press becomes a drag rather than a click.
+  @drag_threshold 6
+
+  # How long the pointer must rest on a collapsed directory before it springs
+  # open. Long enough not to fire while merely crossing a folder on the way
+  # somewhere else; short enough not to feel stuck.
+  @auto_expand_ms 550
+
+  # Height of the strip at the top and bottom of the pane that scrolls while a
+  # drag hovers in it, and how fast — from just-perceptible at the outer edge of
+  # the strip to brisk at the very edge of the pane.
+  @drag_scroll_zone 28
+  @drag_scroll_tick_ms 33
+  @drag_scroll_min_step 3
+  @drag_scroll_max_step 18
+
   # Override add_to_graph for custom initialization
   def add_to_graph(graph, data, opts \\ []) do
     # Call the default implementation provided by `use Scenic.Component`
@@ -295,36 +311,28 @@ defmodule ScenicWidgets.SideNav do
         %{assigns: %{state: %State{drag_source: source}}} = scene
       )
       when not is_nil(source) do
-    {start_x, start_y} = scene.assigns.state.drag_start
-    state = scene.assigns.state
-    dragging = state.dragging or abs(x - start_x) + abs(y - start_y) >= 6
+    old_state = scene.assigns.state
+    {start_x, start_y} = old_state.drag_start
+    dragging = old_state.dragging or abs(x - start_x) + abs(y - start_y) >= @drag_threshold
 
     {drag_target, drop_valid} =
-      if dragging do
-        case State.hit_test(state, {x, y}) do
-          {target_id, _} ->
-            target = Item.find_by_id(state.tree, target_id)
+      if dragging, do: drop_target(old_state, {x, y}), else: {nil, false}
 
-            valid =
-              target && Item.get_type(target) == :group &&
-                Enum.all?(state.selected_ids, fn source ->
-                  source != target_id and
-                    not descendant_path?(target_id, source)
-                end)
+    new_state =
+      old_state
+      |> arm_auto_expand(dragging, drag_target)
+      |> arm_auto_scroll(dragging, y)
+      |> Map.merge(%{
+        dragging: dragging,
+        drag_target: drag_target,
+        drop_valid: drop_valid,
+        drag_pos: if(dragging, do: {x, y}, else: nil)
+      })
 
-            {target_id, valid}
-
-          nil ->
-            {nil, false}
-        end
-      else
-        {nil, false}
-      end
-
-    new_state = %{state | dragging: dragging, drag_target: drag_target, drop_valid: drop_valid}
-    graph = Renderizer.update_render(scene.assigns.graph, state, new_state)
+    graph = Renderizer.update_render(scene.assigns.graph, old_state, new_state)
     {:noreply, scene |> assign(state: new_state, graph: graph) |> push_graph(graph)}
   end
+
 
   def handle_input(
         {:cursor_button, {:btn_left, 0, _mods, {x, y}}},
@@ -332,28 +340,24 @@ defmodule ScenicWidgets.SideNav do
         %{assigns: %{state: %State{drag_source: source}}} = scene
       )
       when not is_nil(source) do
-    state = scene.assigns.state
+    state = scene.assigns.state |> cancel_auto_expand() |> cancel_auto_scroll()
     :ok = release_input(scene, [:cursor_pos, :cursor_button])
 
     if state.dragging do
       # Hit-tested/captured component input is already in SideNav-local
       # coordinates. Subtracting the frame pin a second time makes drops near
       # the top miss the tree entirely.
-      case State.hit_test(state, {x, y}) do
-        {target_id, _region} ->
-          target = Item.find_by_id(state.tree, target_id)
+      #
+      # drop_target/2 rather than a raw hit_test, so that the same rules the
+      # highlight was drawn from decide the drop — including empty space
+      # resolving to :root_id. A green row that then refuses the drop is worse
+      # than no highlight at all.
+      case drop_target(state, {x, y}) do
+        {target_id, true} when not is_nil(target_id) ->
+          paths = MapSet.to_list(state.selected_ids)
+          send_parent_event(scene, {:sidebar, :move_requested, paths, target_id})
 
-          if target && Item.get_type(target) == :group &&
-               not MapSet.member?(state.selected_ids, target_id) do
-            paths = MapSet.to_list(state.selected_ids)
-
-            send_parent_event(
-              scene,
-              {:sidebar, :move_requested, paths, target_id}
-            )
-          end
-
-        nil ->
+        _ ->
           :ok
       end
     else
@@ -387,6 +391,7 @@ defmodule ScenicWidgets.SideNav do
         dragging: false,
         drag_target: nil,
         drop_valid: false,
+        drag_pos: nil,
         pending_path_moves: pending_path_moves
     }
 
@@ -974,6 +979,190 @@ defmodule ScenicWidgets.SideNav do
 
   def handle_input(_input, _context, scene) do
     {:noreply, scene}
+  end
+
+  # Where would a drop at these coordinates land, and would it be allowed?
+  #
+  # Hitting no row at all is a real answer, not a miss: the space below the last
+  # row belongs to the tree's own container, and dragging something out of a
+  # subdirectory and back to the top level is otherwise impossible without a
+  # root row to aim at. Parents that do not supply :root_id opt out.
+  defp drop_target(%State{} = state, {x, y}) do
+    case State.hit_test(state, {x, y}) do
+      {target_id, _region} ->
+        target = Item.find_by_id(state.tree, target_id)
+
+        if target && Item.get_type(target) == :group do
+          {target_id, valid_drop?(state, target_id)}
+        else
+          # A file is shown as a rejection rather than silently retargeting its
+          # parent — the pointer is over something that cannot receive a drop.
+          {target_id, false}
+        end
+
+      nil ->
+        if state.root_id && inside_frame?(state, {x, y}) do
+          {state.root_id, valid_drop?(state, state.root_id)}
+        else
+          {nil, false}
+        end
+    end
+  end
+
+  defp valid_drop?(%State{} = state, target_id) do
+    MapSet.size(state.selected_ids) > 0 and
+      Enum.all?(state.selected_ids, fn source ->
+      source != target_id and
+        not descendant_path?(target_id, source) and
+        # Already sitting in the target. Easy to do by accident once empty space
+        # is a drop zone, and the move would only bounce back as an error.
+        Path.dirname(source) != target_id
+      end)
+  end
+
+  defp inside_frame?(%State{frame: frame}, {x, y}) do
+    x >= 0 and x <= frame.size.width and y >= 0 and y <= frame.size.height
+  end
+
+  # --- spring-loaded folders -------------------------------------------------
+  #
+  # Resting the pointer over a collapsed directory opens it, so a drag can reach
+  # into a subtree it started outside of. Without this a drop can only ever land
+  # somewhere that happened to be expanded before the drag began.
+
+  defp arm_auto_expand(state, false, _target_id), do: cancel_auto_expand(state)
+  defp arm_auto_expand(state, true, nil), do: cancel_auto_expand(state)
+  defp arm_auto_expand(%{drag_hover_id: same} = state, true, same), do: state
+
+  defp arm_auto_expand(state, true, target_id) do
+    state = cancel_auto_expand(state)
+    target = Item.find_by_id(state.tree, target_id)
+
+    # `target` is nil for :root_id, which is a legitimate drop target with no
+    # row of its own — and there is nothing to spring open in that case.
+    springable? =
+      not is_nil(target) and Item.get_type(target) == :group and
+        not MapSet.member?(state.expanded, target_id)
+
+    if springable? do
+      timer = Process.send_after(self(), {:drag_auto_expand, target_id}, @auto_expand_ms)
+      %{state | drag_hover_id: target_id, drag_hover_timer: timer}
+    else
+      %{state | drag_hover_id: target_id}
+    end
+  end
+
+  defp cancel_auto_expand(%{drag_hover_timer: nil} = state),
+    do: %{state | drag_hover_id: nil}
+
+  defp cancel_auto_expand(state) do
+    Process.cancel_timer(state.drag_hover_timer)
+    %{state | drag_hover_id: nil, drag_hover_timer: nil}
+  end
+
+  # --- edge auto-scroll ------------------------------------------------------
+  #
+  # The pointer is holding a drag, so the wheel is not available to bring the
+  # rest of the tree into view. Sitting in the top or bottom strip scrolls
+  # instead, faster the further in you push.
+
+  defp arm_auto_scroll(state, false, _y), do: cancel_auto_scroll(state)
+
+  defp arm_auto_scroll(state, true, y) do
+    cond do
+      edge_scroll_step(state, y) == 0 -> cancel_auto_scroll(state)
+      state.drag_scroll_timer != nil -> state
+      true -> %{state | drag_scroll_timer: schedule_drag_scroll()}
+    end
+  end
+
+  defp cancel_auto_scroll(%{drag_scroll_timer: nil} = state), do: state
+
+  defp cancel_auto_scroll(state) do
+    Process.cancel_timer(state.drag_scroll_timer)
+    %{state | drag_scroll_timer: nil}
+  end
+
+  defp schedule_drag_scroll,
+    do: Process.send_after(self(), :drag_auto_scroll, @drag_scroll_tick_ms)
+
+  # Pixels to move per tick, signed: negative scrolls back toward the top.
+  # Zero means the pointer is not in either edge strip.
+  defp edge_scroll_step(%State{frame: frame}, y) do
+    bottom_edge = frame.size.height - @drag_scroll_zone
+
+    cond do
+      y < @drag_scroll_zone -> -ramp(@drag_scroll_zone - y)
+      y > bottom_edge -> ramp(y - bottom_edge)
+      true -> 0
+    end
+  end
+
+  defp ramp(depth) do
+    depth
+    |> max(0)
+    |> min(@drag_scroll_zone)
+    |> Kernel./(@drag_scroll_zone)
+    |> Kernel.*(@drag_scroll_max_step - @drag_scroll_min_step)
+    |> Kernel.+(@drag_scroll_min_step)
+    |> round()
+  end
+
+  @impl GenServer
+  def handle_info({:drag_auto_expand, item_id}, scene) do
+    old_state = scene.assigns.state
+
+    # The pointer may have moved on, or the drag ended, between the timer being
+    # set and it firing.
+    if old_state.dragging and old_state.drag_hover_id == item_id do
+      new_state = %{State.expand(old_state, item_id) | drag_hover_timer: nil}
+      graph = Renderizer.update_render(scene.assigns.graph, old_state, new_state)
+
+      scene = scene |> assign(state: new_state, graph: graph) |> push_graph(graph)
+
+      # Rows below the newly opened folder have all moved down.
+      register_semantic_elements(scene, new_state)
+      send_parent_event(scene, {:sidebar, :expand, item_id})
+
+      {:noreply, scene}
+    else
+      {:noreply, assign(scene, state: %{old_state | drag_hover_timer: nil})}
+    end
+  end
+
+  def handle_info(:drag_auto_scroll, scene) do
+    old_state = %{scene.assigns.state | drag_scroll_timer: nil}
+
+    step =
+      case {old_state.dragging, old_state.drag_pos} do
+        {true, {_x, y}} -> edge_scroll_step(old_state, y)
+        _ -> 0
+      end
+
+    case step != 0 && Reducer.drag_scroll(old_state, step) do
+      {:scroll_changed, scrolled} ->
+        # The tree slid under a stationary pointer, so what it is pointing at
+        # has changed. Recompute rather than leave the highlight on the row that
+        # used to be there.
+        {drag_target, drop_valid} = drop_target(scrolled, old_state.drag_pos)
+
+        new_state =
+          scrolled
+          |> arm_auto_expand(true, drag_target)
+          |> Map.merge(%{
+            drag_target: drag_target,
+            drop_valid: drop_valid,
+            drag_scroll_timer: schedule_drag_scroll()
+          })
+
+        graph = Renderizer.update_render(scene.assigns.graph, old_state, new_state)
+        {:noreply, scene |> assign(state: new_state, graph: graph) |> push_graph(graph)}
+
+      _ ->
+        # Drag over, pointer left the strip, or the content will not move any
+        # further — stop ticking rather than spin. A later cursor_pos re-arms.
+        {:noreply, assign(scene, state: old_state)}
+    end
   end
 
   # Helper for keyboard input handling

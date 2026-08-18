@@ -11,6 +11,9 @@ defmodule ScenicWidgets.TabBar.Reducer do
   # Pixels to scroll per wheel tick
   @scroll_amount 50
 
+  # Horizontal travel, in pixels, before a press on a tab becomes a reorder drag.
+  @drag_threshold 5
+
   @doc """
   Process user input and return state transitions.
 
@@ -32,7 +35,13 @@ defmodule ScenicWidgets.TabBar.Reducer do
         {:cursor_button, {:btn_left, 0, _mods, _coords}}
       )
       when not is_nil(id) do
-    new_state = %{state | dragging_tab_id: nil, drag_reordered?: false}
+    new_state = %{
+      state
+      | dragging_tab_id: nil,
+        drag_reordered?: false,
+        drag_origin_x: nil,
+        drag_active?: false
+    }
 
     if state.drag_reordered?,
       do: {:tabs_reordered, Enum.map(state.tabs, & &1.id), new_state},
@@ -110,11 +119,23 @@ defmodule ScenicWidgets.TabBar.Reducer do
     end
   end
 
-  defp handle_press(state, coords) do
+  defp handle_press(state, {x, _y} = coords) do
     case State.hit_test(state, coords) do
-      {:close, _id} -> handle_click(state, coords)
-      {:tab, id} -> {:noop, %{state | dragging_tab_id: id, drag_reordered?: false}}
-      :none -> {:noop, state}
+      {:close, _id} ->
+        handle_click(state, coords)
+
+      {:tab, id} ->
+        {:noop,
+         %{
+           state
+           | dragging_tab_id: id,
+             drag_reordered?: false,
+             drag_origin_x: x,
+             drag_active?: false
+         }}
+
+      :none ->
+        {:noop, state}
     end
   end
 
@@ -122,6 +143,10 @@ defmodule ScenicWidgets.TabBar.Reducer do
     index = Enum.find_index(state.tabs, &(&1.id == state.dragging_tab_id))
     left = index > 0 && Enum.at(state.tabs, index - 1)
     right = index < length(state.tabs) - 1 && Enum.at(state.tabs, index + 1)
+
+    # A press is not yet a drag. Showing the drop line the instant the button
+    # goes down would flash it on every ordinary tab click.
+    active? = state.drag_active? or abs(x - state.drag_origin_x) >= @drag_threshold
 
     target_index =
       cond do
@@ -137,13 +162,15 @@ defmodule ScenicWidgets.TabBar.Reducer do
          %{
            hovered
            | dragging_tab_id: state.dragging_tab_id,
-             drag_reordered?: state.drag_reordered?
+             drag_reordered?: state.drag_reordered?,
+             drag_origin_x: state.drag_origin_x,
+             drag_active?: active?
          }}
       end)
     else
       tab = Enum.at(state.tabs, index)
       tabs = state.tabs |> List.delete_at(index) |> List.insert_at(target_index, tab)
-      new_state = %{state | tabs: tabs, drag_reordered?: true}
+      new_state = %{state | tabs: tabs, drag_reordered?: true, drag_active?: active?}
       new_state = %{new_state | tab_widths: State.calculate_tab_widths(new_state)}
       {:tabs_dragged, new_state}
     end

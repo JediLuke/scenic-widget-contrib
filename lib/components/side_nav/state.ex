@@ -36,6 +36,22 @@ defmodule ScenicWidgets.SideNav.State do
     :dragging,
     :drag_target,
     :drop_valid,
+    # Live cursor position during a drag, in component-local coordinates. Drives
+    # the ghost that follows the pointer, so it updates on every cursor_pos.
+    :drag_pos,
+    # Directory the pointer is resting over, and the timer that will spring it
+    # open. A drag can only reach what is on screen, so hovering a collapsed
+    # folder has to open it — otherwise nothing nested is ever a drop target.
+    :drag_hover_id,
+    :drag_hover_timer,
+    # Repeating tick while the pointer sits in the top or bottom edge strip,
+    # so a drag can reach past one screenful of tree.
+    :drag_scroll_timer,
+    # The container every top-level item belongs to, supplied by the parent
+    # (Quillex passes the navigator root). Optional: without it, dropping on
+    # empty space below the tree has nowhere to go and is ignored. Item ids are
+    # otherwise opaque to this component, so it cannot infer one.
+    :root_id,
     :pending_path_moves,
     :renaming_id,
     :rename_value,
@@ -141,6 +157,11 @@ defmodule ScenicWidgets.SideNav.State do
       dragging: false,
       drag_target: nil,
       drop_valid: false,
+      drag_pos: nil,
+      drag_hover_id: nil,
+      drag_hover_timer: nil,
+      drag_scroll_timer: nil,
+      root_id: Map.get(data, :root_id),
       pending_path_moves: [],
       renaming_id: nil,
       rename_value: "",

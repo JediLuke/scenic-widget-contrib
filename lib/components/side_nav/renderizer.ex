@@ -18,6 +18,9 @@ defmodule ScenicWidgets.SideNav.Renderizer do
   alias Scenic.Primitives
   alias ScenicWidgets.SideNav.{State, Item}
 
+  # Border drawn around the whole pane when a drag targets the tree's root.
+  @root_drop_stroke 3
+
   @doc """
   Perform initial render of the entire sidebar.
   This builds the complete graph structure.
@@ -55,6 +58,11 @@ defmodule ScenicWidgets.SideNav.Renderizer do
           color: Map.get(state.theme, :scrollbar_color, {160, 160, 160})
         )
         |> render_context_menu(state)
+        # Both sit outside the scrollable group: the pane outline frames the
+        # viewport, and the ghost tracks the pointer in screen space. Scrolling
+        # either of them with the content would be wrong.
+        |> render_root_drop_target(state)
+        |> render_drag_ghost(state)
       end,
       # Render at local origin - parent handles positioning via translate
       translate: {0, 0}
@@ -74,11 +82,22 @@ defmodule ScenicWidgets.SideNav.Renderizer do
       old_state.context_menu != new_state.context_menu ->
         initial_render(Graph.build(), new_state)
 
+      # A drag starting or ending adds or removes the ghost and the pane
+      # outline, so the graph has to be rebuilt rather than tweaked.
+      old_state.dragging != new_state.dragging ->
+        initial_render(Graph.build(), new_state)
+
       old_state.drag_target != new_state.drag_target ||
         old_state.drop_valid != new_state.drop_valid ||
         old_state.renaming_id != new_state.renaming_id ||
           old_state.rename_value != new_state.rename_value ->
         initial_render(Graph.build(), new_state)
+
+      # The pointer moved but nothing else did. Rebuilding the whole tree on
+      # every cursor_pos of a drag is the one case where that is plainly too
+      # expensive, so the ghost is moved on its own.
+      new_state.dragging and old_state.drag_pos != new_state.drag_pos ->
+        move_drag_ghost(graph, new_state)
 
       # Scroll changed - use efficient transform update from Widgex.Scrollable
       scroll_changed?(old_state.scroll, new_state.scroll) ->
@@ -98,6 +117,90 @@ defmodule ScenicWidgets.SideNav.Renderizer do
       # No visual changes
       true ->
         graph
+    end
+  end
+
+  defp move_drag_ghost(graph, %State{drag_pos: {_, _} = pos}) do
+    Graph.modify(graph, :side_nav_drag_ghost, fn primitive ->
+      Scenic.Primitive.put_transform(primitive, :translate, ghost_offset(pos))
+    end)
+  end
+
+  defp move_drag_ghost(graph, _state), do: graph
+
+  # Down and to the right of the pointer, so the ghost never covers the row the
+  # drop is aimed at.
+  defp ghost_offset({x, y}), do: {x + 14, y + 8}
+
+  # Drop feedback colours come from the theme so a light-themed sidebar does not
+  # flash the dark theme's greens. The fallbacks are the values these were
+  # hardcoded to before themes carried them.
+  defp drop_fill(theme, :valid), do: Map.get(theme, :drop_valid_bg, {54, 92, 67})
+  defp drop_fill(theme, :invalid), do: Map.get(theme, :drop_invalid_bg, {105, 48, 52})
+  defp drop_text(theme), do: Map.get(theme, :drop_text, :white)
+
+  # Dropping on empty space targets the tree's container, which has no row to
+  # light up — so the pane itself is the affordance.
+  defp render_root_drop_target(graph, %State{drag_target: target, root_id: root})
+       when is_nil(target) or is_nil(root),
+       do: graph
+
+  defp render_root_drop_target(graph, %State{drag_target: target, root_id: target} = state) do
+    kind = if state.drop_valid, do: :valid, else: :invalid
+    %{width: width, height: height} = state.frame.size
+
+    # Inset by half the stroke width. Scenic centres a stroke on its path, so a
+    # rect on the frame's own edge loses half its border off-screen and the
+    # affordance reads as a hairline.
+    Primitives.rect(graph, {width - @root_drop_stroke, height - @root_drop_stroke},
+      id: :side_nav_root_drop_target,
+      fill: :clear,
+      stroke: {@root_drop_stroke, drop_fill(state.theme, kind)},
+      translate: {@root_drop_stroke / 2, @root_drop_stroke / 2}
+    )
+  end
+
+  defp render_root_drop_target(graph, _state), do: graph
+
+  # A label riding the cursor, so it is obvious what is in flight and that a
+  # drag is happening at all — the row highlight alone reads as hover.
+  defp render_drag_ghost(graph, %State{dragging: false}), do: graph
+  defp render_drag_ghost(graph, %State{drag_pos: nil}), do: graph
+
+  defp render_drag_ghost(graph, %State{drag_pos: {x, y}} = state) do
+    theme = state.theme
+    label = ghost_label(state)
+    font_size = theme.font_size
+    width = max(64, round(String.length(label) * font_size * 0.62) + 20)
+    height = theme.item_height
+
+    Primitives.group(
+      graph,
+      fn g ->
+        g
+        |> Primitives.rrect({width, height, 4},
+          id: :side_nav_drag_ghost_body,
+          fill: Map.get(theme, :ghost_bg, {28, 30, 38}),
+          stroke: {1, drop_fill(theme, if(state.drop_valid, do: :valid, else: :invalid))}
+        )
+        |> Primitives.text(label,
+          id: :side_nav_drag_ghost_label,
+          fill: Map.get(theme, :ghost_text, theme.text),
+          font: theme.font,
+          font_size: font_size,
+          text_align: :left,
+          translate: {10, height / 2 + font_size * 0.35}
+        )
+      end,
+      id: :side_nav_drag_ghost,
+      translate: ghost_offset({x, y})
+    )
+  end
+
+  defp ghost_label(%State{selected_ids: ids, drag_source: source}) do
+    case MapSet.size(ids) do
+      n when n > 1 -> "#{n} items"
+      _ -> source |> to_string() |> Path.basename()
     end
   end
 
@@ -210,8 +313,8 @@ defmodule ScenicWidgets.SideNav.Renderizer do
       # Determine colors based on state
       {bg_fill, text_fill} =
         cond do
-          is_drop_target and state.drop_valid -> {{54, 92, 67}, :white}
-          is_drop_target -> {{105, 48, 52}, :white}
+          is_drop_target and state.drop_valid -> {drop_fill(theme, :valid), drop_text(theme)}
+          is_drop_target -> {drop_fill(theme, :invalid), drop_text(theme)}
           is_active -> {theme.active_bg, theme.text}
           is_selected -> {theme.selection_bg, theme.text}
           is_hovered -> {theme.hover_bg, theme.text}
