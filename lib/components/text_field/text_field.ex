@@ -92,6 +92,13 @@ defmodule ScenicWidgets.TextField do
     `{:delete, :before_cursor}` / `{:delete, :after_cursor}`
   - `{:set_cursor, {line, col}}` / `{:move_cursor, direction}`
   - `{:select, ...}` / `:select_all` / `:clear_selection`
+  - `{:select_to, {line, col}}` — extend (or start) the selection to an
+    absolute position. Sent for Shift+Up/Down whenever word wrap or a fold is
+    in effect: "one row up" is a fact about how the VIEW laid the text out,
+    which the store cannot know, so the widget resolves it and sends the
+    position rather than the direction. A store that does not implement it
+    still gets correct unshifted movement, which arrives as `:set_cursor` for
+    the same reason.
   - `:undo` / `:redo`
   - `{:search, query}` / `:find_next` / `:find_prev` / `:clear_search`
   - `{:replace, text}` / `{:replace_all, text}`
@@ -461,6 +468,14 @@ defmodule ScenicWidgets.TextField do
         # Emit replace_mode_requested event to parent scene (Ctrl+H)
         send_parent_event(scene, {:replace_mode_requested, id})
         {:noreply, scene}
+
+      # A vertical move the widget resolved itself, because word wrap (or a
+      # fold) made "the line above" a view question. The goal column is kept
+      # here — the store has no notion of one — and the store is handed an
+      # absolute position.
+      {:display_move, goal, buffer_action} ->
+        if state.dispatch, do: GenServer.cast(state.dispatch, {:action, [buffer_action]})
+        update_scene(scene, state, %{state | goal_display_col: goal})
 
       {:goto_line_requested, id} ->
         # Emit goto_line_requested event to parent scene (Ctrl+G)

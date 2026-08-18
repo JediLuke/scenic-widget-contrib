@@ -102,6 +102,13 @@ defmodule ScenicWidgets.TextField.State do
     # {layout_key, %{line_text => wrapped_segments}} from the last projection,
     # so an edit re-wraps the lines it touched and looks the rest up.
     :wrap_memo,
+    # The display column a run of vertical moves is aiming at.
+    #
+    # It cannot be re-derived from the cursor on each move: stepping through a
+    # short row would clip it, and the column would ratchet leftward instead of
+    # coming back on the next long row. Set by the first Up/Down of a run and
+    # cleared by anything that moves the cursor horizontally or edits.
+    :goal_display_col,
     # MapSet of folded source-line headers (view state)
     :folds,
     # Fold header currently under the pointer in the line-number gutter.
@@ -760,7 +767,7 @@ defmodule ScenicWidgets.TextField.State do
     %{state | line_number_width: gutter_width(state.show_line_numbers, state.lines, state.font)}
   end
 
-  def click_to_cursor(%__MODULE__{scroll: scroll, lines: lines} = state, {click_x, click_y}) do
+  def click_to_cursor(%__MODULE__{scroll: scroll} = state, {click_x, click_y}) do
     line_height = line_height(state)
     # Same as in renderer
     text_padding = 10
@@ -777,17 +784,21 @@ defmodule ScenicWidgets.TextField.State do
     # few pixels of a visual line land one line down (QA A-known-failure #3).
     content_y = click_y + scroll.offset_y - 4
 
-    # Calculate line number from Y coordinate
+    # Calculate DISPLAY row from Y coordinate
     display_line = max(1, div(max(trunc(content_y), 0), line_height) + 1)
-    line = ScenicWidgets.TextField.Renderer.display_to_source_line(state, display_line)
 
-    # Get the text of the clicked line
-    line_text = Enum.at(lines, line - 1, "")
+    # X is measured against the row that was actually clicked, which under word
+    # wrap is a segment of a source line rather than the whole of it. Measuring
+    # against the source line from its first character put every click on the
+    # second visual row of a wrapped line at the column it would have had on
+    # the first.
+    display_text = ScenicWidgets.TextField.Renderer.display_row_text(state, display_line)
+    display_col = x_to_column(state, display_text, content_x)
 
-    # Calculate column from X coordinate using FontMetrics
-    col = x_to_column(state, line_text, content_x)
-
-    {line, col}
+    ScenicWidgets.TextField.Renderer.display_to_source_cursor(
+      state,
+      {display_line, display_col}
+    )
   end
 
   # Convert an X coordinate to a column position within a line of text

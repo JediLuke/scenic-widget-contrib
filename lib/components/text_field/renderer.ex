@@ -1851,6 +1851,78 @@ defmodule ScenicWidgets.TextField.Renderer do
     end
   end
 
+  @doc """
+  Map a cursor from DISPLAY `{row, col}` back to SOURCE `{line, col}` — the
+  inverse of `source_to_display_cursor/2`.
+
+  Vertical movement and clicking both happen in display space: the row above
+  the cursor is a *visual* row, and the X of a click is measured against the
+  visual row it landed on. The cursor itself is stored — and must stay stored —
+  as a source position, because that is what the buffer, undo, search and every
+  other consumer speak. So every such interaction is source → display, move,
+  display → source, and this is the return leg.
+  """
+  def display_to_source_cursor(%State{} = state, {display_row, display_col}) do
+    {display_lines, mapping} = projection(state)
+    row = display_row |> max(1) |> min(max(length(mapping), 1))
+    source_line = display_to_source_line(state, row)
+    first_row = first_display_row(mapping, source_line) || row
+
+    segments_before =
+      display_lines
+      |> Enum.slice((first_row - 1)..(row - 2)//1)
+
+    source_text = Enum.at(state.lines, source_line - 1, "")
+    source_start = source_offset_after(segments_before, source_text)
+
+    source_col =
+      (source_start + display_col)
+      |> max(1)
+      |> min(String.length(source_text) + 1)
+
+    {source_line, source_col}
+  end
+
+  @doc """
+  How many display rows the document currently occupies.
+
+  Vertical movement clamps against this rather than against the number of
+  source lines, which under wrap is a different (smaller) number.
+  """
+  def display_row_count(%State{} = state) do
+    {_display_lines, mapping} = projection(state)
+    max(length(mapping), 1)
+  end
+
+  @doc "The text drawn on one display row — what a click's X is measured against."
+  def display_row_text(%State{} = state, display_row) do
+    {display_lines, _mapping} = projection(state)
+    Enum.at(display_lines, display_row - 1, "")
+  end
+
+  # Where a display row starts in its source line, counted in graphemes.
+  #
+  # Word wrap swallows the whitespace at each boundary, so it is not simply the
+  # sum of the preceding segment lengths — every boundary crossed, INCLUDING
+  # the one into the row being asked about, eats its own run of spaces. The
+  # same accounting find_cursor_in_wrapped_lines/6 does going the other way;
+  # dropping the last adjustment puts the cursor one character out per wrap.
+  defp source_offset_after(segments_before, source_text) do
+    source = String.graphemes(source_text)
+
+    consumed =
+      Enum.reduce(segments_before, 0, fn segment, consumed ->
+        consumed + swallowed_spaces(source, consumed, consumed > 0) + String.length(segment)
+      end)
+
+    consumed + swallowed_spaces(source, consumed, segments_before != [])
+  end
+
+  defp swallowed_spaces(_source, _offset, false), do: 0
+
+  defp swallowed_spaces(source, offset, true),
+    do: source |> Enum.drop(offset) |> Enum.take_while(&(&1 == " ")) |> length()
+
   @doc "Map a display row to its source line, accounting for folds and wrapping."
   def display_to_source_line(%State{} = state, display_line) do
     {_display_lines, mapping} = projection(state)

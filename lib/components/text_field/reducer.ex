@@ -722,23 +722,24 @@ defmodule ScenicWidgets.TextField.Reducer do
     end
   end
 
-  def input_to_buffer_action(%State{focused: true}, {:key, {:key_up, key_state, mods}})
+  # Up/Down are the one movement whose meaning depends on the VIEW: under word
+  # wrap "the line above" is the visual row above, which the store cannot know
+  # — wrapping is a function of this widget's frame and font. So when display
+  # and source disagree, the widget resolves the move itself and hands the
+  # store an absolute position instead of a direction.
+  #
+  # `{:display_move, goal, action}` is not a store action: `handle_store_backed_input/2`
+  # unwraps it, keeps the goal column locally, and dispatches `action`.
+  def input_to_buffer_action(%State{focused: true} = state, {:key, {:key_up, key_state, mods}})
       when key_state > 0 do
-    if :shift in mods do
-      {:select_text, :up, 1}
-    else
-      {:move_cursor, :up, 1}
-    end
+    vertical_buffer_action(state, -1, :up, :shift in mods)
   end
 
-  def input_to_buffer_action(%State{focused: true}, {:key, {:key_down, key_state, mods}})
+  def input_to_buffer_action(%State{focused: true} = state, {:key, {:key_down, key_state, mods}})
       when key_state > 0 do
-    if :shift in mods do
-      {:select_text, :down, 1}
-    else
-      {:move_cursor, :down, 1}
-    end
+    vertical_buffer_action(state, 1, :down, :shift in mods)
   end
+
 
   # Home/End keys
   def input_to_buffer_action(%State{focused: true}, {:key, {:key_home, key_state, _mods}})
@@ -1042,6 +1043,30 @@ defmodule ScenicWidgets.TextField.Reducer do
     nil
   end
 
+  defp vertical_buffer_action(state, step, direction, shift?) do
+    if display_equals_source?(state) do
+      if shift?, do: {:select_text, direction, 1}, else: {:move_cursor, direction, 1}
+    else
+      alias ScenicWidgets.TextField.Renderer
+
+      {row, goal} =
+        active_display(state) || Renderer.source_to_display_cursor(state, state.cursor)
+
+      target_row = row + step
+      in_document? = target_row >= 1 and target_row <= Renderer.display_row_count(state)
+
+      {cursor, landed_row} =
+        if in_document?,
+          do: {display_target(state, target_row, goal), target_row},
+          else: {state.cursor, row}
+
+      # A host that has not implemented {:select_to, _} still gets correct
+      # unshifted movement; see the store-backed contract in TextField's docs.
+      tag = if shift?, do: :select_to, else: :set_cursor
+      {:display_move, {cursor, {landed_row, goal}}, {tag, cursor}}
+    end
+  end
+
   # In :store_backed mode, treat clicks whose local coordinates land far past
   # the rendered text content of the clicked line as belonging to a sibling
   # overlay (e.g. IconMenu dropdown). See click handler comment above.
@@ -1318,31 +1343,91 @@ defmodule ScenicWidgets.TextField.Reducer do
     State.ensure_cursor_visible(new_state)
   end
 
-  defp move_cursor(%State{cursor: {line, col}, lines: lines} = state, :up) do
+  # Vertical movement happens in DISPLAY space.
+  #
+  # With word wrap on, one source line is several visual rows, and "the line
+  # above" means the row above — not the previous numbered line. The cursor is
+  # still stored as a source position (that is what the buffer, undo and search
+  # speak), so each move is source → display, step one row, display → source.
+  #
+  # The same is true of folds: the row above a fold summary is the header, not
+  # whichever hidden line happens to precede it numerically.
+  #
+  # Precedent: scrolling was taught this in Phase 4b, when computing scroll
+  # targets from source line numbers made the end of a wrapped document
+  # unreachable. This is the same lesson applied to the cursor itself.
+  defp move_cursor(%State{} = state, :up), do: move_display_row(state, -1)
+  defp move_cursor(%State{} = state, :down), do: move_display_row(state, 1)
+
+  defp move_display_row(%State{cursor: {line, col}, lines: lines} = state, step) do
+    if display_equals_source?(state) do
+      target = line + step
+
+      {_row, goal} = active_display(state) || {line, col}
+
+      new_state =
+        if target >= 1 and target <= length(lines) do
+          target_text = Enum.at(lines, target - 1, "")
+          cursor = {target, min(goal, String.length(target_text) + 1)}
+          %{state | cursor: cursor, goal_display_col: {cursor, {target, goal}}}
+        else
+          state
+        end
+
+      State.ensure_cursor_visible(new_state)
+    else
+      move_display_row_wrapped(state, step)
+    end
+  end
+
+  defp move_display_row_wrapped(%State{cursor: cursor} = state, step) do
+    alias ScenicWidgets.TextField.Renderer
+
+    {row, goal} = active_display(state) || Renderer.source_to_display_cursor(state, cursor)
+    target_row = row + step
+
     new_state =
-      if line > 1 do
-        prev_line = Enum.at(lines, line - 2)
-        new_col = min(col, String.length(prev_line) + 1)
-        %{state | cursor: {line - 1, new_col}}
+      if target_row >= 1 and target_row <= Renderer.display_row_count(state) do
+        new_cursor = display_target(state, target_row, goal)
+        %{state | cursor: new_cursor, goal_display_col: {new_cursor, {target_row, goal}}}
       else
-        state
+        %{state | goal_display_col: {cursor, {row, goal}}}
       end
 
     State.ensure_cursor_visible(new_state)
   end
 
-  defp move_cursor(%State{cursor: {line, col}, lines: lines} = state, :down) do
-    new_state =
-      if line < length(lines) do
-        next_line = Enum.at(lines, line)
-        new_col = min(col, String.length(next_line) + 1)
-        %{state | cursor: {line + 1, new_col}}
-      else
-        state
-      end
+  # Where a run of vertical moves believes it is: the display ROW as well as
+  # the goal column, stored WITH the cursor they produced.
+  #
+  # The row matters as much as the column. A cursor sitting at a wrap boundary
+  # is genuinely ambiguous — it is both the end of one visual row and the start
+  # of the next — and re-deriving the row from the cursor picks the earlier
+  # one, so a second Down would compute the same target and the cursor would
+  # stop dead at the boundary. Remembering the row settles it.
+  #
+  # Storing the cursor alongside is what makes this self-invalidating: anything
+  # else that moves the cursor — a click, a word jump, an edit — leaves the two
+  # disagreeing and the goal is silently forgotten. That beats clearing it from
+  # every one of those call sites and missing one.
+  defp active_display(%State{goal_display_col: {cursor, row_col}, cursor: cursor}), do: row_col
+  defp active_display(_state), do: nil
 
-    State.ensure_cursor_visible(new_state)
+  defp display_target(state, target_row, goal) do
+    alias ScenicWidgets.TextField.Renderer
+
+    row_text = Renderer.display_row_text(state, target_row)
+    clamped = min(goal, String.length(row_text) + 1)
+    Renderer.display_to_source_cursor(state, {target_row, clamped})
   end
+
+  # The fast path: with no wrapping and no folds, a display row IS a source
+  # line, and projecting the whole document on every arrow key would be pure
+  # waste.
+  defp display_equals_source?(%State{wrap_mode: :none} = state),
+    do: state.folds == nil or MapSet.size(state.folds) == 0
+
+  defp display_equals_source?(_state), do: false
 
   defp move_cursor(%State{cursor: {line, _col}} = state, :line_start) do
     new_state = %{state | cursor: {line, 1}}
@@ -1354,6 +1439,8 @@ defmodule ScenicWidgets.TextField.Reducer do
     new_state = %{state | cursor: {line, String.length(current_line) + 1}}
     State.ensure_cursor_visible(new_state)
   end
+
+
 
   # ===== SELECTION HELPERS =====
 
