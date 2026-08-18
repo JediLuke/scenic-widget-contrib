@@ -77,6 +77,11 @@ defmodule ScenicWidgets.IconMenu.State do
     show_shortcuts: true,
     theme: %{},
     dropdown_bounds: %{},
+    # How far the open dropdown is scrolled, in pixels. A menu taller than the
+    # space beneath it is clamped and scrolls; rows past the bottom edge of the
+    # window cannot be clicked, so a feature that is in the menu would still be
+    # unreachable.
+    dropdown_scroll: 0,
     # Default to right alignment (flush with right edge of frame)
     align: :right
   ]
@@ -101,10 +106,16 @@ defmodule ScenicWidgets.IconMenu.State do
     icon_font_size: 16,
     dropdown_width: 180,
     dropdown_max_width: 420,
+    # Widest a dropdown may be drawn. nil falls back to the component's own
+    # frame width, which is only ever right when the icon bar spans the window.
+    max_dropdown_width: nil,
     dropdown_column_gap: 24,
     dropdown_item_height: 28,
     dropdown_slider_height: 52,
     dropdown_padding: 4,
+    # Tallest a dropdown may be drawn. nil means "as tall as its rows"; a host
+    # that knows the window height should pass one.
+    max_dropdown_height: nil,
 
     # Typography
     font: :roboto_mono,
@@ -213,10 +224,18 @@ defmodule ScenicWidgets.IconMenu.State do
           :left -> button_x
         end
 
-      # Calculate dropdown height based on items
-      dropdown_height = Enum.sum(Enum.map(menu.items, &item_height(&1, theme))) + 2 * padding
+      content_height = Enum.sum(Enum.map(menu.items, &item_height(&1, theme))) + 2 * padding
+      dropdown_height = min(content_height, max_dropdown_height(theme, content_height))
 
-      # Calculate item bounds within dropdown (relative to dropdown origin)
+      # Only the menu that is actually open can be scrolled, and only as far as
+      # its overflow. Baking the offset into the bounds is what keeps drawing
+      # and hit testing from ever disagreeing about where a row is: both read
+      # this map and nothing else.
+      scroll =
+        if menu.id == state.active_menu,
+          do: min(state.dropdown_scroll, max(content_height - dropdown_height, 0)),
+          else: 0
+
       item_bounds =
         menu.items
         |> Enum.map_reduce(0, fn item, y_offset ->
@@ -227,7 +246,7 @@ defmodule ScenicWidgets.IconMenu.State do
             {item_id,
              %{
                x: dropdown_x + padding,
-               y: y + padding + y_offset,
+               y: y + padding + y_offset - scroll,
                width: dropdown_width - 2 * padding,
                height: height
              }}
@@ -243,10 +262,30 @@ defmodule ScenicWidgets.IconMenu.State do
          y: y,
          width: dropdown_width,
          height: dropdown_height,
+         content_height: content_height,
+         scroll: scroll,
          items: item_bounds
        }}
     end)
     |> Enum.into(%{})
+  end
+
+  defp max_dropdown_height(theme, content_height) do
+    case Map.get(theme, :max_dropdown_height) do
+      nil -> content_height
+      max when is_number(max) and max > 0 -> max
+      _ -> content_height
+    end
+  end
+
+  @doc "How far the open dropdown can be scrolled; 0 when it all fits."
+  def max_dropdown_scroll(%__MODULE__{active_menu: nil}), do: 0
+
+  def max_dropdown_scroll(%__MODULE__{active_menu: menu_id, dropdown_bounds: bounds}) do
+    case Map.get(bounds, menu_id) do
+      %{content_height: content, height: height} -> max(content - height, 0)
+      _ -> 0
+    end
   end
 
   @doc """
@@ -419,7 +458,7 @@ defmodule ScenicWidgets.IconMenu.State do
   @doc "Calculates a content-aware dropdown width, bounded by the component theme and frame."
   def dropdown_width(items, theme, state) do
     minimum = theme.dropdown_width
-    maximum = min(Map.get(theme, :dropdown_max_width, 420), get_frame_width(state.frame))
+    maximum = min(Map.get(theme, :dropdown_max_width, 420), available_width(theme, state))
     gap = Map.get(theme, :dropdown_column_gap, 24)
     font_opts = [font: theme.font, font_size: theme.dropdown_font_size]
 
@@ -437,6 +476,19 @@ defmodule ScenicWidgets.IconMenu.State do
     chrome = 2 * theme.dropdown_padding + leading_space + 8
 
     min(max(minimum, ceil(label_width + shortcut_space + chrome)), max(minimum, maximum))
+  end
+
+  # A dropdown hangs BELOW the icon bar and extends leftward from it; the bar's
+  # own width is not what bounds it. Clamping to the frame made every dropdown
+  # exactly `dropdown_width` wide — a 140px icon strip forced the maximum below
+  # the minimum — and every label longer than that was truncated. Two pairs of
+  # rows in Quillex's View menu ended up literally indistinguishable
+  # ("Highlight Current…" twice, "Alchemical Dance …" twice).
+  #
+  # A host that knows the window width should pass `max_dropdown_width`. The
+  # frame remains the fallback so no existing caller changes.
+  defp available_width(theme, state) do
+    Map.get(theme, :max_dropdown_width) || get_frame_width(state.frame)
   end
 
   defp text_width(text, opts) do

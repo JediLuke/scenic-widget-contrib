@@ -118,10 +118,19 @@ defmodule ScenicWidgets.IconMenu.Reducer do
           menu_id ->
             if state.active_menu == menu_id do
               # Click on active menu - close it
-              {:noop, %{state | active_menu: nil, hovered_menu: nil, hovered_item: nil}}
+              {:noop,
+               recalculate(%{
+                 state
+                 | active_menu: nil,
+                   hovered_menu: nil,
+                   hovered_item: nil,
+                   dropdown_scroll: 0
+               })}
             else
-              # Open this menu
-              {:noop, %{state | active_menu: menu_id, hovered_item: nil}}
+              # Open this menu. A dropdown always opens at its top: reopening
+              # one where the last visit left it would hide the first rows.
+              {:noop,
+               recalculate(%{state | active_menu: menu_id, hovered_item: nil, dropdown_scroll: 0})}
             end
         end
 
@@ -177,6 +186,9 @@ defmodule ScenicWidgets.IconMenu.Reducer do
     end
   end
 
+  # A wheel inside an open dropdown belongs to whichever thing is scrollable
+  # there: an expanded Select if the pointer is on one, otherwise the dropdown
+  # itself when it is taller than the room beneath the menu bar.
   defp scroll_open_select(state, dy, coords) do
     case State.point_in_dropdown?(state, coords) do
       {true, item_id} ->
@@ -189,11 +201,25 @@ defmodule ScenicWidgets.IconMenu.Reducer do
             {:noop, replace_and_recalculate(state, item_id, updated)}
 
           _ ->
-            {:noop, state}
+            {:noop, scroll_dropdown(state, dy)}
         end
 
       _ ->
         {:noop, state}
+    end
+  end
+
+  @dropdown_scroll_step 40
+
+  defp scroll_dropdown(state, dy) do
+    max_scroll = State.max_dropdown_scroll(state)
+
+    if max_scroll == 0 do
+      state
+    else
+      step = if dy > 0, do: -@dropdown_scroll_step, else: @dropdown_scroll_step
+      scrolled = min(max(state.dropdown_scroll + step, 0), max_scroll)
+      recalculate(%{state | dropdown_scroll: scrolled})
     end
   end
 
@@ -281,6 +307,8 @@ defmodule ScenicWidgets.IconMenu.Reducer do
         menu
     end)
   end
+
+  defp recalculate(state), do: %{state | dropdown_bounds: State.calculate_dropdown_bounds(state)}
 
   defp replace_and_recalculate(state, item_id, updated) do
     state = %{state | menus: replace_active_item(state, item_id, updated), hovered_item: item_id}

@@ -347,7 +347,14 @@ defmodule ScenicWidgets.IconMenu.Renderer do
             stroke: {1, theme.dropdown_border}
           )
           # Render menu items
-          |> render_dropdown_items(menu.items, state)
+          |> Primitives.group(
+            fn inner -> render_dropdown_items(inner, menu.items, state) end,
+            id: :dropdown_items_group,
+            # A clamped dropdown scrolls, so its rows have to be clipped to it.
+            # Without this the overflow is simply drawn past the bottom edge —
+            # over the document, and over nothing at all below the window.
+            scissor: {dropdown.width, dropdown.height}
+          )
         end,
         id: :dropdown_group,
         translate: {dropdown.x, dropdown.y}
