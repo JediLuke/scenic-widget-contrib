@@ -749,25 +749,29 @@ defmodule ScenicWidgets.TextField.Reducer do
 
 
   # Home/End keys. With Shift they extend the selection, like every other
-  # movement key — the position is resolved here and sent absolutely, because
-  # "the end of this line" is a fact about the document that the direction
-  # alone cannot carry.
-  def input_to_buffer_action(%State{focused: true} = state, {:key, {:key_home, key_state, mods}})
+  # movement key.
+  #
+  # The target is sent as :line_start / :line_end rather than as coordinates
+  # this component works out for itself. It is tempting to resolve it here —
+  # the text is right there — but this component's copy of the document is a
+  # MIRROR, and immediately after the host switches buffers it is a mirror of
+  # the previous one. Resolving "the end of this line" against a stale mirror
+  # produced a selection that reached into a line the person could not see,
+  # and a copy that quietly took two lines instead of one. Where the end of a
+  # line is, is a fact about the document, so the document answers it.
+  def input_to_buffer_action(%State{focused: true}, {:key, {:key_home, key_state, mods}})
       when key_state > 0 do
     if :shift in mods do
-      {line, _col} = state.cursor
-      {:select_to, {line, 1}}
+      {:select_to, :line_start}
     else
       {:move_cursor, :line_start}
     end
   end
 
-  def input_to_buffer_action(%State{focused: true} = state, {:key, {:key_end, key_state, mods}})
+  def input_to_buffer_action(%State{focused: true}, {:key, {:key_end, key_state, mods}})
       when key_state > 0 do
     if :shift in mods do
-      {line, _col} = state.cursor
-      text = Enum.at(state.lines, line - 1, "")
-      {:select_to, {line, String.length(text) + 1}}
+      {:select_to, :line_end}
     else
       {:move_cursor, :line_end}
     end
