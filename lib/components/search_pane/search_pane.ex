@@ -180,20 +180,28 @@ defmodule ScenicWidgets.SearchPane do
   # ── Input ─────────────────────────────────────────────────────────────────
 
   @impl Scenic.Scene
-  def handle_input({:cursor_button, {:btn_left, 1, _mods, coords}}, _context, scene) do
+  # Scenic delivers every keystroke here. On a Mac the command key arrives as
+  # :meta, so it is rewritten to :ctrl once, at the door — the clauses below
+  # then say what they mean on both platforms.
+  def handle_input({:key, {key, action, mods}}, context, scene),
+    do: route_input({:key, {key, action, ScenicWidgets.PrimaryModifier.normalize(mods)}}, context, scene)
+
+  def handle_input(input, context, scene), do: route_input(input, context, scene)
+
+  defp route_input({:cursor_button, {:btn_left, 1, _mods, coords}}, _context, scene) do
     click(scene, coords)
   end
 
-  def handle_input({:cursor_pos, coords}, _context, scene) do
+  defp route_input({:cursor_pos, coords}, _context, scene) do
     hover(scene, coords)
   end
 
   # Scenic reports the wheel in two shapes depending on driver; both mean the
   # same thing here.
-  def handle_input({:cursor_scroll, {{_dx, dy}, {x, y}}}, _context, scene),
+  defp route_input({:cursor_scroll, {{_dx, dy}, {x, y}}}, _context, scene),
     do: wheel(scene, dy, {x, y})
 
-  def handle_input({:cursor_scroll, {_dx, dy, x, y}}, _context, scene),
+  defp route_input({:cursor_scroll, {_dx, dy, x, y}}, _context, scene),
     do: wheel(scene, dy, {x, y})
 
   # The keyboard belongs to the fields, and they are TextFields now — they
@@ -201,7 +209,7 @@ defmodule ScenicWidgets.SearchPane do
   # pane used to reimplement (a cursor, backspace, word deletion, Home and
   # End) it now simply has, along with selection and the clipboard, which it
   # never had at all.
-  def handle_input(_input, _context, scene), do: {:noreply, scene}
+  defp route_input(_input, _context, scene), do: {:noreply, scene}
 
   # ── Events from the fields ────────────────────────────────────────────────
 

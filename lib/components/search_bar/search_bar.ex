@@ -190,14 +190,22 @@ defmodule ScenicWidgets.SearchBar do
   # happens not to hold focus — after a click elsewhere, say — would
   # otherwise leave Escape doing nothing at all, and the bar unclosable
   # without the mouse.
-  def handle_input({:key, {:key_esc, @key_pressed, _}}, _context, scene) do
+  # Scenic delivers every keystroke here. On a Mac the command key arrives as
+  # :meta, so it is rewritten to :ctrl once, at the door — the clauses below
+  # then say what they mean on both platforms.
+  def handle_input({:key, {key, action, mods}}, context, scene),
+    do: route_input({:key, {key, action, ScenicWidgets.PrimaryModifier.normalize(mods)}}, context, scene)
+
+  def handle_input(input, context, scene), do: route_input(input, context, scene)
+
+  defp route_input({:key, {:key_esc, @key_pressed, _}}, _context, scene) do
     cast_parent(scene, {:search_close, scene.assigns.state.id})
     {:noreply, scene}
   end
 
   # Shift+Enter — the previous match. TextField reports a plain Enter as an
   # event; the modifier does not survive that, so this one is read directly.
-  def handle_input({:key, {:key_enter, @key_pressed, [:shift]}}, _context, scene) do
+  defp route_input({:key, {:key_enter, @key_pressed, [:shift]}}, _context, scene) do
     cast_parent(scene, {:search_prev, scene.assigns.state.id})
     {:noreply, scene}
   end
@@ -206,7 +214,7 @@ defmodule ScenicWidgets.SearchBar do
   # its own Ctrl+H binding cannot fire. Ask the parent to grow the bar into
   # find-and-replace (a no-op if it already is) and move focus to the
   # replacement field, which is where the user is heading.
-  def handle_input({:key, {:key_h, @key_pressed, [:ctrl]}}, _context, scene) do
+  defp route_input({:key, {:key_h, @key_pressed, [:ctrl]}}, _context, scene) do
     cast_parent(scene, {:replace_mode_requested, scene.assigns.state.id})
     {:noreply, focus_field(scene, :replace)}
   end
@@ -216,7 +224,7 @@ defmodule ScenicWidgets.SearchBar do
   # you want to take it back is the moment right after — with the bar still
   # open and the query still in it. Nothing here handled the chord at all, so
   # it simply vanished.
-  def handle_input({:key, {:key_z, @key_pressed, mods}}, _context, scene)
+  defp route_input({:key, {:key_z, @key_pressed, mods}}, _context, scene)
       when is_list(mods) do
     cond do
       :ctrl not in mods ->
@@ -232,26 +240,26 @@ defmodule ScenicWidgets.SearchBar do
     {:noreply, scene}
   end
 
-  def handle_input({:key, {:key_y, @key_pressed, [:ctrl]}}, _context, scene) do
+  defp route_input({:key, {:key_y, @key_pressed, [:ctrl]}}, _context, scene) do
     cast_parent(scene, {:redo_requested, scene.assigns.state.id})
     {:noreply, scene}
   end
 
   # Ctrl+F while already open: back to the search field.
-  def handle_input({:key, {:key_f, @key_pressed, [:ctrl]}}, _context, scene) do
+  defp route_input({:key, {:key_f, @key_pressed, [:ctrl]}}, _context, scene) do
     {:noreply, focus_field(scene, :search)}
   end
 
-  def handle_input({:cursor_button, {:btn_left, 1, _, coords}}, _context, scene) do
+  defp route_input({:cursor_button, {:btn_left, 1, _, coords}}, _context, scene) do
     handle_click(scene, coords)
   end
 
-  def handle_input({:cursor_pos, coords}, _context, scene) do
+  defp route_input({:cursor_pos, coords}, _context, scene) do
     handle_hover(scene, coords)
   end
 
   # Ignore other inputs
-  def handle_input(_input, _context, scene) do
+  defp route_input(_input, _context, scene) do
     {:noreply, scene}
   end
 

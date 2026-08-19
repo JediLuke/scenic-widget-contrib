@@ -281,6 +281,12 @@ defmodule ScenicWidgets.TextField do
   def handle_input(input, _context, scene) do
     state = scene.assigns.state
 
+    # On a Mac the command key arrives as :meta. Rewriting it here, at the one
+    # door input comes through, means every clause below can say [:ctrl] and be
+    # right on both platforms — rather than every clause having to say "or the
+    # other one" and one of them eventually forgetting to.
+    input = normalize_modifiers(input)
+
     # CRITICAL: Only process keyboard input if focused AND editable
     # This prevents unfocused/read-only TextFields from stealing input
     # (e.g., buffer pane shouldn't receive input when search bar is open,
@@ -396,6 +402,11 @@ defmodule ScenicWidgets.TextField do
       0 -> {dx, dy, position}
     end
   end
+
+  defp normalize_modifiers({:key, {key, action, mods}}),
+    do: {:key, {key, action, ScenicWidgets.PrimaryModifier.normalize(mods)}}
+
+  defp normalize_modifiers(input), do: input
 
   defp do_handle_input(input, scene) do
     state = scene.assigns.state
