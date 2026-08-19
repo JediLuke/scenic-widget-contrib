@@ -188,8 +188,16 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   # because the rows really had changed, so the scope tree appeared on its own
   # under a header that had not moved. Typing a character then changed the
   # status text, which finally tripped the widget check and set it all right.
-  defp layout_signature(%State{} = state),
-    do: {state.domain_open?, state.replace_open?, state.results_view}
+  # Including the scope rows THEMSELVES, not just whether the section is open.
+  # Expanding a folder adds rows to the header, which moves the status line
+  # and everything under it — and with only the open/shut flags here, that
+  # change was invisible to the header while the body moved anyway (its
+  # scroll resync tripped its own check). The tree appeared to do nothing but
+  # shove the results down.
+  defp layout_signature(%State{} = state) do
+    {state.domain_open?, state.replace_open?, state.results_view,
+     Enum.map(State.scope_rows(state), &{&1.id, Map.get(&1, :expanded?)})}
+  end
 
   # Everything the header's live widgets are drawn from. A search changes the
   # status line, a click changes a toggle. Typing is NOT here: the fields draw
