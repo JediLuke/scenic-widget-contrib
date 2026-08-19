@@ -162,8 +162,24 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   # arrives on every mouse move while the sidebar divider is being dragged, so
   # it has to be as cheap as it can be — and in particular must not disturb
   # anything living in the graph alongside these pieces.
-  defp geometry_changed?(old_state, new_state),
-    do: old_state.theme != new_state.theme or old_state.frame != new_state.frame
+  defp geometry_changed?(old_state, new_state) do
+    old_state.theme != new_state.theme or old_state.frame != new_state.frame or
+      layout_signature(old_state) != layout_signature(new_state)
+  end
+
+  # Everything that changes the SHAPE of the header — where the rows sit, how
+  # tall the backdrop is, where the rule under the controls goes.
+  #
+  # Opening the settings was in neither this nor the widget signature, and the
+  # symptoms were an exact map of that: the backdrop kept its old height and
+  # left a band of bare pane between it and the results, the disclosure
+  # triangle never turned, and the status line stayed where it had been —
+  # above the options that had appeared beneath it. Only the body noticed,
+  # because the rows really had changed, so the scope tree appeared on its own
+  # under a header that had not moved. Typing a character then changed the
+  # status text, which finally tripped the widget check and set it all right.
+  defp layout_signature(%State{} = state),
+    do: {state.domain_open?, state.replace_open?, state.results_view}
 
   # Everything the header's live widgets are drawn from. A search changes the
   # status line, a click changes a toggle. Typing is NOT here: the fields draw
@@ -173,8 +189,9 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   end
 
   defp widget_signature(%State{model: model} = state) do
-    {state.focused, state.focused_field, model.status, model.error, model.case_sensitive,
-     model.regex}
+    {state.focused, state.focused_field, state.hovered, model.status, model.error,
+     model.case_sensitive, model.regex, model.open_buffers_only, model.use_ignore_files,
+     layout_signature(state)}
   end
 
   # The rows are derived from a good deal of state — results, dismissals, which
