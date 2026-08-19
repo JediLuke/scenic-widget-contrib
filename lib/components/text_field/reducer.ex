@@ -562,11 +562,18 @@ defmodule ScenicWidgets.TextField.Reducer do
     {:event, {:folds_changed, state.id, MapSet.to_list(folds)}, %{state | folds: folds}}
   end
 
-  # Perform search across all lines
-  def process_action(%State{lines: lines} = state, {:search, query})
+  # Perform search across all lines.
+  #
+  # `opts` carries `case_sensitive:` and `regex:`, both defaulting to off —
+  # the plain find everyone expects. A regex that does not compile finds
+  # nothing rather than raising: a half-typed pattern is a normal thing to
+  # have in a search box, not an error worth taking the editor down for.
+  def process_action(%State{} = state, {:search, query}) when is_binary(query) and query != "",
+    do: process_action(state, {:search, query, []})
+
+  def process_action(%State{lines: lines} = state, {:search, query, opts})
       when is_binary(query) and query != "" do
-    # Simple search - find all occurrences of query in lines
-    matches = find_all_matches(lines, query)
+    matches = find_all_matches(lines, query, opts)
     match_count = length(matches)
 
     new_state = %{state | search_query: query, search_matches: matches, search_current_index: 0}
@@ -1172,14 +1179,56 @@ defmodule ScenicWidgets.TextField.Reducer do
   Returns list of {line_num, col_num, matched_text} tuples.
   Line and column numbers are 1-based.
   """
-  defp find_all_matches(lines, query) when is_list(lines) and is_binary(query) do
-    query_len = String.length(query)
+  defp find_all_matches(lines, query, opts \\ []) when is_list(lines) and is_binary(query) do
+    case search_pattern(query, opts) do
+      {:literal, needle} ->
+        lines
+        # 1-based line numbers
+        |> Enum.with_index(1)
+        |> Enum.flat_map(fn {line, line_num} ->
+          find_matches_in_line(line, needle, String.length(needle), line_num, 1, [])
+        end)
 
-    lines
-    # 1-based line numbers
-    |> Enum.with_index(1)
-    |> Enum.flat_map(fn {line, line_num} ->
-      find_matches_in_line(line, query, query_len, line_num, 1, [])
+      {:regex, regex} ->
+        lines
+        |> Enum.with_index(1)
+        |> Enum.flat_map(fn {line, line_num} -> regex_matches_in_line(line, regex, line_num) end)
+
+      :no_matches ->
+        []
+    end
+  end
+
+  # Case-insensitive literal search is done by lowering both sides, which is
+  # only correct because the column is counted in graphemes of the LOWERED
+  # line — and downcasing does not change how many graphemes a line has for
+  # any script this editor claims to support.
+  defp search_pattern(query, opts) do
+    cond do
+      Keyword.get(opts, :regex, false) ->
+        flags = if Keyword.get(opts, :case_sensitive, false), do: "", else: "i"
+
+        case Regex.compile(query, flags) do
+          {:ok, regex} -> {:regex, regex}
+          {:error, _} -> :no_matches
+        end
+
+      Keyword.get(opts, :case_sensitive, false) ->
+        {:literal, query}
+
+      true ->
+        {:regex, Regex.compile!(Regex.escape(query), "i")}
+    end
+  end
+
+  defp regex_matches_in_line(line, regex, line_num) do
+    regex
+    |> Regex.scan(line, return: :index)
+    |> Enum.reject(fn [{_start, len} | _] -> len == 0 end)
+    |> Enum.map(fn [{start, len} | _] ->
+      prefix = binary_part(line, 0, start)
+      matched = binary_part(line, start, len)
+      {line_num, String.length(prefix) + 1, matched}
     end)
   end
 

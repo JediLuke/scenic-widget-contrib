@@ -1,271 +1,270 @@
 defmodule ScenicWidgets.SearchBar.Renderer do
   @moduledoc """
-  Renderer for the SearchBar component.
+  Draws `ScenicWidgets.SearchBar`.
 
-  Renders a horizontal search bar with:
-  - Text input field with cursor
-  - Previous/Next navigation buttons (< >)
-  - Match count display (e.g., "3 of 10")
-  - Close button (X)
+  The arrangement is the one every editor has settled on, and for reasons
+  worth writing down:
 
-  Layout:
-  [Close X] [    Search input field    ] [< Prev] [3/10] [Next >]
+      [⌄] [ Find……………………………… Aa .* ] [‹] [3/10] [›]              [×]
+          [ Replace………………………………… ]                     [→] [⇉]
+
+  * The **disclosure caret** is on the far left, where something that opens
+    another row belongs — it points at what it opens.
+  * The **close** is on the far right. It used to be on the left, in the
+    caret's place, which put the most destructive control in the bar under
+    the pointer's resting position.
+  * The **option toggles** sit inside the right-hand end of the field they
+    apply to, so it reads that they modify the query rather than the search.
+  * Every button has a tooltip. These are drawn glyphs rather than words, and
+    an icon that cannot say what it does has to be guessed at.
+
+  Every rectangle here comes from `State.widgets/1` — the same list the hit
+  test uses, so a button cannot draw in one place and respond in another.
   """
 
   alias ScenicWidgets.SearchBar.State
-  alias ScenicWidgets.FloatingPanel
+  alias ScenicWidgets.{FloatingPanel, Tooltip}
   alias Scenic.Graph
   alias Scenic.Primitives
 
-  # Layout constants
-  @bar_height 36
-  @button_width 32
-  @input_padding 8
   # Text inset inside both input fields
   @text_inset 8
-  # Wide enough for "1238/1238" in 14px mono; the count is centred in it.
-  @match_count_width 84
 
   @doc "Layout constants shared with the component's hit-testing."
-  def button_width, do: @button_width
-  def match_count_width, do: @match_count_width
+  defdelegate button_width(), to: State
+  defdelegate match_count_width(), to: State
 
-  @doc """
-  Renders the complete search bar (optionally with replace row).
-  """
+  @doc "The complete search bar, replace row and all."
   def render(%State{} = state) do
-    %{
-      frame: frame,
-      theme: theme,
-      query: query,
-      current_match: current,
-      total_matches: total,
-      font: font,
-      focused: focused,
-      cursor_pos: cursor_pos
-    } = state
+    width = State.frame_width(state)
+    widgets = State.widgets(state)
 
-    # Handle both tuple and Dimensions struct for size
-    width =
-      case frame.size do
-        %{width: w} -> w
-        {w, _h} -> w
-      end
+    Graph.build()
+    |> FloatingPanel.add_card({width, State.height(state)},
+      id: :search_bar_bg,
+      fill: state.theme.background,
+      border: state.theme.border
+    )
+    |> render_widgets(widgets, state)
+    |> Tooltip.add(tooltip_for(state.hovered, widgets), state.theme, width)
+  end
 
-    # Component renders at {0, 0} - Scenic positions the component at frame.pin
-    # All coordinates are relative to component origin
+  defp tooltip_for(nil, _widgets), do: nil
 
-    # Calculate component positions (relative to {0, 0})
-    close_x = 0
-    input_x = @button_width + @input_padding
-    nav_start_x = width - @button_width * 2 - @match_count_width
-    input_width = nav_start_x - input_x - @input_padding
-
-    # Match count text
-    match_text = if total > 0, do: "#{current}/#{total}", else: "0/0"
-    match_color = if total > 0, do: theme.match_highlight, else: theme.placeholder
-
-    # Query text to display
-    search_focused = state.focused_field == :search
-    query_text = if query == "", do: "Search...", else: query
-    query_color = if query == "", do: theme.placeholder, else: theme.text
-
-    # Cursor position
-    cursor_x = if cursor_pos == 0, do: 0, else: cursor_pos * font.size * 0.6
-
-    panel_height = if state.replace_mode, do: @bar_height * 2, else: @bar_height
-
-    graph =
-      Graph.build()
-      |> FloatingPanel.add_card({width, panel_height},
-        id: :search_bar_bg,
-        fill: theme.background,
-        border: theme.border
-      )
-      # Close button background
-      |> Primitives.rect({@button_width, @bar_height},
-        fill: theme.button_bg,
-        translate: {close_x, 0}
-      )
-      # Close button X lines
-      |> Primitives.line({{close_x + 8, 10}, {close_x + 24, 26}},
-        stroke: {2, theme.text},
-        cap: :round
-      )
-      |> Primitives.line({{close_x + 24, 10}, {close_x + 8, 26}},
-        stroke: {2, theme.text},
-        cap: :round
-      )
-      # Input field background
-      |> Primitives.rounded_rectangle({input_width, @bar_height - 8, 4},
-        fill: theme.input_background,
-        stroke: {1, if(focused and search_focused, do: {100, 150, 255}, else: theme.border)},
-        translate: {input_x, 4}
-      )
-      # Query text
-      |> Primitives.text(query_text,
-        id: :query_text,
-        font: font.name,
-        font_size: font.size,
-        fill: query_color,
-        translate: {input_x + @text_inset, @bar_height / 2 + 5}
-      )
-      # Cursor line (if focused on search)
-      |> maybe_add_cursor(focused and search_focused, input_x + @text_inset + cursor_x, 0, theme)
-      # Prev button
-      |> Primitives.rect({@button_width, @bar_height},
-        fill: theme.button_bg,
-        translate: {nav_start_x, 0}
-      )
-      |> Primitives.text("<",
-        font: :roboto_mono,
-        font_size: 18,
-        fill: theme.text,
-        translate: {nav_start_x + @button_width / 2 - 5, @bar_height / 2 + 6}
-      )
-      # Match count
-      |> Primitives.text(match_text,
-        id: :match_count,
-        font: :roboto_mono,
-        font_size: 14,
-        fill: match_color,
-        text_align: :center,
-        translate: {nav_start_x + @button_width + @match_count_width / 2, @bar_height / 2 + 5}
-      )
-      # Next button
-      |> Primitives.rect({@button_width, @bar_height},
-        fill: theme.button_bg,
-        translate: {nav_start_x + @button_width + @match_count_width, 0}
-      )
-      |> Primitives.text(">",
-        font: :roboto_mono,
-        font_size: 18,
-        fill: theme.text,
-        translate:
-          {nav_start_x + @button_width + @match_count_width + @button_width / 2 - 5,
-           @bar_height / 2 + 6}
-      )
-
-    # Conditionally add replace row
-    if state.replace_mode do
-      render_replace_row(graph, state, width)
-    else
-      graph
+  defp tooltip_for(id, widgets) do
+    case Enum.find(widgets, &(&1.id == id and &1.tooltip != nil)) do
+      nil -> nil
+      w -> %{text: w.tooltip, at: {w.x, w.y + w.h}}
     end
   end
 
-  @doc """
-  Renders the replace row (second row shown when replace_mode is true).
-  """
-  def render_replace_row(graph, %State{} = state, width) do
-    %{theme: theme, font: font, replace_query: rq, replace_cursor_pos: rcp} = state
-    replace_focused = state.focused_field == :replace
+  defp render_widgets(graph, widgets, state) do
+    Enum.reduce(widgets, graph, &render_widget(&2, &1, state))
+  end
 
-    # Replace row is offset by @bar_height (below the search row)
-    row_y = @bar_height
+  # ── The widgets ───────────────────────────────────────────────────────────
 
-    # Replace button width
-    replace_btn_width = 70
-    all_btn_width = 40
+  defp render_widget(graph, %{id: :toggle_replace} = w, %State{} = state) do
+    graph
+    |> hover_backdrop(w, state)
+    |> caret(w, state.replace_mode, state.theme.text)
+  end
 
-    input_x = @button_width + @input_padding
-    nav_start_x = width - replace_btn_width - all_btn_width - @input_padding
-    input_width = nav_start_x - input_x - @input_padding
-
-    # Replace text
-    replace_display = if rq == "", do: "Replace...", else: rq
-    replace_color = if rq == "", do: theme.placeholder, else: theme.text
-    replace_cursor_x = if rcp == 0, do: 0, else: rcp * font.size * 0.6
+  defp render_widget(graph, %{id: :search_field} = w, %State{} = state) do
+    focused? = state.focused and state.focused_field == :search
+    text = if state.query == "", do: "Find", else: state.query
+    colour = if state.query == "", do: state.theme.placeholder, else: state.theme.text
 
     graph
-    # Close button placeholder (same width as search row close button)
-    |> Primitives.rect({@button_width, @bar_height},
-      fill: theme.button_bg,
-      translate: {0, row_y}
+    |> input_box(w, focused?, state.theme)
+    |> Primitives.text(text,
+      id: :query_text,
+      font: state.font.name,
+      font_size: state.font.size,
+      fill: colour,
+      translate: {w.x + @text_inset, w.y + w.h / 2 + 5}
     )
-    # Replace input field background
-    |> Primitives.rounded_rectangle({input_width, @bar_height - 8, 4},
-      fill: theme.input_background,
-      stroke: {1, if(replace_focused, do: {100, 150, 255}, else: theme.border)},
-      translate: {input_x, row_y + 4}
-    )
-    # Replace text (placeholder or actual)
-    |> Primitives.text(replace_display,
+    |> caret_line(focused?, w, cursor_x(state.cursor_pos, state.font), :cursor, state.theme)
+  end
+
+  defp render_widget(graph, %{id: :replace_field} = w, %State{} = state) do
+    focused? = state.focused and state.focused_field == :replace
+    text = if state.replace_query == "", do: "Replace", else: state.replace_query
+    colour = if state.replace_query == "", do: state.theme.placeholder, else: state.theme.text
+
+    graph
+    |> input_box(w, focused?, state.theme)
+    |> Primitives.text(text,
       id: :replace_text,
-      font: font.name,
-      font_size: font.size,
-      fill: replace_color,
-      translate: {input_x + @text_inset, row_y + @bar_height / 2 + 5}
+      font: state.font.name,
+      font_size: state.font.size,
+      fill: colour,
+      translate: {w.x + @text_inset, w.y + w.h / 2 + 5}
     )
-    # Cursor in replace field
-    |> maybe_add_replace_cursor(
-      replace_focused,
-      input_x + @text_inset + replace_cursor_x,
-      row_y,
-      theme
+    |> caret_line(
+      focused?,
+      w,
+      cursor_x(state.replace_cursor_pos, state.font),
+      :replace_cursor,
+      state.theme
     )
-    # "Replace" button
-    |> Primitives.rect({replace_btn_width, @bar_height - 4},
-      id: :replace_btn_bg,
-      fill: theme.button_bg,
-      translate: {nav_start_x, row_y + 2}
+  end
+
+  defp render_widget(graph, %{id: {:toggle, option}} = w, %State{} = state) do
+    on? = Map.fetch!(state, option)
+    label = if option == :case_sensitive, do: "Aa", else: ".*"
+
+    graph
+    |> Primitives.rounded_rectangle({w.w, w.h, 3},
+      id: {:option, option},
+      fill: if(on?, do: state.theme.option_on, else: :clear),
+      stroke: {1, if(on?, do: state.theme.option_on_border, else: state.theme.background)},
+      translate: {w.x, w.y}
     )
-    |> Primitives.text("Replace",
+    |> Primitives.text(label,
       font: :roboto_mono,
       font_size: 12,
-      fill: theme.text,
-      translate: {nav_start_x + 5, row_y + @bar_height / 2 + 4}
+      fill: if(on?, do: state.theme.text, else: state.theme.placeholder),
+      text_align: :center,
+      translate: {w.x + w.w / 2, w.y + w.h / 2 + 4}
     )
-    # "All" button
-    |> Primitives.rect({all_btn_width, @bar_height - 4},
-      id: :replace_all_btn_bg,
-      fill: theme.button_bg,
-      translate: {nav_start_x + replace_btn_width + 2, row_y + 2}
-    )
-    |> Primitives.text("All",
+  end
+
+  defp render_widget(graph, %{id: :prev} = w, %State{} = state) do
+    graph |> hover_backdrop(w, state) |> chevron(w, :left, state.theme.text)
+  end
+
+  defp render_widget(graph, %{id: :next} = w, %State{} = state) do
+    graph |> hover_backdrop(w, state) |> chevron(w, :right, state.theme.text)
+  end
+
+  defp render_widget(graph, %{id: :count} = w, %State{} = state) do
+    text =
+      if state.total_matches > 0,
+        do: "#{state.current_match}/#{state.total_matches}",
+        else: "0/0"
+
+    colour =
+      if state.total_matches > 0, do: state.theme.match_highlight, else: state.theme.placeholder
+
+    Primitives.text(graph, text,
+      id: :match_count,
       font: :roboto_mono,
-      font_size: 12,
-      fill: theme.text,
-      translate:
-        {nav_start_x + replace_btn_width + 2 + all_btn_width / 2 - 8, row_y + @bar_height / 2 + 4}
+      font_size: 14,
+      fill: colour,
+      text_align: :center,
+      translate: {w.x + w.w / 2, w.y + w.h / 2 + 5}
     )
   end
 
-  defp maybe_add_replace_cursor(graph, false, _x, _row_y, _theme), do: graph
+  defp render_widget(graph, %{id: :close} = w, %State{} = state) do
+    graph |> hover_backdrop(w, state) |> cross(w, state.theme.text)
+  end
 
-  defp maybe_add_replace_cursor(graph, true, x, row_y, theme) do
+  defp render_widget(graph, %{id: :replace_one} = w, %State{} = state) do
+    graph |> hover_backdrop(w, state) |> replace_icon(w, 1, state.theme.text)
+  end
+
+  defp render_widget(graph, %{id: :replace_all} = w, %State{} = state) do
+    graph |> hover_backdrop(w, state) |> replace_icon(w, 3, state.theme.text)
+  end
+
+  # ── Pieces ────────────────────────────────────────────────────────────────
+
+  # Buttons are transparent until the pointer is on them. A row of filled
+  # rectangles reads as a toolbar of its own, and competes with the field —
+  # which is the thing the bar is actually about.
+  defp hover_backdrop(graph, %{id: id} = w, %State{hovered: id, theme: theme}) do
+    Primitives.rounded_rectangle(graph, {w.w - 4, w.h - 8, 4},
+      fill: theme.button_hover,
+      translate: {w.x + 2, w.y + 4}
+    )
+  end
+
+  defp hover_backdrop(graph, _w, _state), do: graph
+
+  defp input_box(graph, w, focused?, theme) do
+    Primitives.rounded_rectangle(graph, {w.w, w.h, 4},
+      fill: theme.input_background,
+      stroke: {1, if(focused?, do: theme.focus_border, else: theme.border)},
+      translate: {w.x, w.y}
+    )
+  end
+
+  defp cursor_x(0, _font), do: 0
+  defp cursor_x(pos, font), do: pos * font.size * 0.6
+
+  defp caret_line(graph, false, _w, _offset, _id, _theme), do: graph
+
+  defp caret_line(graph, true, w, offset, id, theme) do
+    x = w.x + @text_inset + offset
+
+    Primitives.line(graph, {{x, w.y + 4}, {x, w.y + w.h - 4}}, id: id, stroke: {2, theme.text})
+  end
+
+  # A disclosure triangle: pointing right when the replace row is hidden, down
+  # when it is showing. It points AT what it opens.
+  defp caret(graph, w, open?, colour) do
+    cx = w.x + w.w / 2
+    cy = w.y + w.h / 2
+    r = 4
+
+    points =
+      if open?,
+        do: {{cx - r, cy - r / 2}, {cx + r, cy - r / 2}, {cx, cy + r}},
+        else: {{cx - r / 2, cy - r}, {cx + r, cy}, {cx - r / 2, cy + r}}
+
+    Primitives.triangle(graph, points, fill: colour, id: :replace_caret)
+  end
+
+  defp chevron(graph, w, direction, colour) do
+    cx = w.x + w.w / 2
+    cy = w.y + w.h / 2
+    dx = if direction == :left, do: 4, else: -4
+
     graph
-    |> Primitives.line({{x, row_y + 8}, {x, row_y + @bar_height - 8}},
-      id: :replace_cursor,
-      stroke: {2, theme.text}
-    )
+    |> Primitives.line({{cx + dx, cy - 5}, {cx - dx, cy}}, stroke: {2, colour}, cap: :round)
+    |> Primitives.line({{cx - dx, cy}, {cx + dx, cy + 5}}, stroke: {2, colour}, cap: :round)
   end
 
-  defp maybe_add_cursor(graph, false, _x, _y, _theme), do: graph
+  defp cross(graph, w, colour) do
+    cx = w.x + w.w / 2
+    cy = w.y + w.h / 2
+    r = 5
 
-  defp maybe_add_cursor(graph, true, x, _y, theme) do
     graph
-    |> Primitives.line({{x, 8}, {x, @bar_height - 8}},
-      id: :cursor,
-      stroke: {2, theme.text}
-    )
+    |> Primitives.line({{cx - r, cy - r}, {cx + r, cy + r}}, stroke: {2, colour}, cap: :round)
+    |> Primitives.line({{cx + r, cy - r}, {cx - r, cy + r}}, stroke: {2, colour}, cap: :round)
   end
 
-  @doc """
-  Updates the match count display.
-  """
+  # An arrow going INTO lines: one line for "replace this one", a stack of
+  # them for "replace all of them". The count is the whole difference between
+  # the two buttons, so it is the whole difference between the two icons.
+  defp replace_icon(graph, w, lines, colour) do
+    cx = w.x + w.w / 2
+    cy = w.y + w.h / 2
+    arrow_y = cy - 5
+
+    graph
+    |> Primitives.line({{cx - 7, arrow_y}, {cx + 4, arrow_y}}, stroke: {1.6, colour}, cap: :round)
+    |> Primitives.line({{cx + 1, arrow_y - 3}, {cx + 4, arrow_y}}, stroke: {1.6, colour}, cap: :round)
+    |> Primitives.line({{cx + 1, arrow_y + 3}, {cx + 4, arrow_y}}, stroke: {1.6, colour}, cap: :round)
+    |> then(fn g ->
+      Enum.reduce(0..(lines - 1), g, fn i, acc ->
+        y = cy + 2 + i * 3.5
+
+        Primitives.line(acc, {{cx - 7, y}, {cx + 7, y}}, stroke: {1.4, colour}, cap: :round)
+      end)
+    end)
+  end
+
+  @doc "Updates the match count display."
   def update_match_count(graph, %State{current_match: current, total_matches: total, theme: theme}) do
-    display_text =
-      if total > 0 do
-        "#{current}/#{total}"
-      else
-        "0/0"
-      end
-
-    text_color = if total > 0, do: theme.match_highlight, else: theme.placeholder
+    text = if total > 0, do: "#{current}/#{total}", else: "0/0"
+    colour = if total > 0, do: theme.match_highlight, else: theme.placeholder
 
     Graph.modify(graph, :match_count, fn primitive ->
-      Primitives.text(primitive, display_text, fill: text_color)
+      Primitives.text(primitive, text, fill: colour)
     end)
   end
 end

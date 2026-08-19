@@ -33,7 +33,15 @@ defmodule ScenicWidgets.SearchBar.State do
     replace_mode: false,    # Whether replace row is visible
     replace_query: "",      # Current replacement text
     replace_cursor_pos: 0,  # Cursor position in replace string
-    focused_field: :search  # Which field has focus: :search or :replace
+    focused_field: :search, # Which field has focus: :search or :replace
+    # Find options. The same two the project-search pane offers, because a
+    # find that can only match literally and only exactly is a different
+    # feature from the one in the sidebar, and nobody wants to learn two.
+    case_sensitive: false,
+    regex: false,
+    # Which widget the pointer is over, for the tooltip. An icon that cannot
+    # say what it does has to be guessed at.
+    hovered: nil
   ]
 
   @type t :: %__MODULE__{
@@ -81,7 +89,19 @@ defmodule ScenicWidgets.SearchBar.State do
       border: {80, 80, 80},              # Border color
       button_bg: {70, 70, 70},           # Button background
       button_hover: {90, 90, 90},        # Button hover
-      match_highlight: {255, 200, 0}     # Yellow for match count
+      match_highlight: {255, 200, 0},    # Yellow for match count
+      # The ring around the field that has the keyboard.
+      focus_border: {100, 150, 255},
+      # A find option that is ON. Off is drawn as nothing at all: two lit
+      # buttons among two unlit ones say which is which better than four
+      # boxes of slightly different greys.
+      option_on: {70, 90, 130},
+      option_on_border: {110, 150, 220},
+      tooltip_bg: {25, 25, 25},
+      tooltip_border: {95, 95, 95},
+      tooltip_text: {255, 255, 255},
+      tooltip_font_size: 12,
+      font: :roboto_mono
     }
 
     %__MODULE__{
@@ -98,8 +118,166 @@ defmodule ScenicWidgets.SearchBar.State do
       replace_mode: opts[:replace_mode] || false,
       replace_query: "",
       replace_cursor_pos: 0,
-      focused_field: :search
+      focused_field: :search,
+      case_sensitive: opts[:case_sensitive] || false,
+      regex: opts[:regex] || false,
+      hovered: nil
     }
+  end
+
+  @doc "Flip one of the find options."
+  def toggle_option(%__MODULE__{} = state, :case_sensitive),
+    do: %{state | case_sensitive: not state.case_sensitive}
+
+  def toggle_option(%__MODULE__{} = state, :regex), do: %{state | regex: not state.regex}
+
+  @doc "The find options, in the shape the search action takes them."
+  def search_opts(%__MODULE__{} = state),
+    do: [case_sensitive: state.case_sensitive, regex: state.regex]
+
+  # ── Layout ────────────────────────────────────────────────────────────────
+  #
+  # One list of rectangles, used by BOTH the renderer and the hit test. They
+  # used to be worked out twice, in two places, from the same handful of
+  # constants — which is the kind of duplication that ends with a button that
+  # draws in one place and responds in another.
+  #
+  # The arrangement follows the one every editor has settled on: the
+  # disclosure caret on the far left, the close on the far right, and the
+  # option toggles tucked inside the right-hand end of the field they apply
+  # to.
+
+  @bar_height 36
+  @caret_width 24
+  @button_width 32
+  @toggle_width 24
+  @match_count_width 84
+  @pad 8
+
+  def bar_height, do: @bar_height
+  def button_width, do: @button_width
+  def match_count_width, do: @match_count_width
+
+  @doc "Total height, which depends on whether the replace row is showing."
+  def height(%__MODULE__{replace_mode: true}), do: @bar_height * 2
+  def height(%__MODULE__{}), do: @bar_height
+
+  @doc """
+  Every clickable rectangle, in component-local coordinates.
+
+  `%{id:, x:, y:, w:, h:, tooltip:}`. The id is what the hit test matches on
+  and what the renderer draws; the tooltip is what the thing says it does.
+  """
+  def widgets(%__MODULE__{} = state) do
+    width = frame_width(state)
+
+    close_x = width - @pad - @button_width
+    next_x = close_x - @button_width
+    count_x = next_x - @match_count_width
+    prev_x = count_x - @button_width
+
+    input_x = @caret_width + @pad
+    input_w = max(prev_x - @pad - input_x, 60)
+
+    regex_x = input_x + input_w - @pad / 2 - @toggle_width
+    case_x = regex_x - @toggle_width
+
+    search_row =
+      [
+        %{
+          id: :toggle_replace,
+          x: 0,
+          y: 0,
+          w: @caret_width,
+          h: @bar_height,
+          tooltip: if(state.replace_mode, do: "Hide Replace", else: "Show Replace")
+        },
+        %{id: :search_field, x: input_x, y: 4, w: input_w, h: @bar_height - 8, tooltip: nil},
+        %{
+          id: {:toggle, :case_sensitive},
+          x: case_x,
+          y: 6,
+          w: @toggle_width,
+          h: @bar_height - 12,
+          tooltip: "Match Case"
+        },
+        %{
+          id: {:toggle, :regex},
+          x: regex_x,
+          y: 6,
+          w: @toggle_width,
+          h: @bar_height - 12,
+          tooltip: "Use Regular Expression"
+        },
+        %{
+          id: :prev,
+          x: prev_x,
+          y: 0,
+          w: @button_width,
+          h: @bar_height,
+          tooltip: "Previous Match (Shift+F3)"
+        },
+        %{id: :count, x: count_x, y: 0, w: @match_count_width, h: @bar_height, tooltip: nil},
+        %{id: :next, x: next_x, y: 0, w: @button_width, h: @bar_height, tooltip: "Next Match (F3)"},
+        %{id: :close, x: close_x, y: 0, w: @button_width, h: @bar_height, tooltip: "Close (Esc)"}
+      ]
+
+    search_row ++ replace_row(state, width, input_x)
+  end
+
+  defp replace_row(%__MODULE__{replace_mode: false}, _width, _input_x), do: []
+
+  defp replace_row(%__MODULE__{}, width, input_x) do
+    y = @bar_height
+
+    all_x = width - @pad - @button_width
+    one_x = all_x - @button_width
+    input_w = max(one_x - @pad - input_x, 60)
+
+    [
+      %{
+        id: :replace_field,
+        x: input_x,
+        y: y + 4,
+        w: input_w,
+        h: @bar_height - 8,
+        tooltip: nil
+      },
+      %{
+        id: :replace_one,
+        x: one_x,
+        y: y,
+        w: @button_width,
+        h: @bar_height,
+        tooltip: "Replace (Enter)"
+      },
+      %{id: :replace_all, x: all_x, y: y, w: @button_width, h: @bar_height, tooltip: "Replace All"}
+    ]
+  end
+
+  @doc """
+  Which widget, if any, is under a point.
+
+  Searched in REVERSE, because the list is in drawing order and the thing
+  drawn last is the thing on top. The option toggles sit inside the search
+  field's right-hand end, so a forward search hands every click on them to
+  the field underneath — which is exactly what happened.
+  """
+  def widget_at(%__MODULE__{} = state, {x, y}) do
+    state
+    |> widgets()
+    |> Enum.reverse()
+    |> Enum.find(fn w ->
+      x >= w.x and x <= w.x + w.w and y >= w.y and y <= w.y + w.h
+    end)
+  end
+
+  @doc "The bar's width, however its frame chose to express it."
+  def frame_width(%__MODULE__{frame: frame}) do
+    case frame.size do
+      %{width: w} -> w
+      {w, _h} -> w
+    end
   end
 
   @doc """

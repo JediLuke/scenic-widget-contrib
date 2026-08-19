@@ -58,55 +58,19 @@ defmodule ScenicWidgets.IconMenu.Renderer do
   defp get_frame_width(%{size: %{width: w}}), do: w
   defp get_frame_width(_), do: 0
 
-  defp render_tooltip(graph, %State{tooltip: nil}), do: graph
-
-  defp render_tooltip(
-         graph,
-         %State{tooltip: %{text: text, at: {x, y}}, theme: theme, frame: frame}
-       ) do
-    font_size = Map.get(theme, :tooltip_font_size, 12)
-    padding = 7
-    width = tooltip_width(text, theme.font, font_size, padding)
-    height = font_size + padding * 2
-    tooltip_x = fit_tooltip_x(x + 10, width, get_frame_width(frame))
-
-    Primitives.group(
-      graph,
-      fn g ->
-        g
-        |> Primitives.rect({width, height},
-          fill: Map.get(theme, :tooltip_bg, {25, 25, 25}),
-          stroke: {1, Map.get(theme, :tooltip_border, {95, 95, 95})},
-          id: :menu_tooltip_bg
-        )
-        |> Primitives.text(text,
-          fill: Map.get(theme, :tooltip_text, :white),
-          font: theme.font,
-          font_size: font_size,
-          translate: {padding, font_size + div(padding, 2)},
-          id: :menu_tooltip_text
-        )
-      end,
-      id: :menu_tooltip,
-      translate: {tooltip_x, y + 4}
-    )
+  # The tooltip itself lives in ScenicWidgets.Tooltip — every component with
+  # buttons wants one, and this was the only one that had it.
+  defp render_tooltip(graph, %State{tooltip: tooltip, theme: theme, frame: frame}) do
+    ScenicWidgets.Tooltip.add(graph, tooltip, theme, get_frame_width(frame), id: :menu_tooltip)
   end
 
   @doc false
-  def fit_tooltip_x(preferred_x, tooltip_width, component_width) do
-    min(preferred_x, component_width - tooltip_width - 4)
-  end
+  def fit_tooltip_x(preferred_x, tooltip_width, component_width),
+    do: ScenicWidgets.Tooltip.fit_x(preferred_x, tooltip_width, component_width)
 
   @doc false
-  def tooltip_width(text, font, font_size, padding) do
-    measured =
-      case TextHelper.measure_text(text, font: font, font_size: font_size) do
-        {:ok, width} -> width
-        {:error, _} -> String.length(text) * font_size * 0.6
-      end
-
-    ceil(measured) + padding * 2
-  end
+  def tooltip_width(text, font, font_size, _padding),
+    do: ScenicWidgets.Tooltip.width(text, font, font_size)
 
   defp render_icon_buttons(graph, %State{menus: menus} = state) do
     Enum.reduce(menus, graph, fn menu, acc ->

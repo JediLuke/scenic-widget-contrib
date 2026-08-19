@@ -374,6 +374,10 @@ defmodule ScenicWidgets.SearchBar do
     handle_click(scene, coords)
   end
 
+  def handle_input({:cursor_pos, coords}, _context, scene) do
+    handle_hover(scene, coords)
+  end
+
   # Ignore other inputs
   def handle_input(_input, _context, scene) do
     {:noreply, scene}
@@ -394,116 +398,84 @@ defmodule ScenicWidgets.SearchBar do
   # bar is somebody else's click (the parent decides whether it closes us),
   # not a press on whichever of our buttons the coordinates happen to fall
   # near — a click far to the left used to read as the close button.
-  defp handle_click(scene, {click_x, click_y}) do
+  # Every click is matched against the SAME rectangles the renderer drew, so a
+  # button cannot respond in one place and appear in another.
+  defp handle_click(scene, coords) do
     state = scene.assigns.state
-    %{frame: frame} = state
-    # Handle both tuple and Dimensions struct for size
-    width =
-      case frame.size do
-        %{width: w} -> w
-        {w, _h} -> w
-      end
 
-    bar_height = 36
-    height = if state.replace_mode, do: bar_height * 2, else: bar_height
-
-    cond do
-      click_x < 0 or click_x > width or click_y < 0 or click_y > height ->
+    case State.widget_at(state, coords) do
+      nil ->
         {:noreply, scene}
 
-      # Click is in the replace row (y >= bar_height) when in replace mode
-      state.replace_mode and click_y >= bar_height ->
-        handle_replace_row_click(scene, click_x, width)
-
-      true ->
-        handle_search_row_click(scene, click_x, width)
-    end
-  end
-
-  defp handle_search_row_click(scene, click_x, width) do
-    button_width = Renderer.button_width()
-    match_count_width = Renderer.match_count_width()
-    nav_start_x = width - button_width * 2 - match_count_width
-
-    cond do
-      # Close button area (first 32px)
-      click_x < button_width ->
-        cast_parent(scene, {:search_close, scene.assigns.state.id})
+      %{id: :close} ->
+        cast_parent(scene, {:search_close, state.id})
         {:noreply, scene}
 
-      # Previous button area
-      click_x >= nav_start_x and click_x < nav_start_x + button_width ->
-        cast_parent(scene, {:search_prev, scene.assigns.state.id})
+      %{id: :prev} ->
+        cast_parent(scene, {:search_prev, state.id})
         {:noreply, scene}
 
-      # Next button area
-      click_x >= nav_start_x + button_width + match_count_width ->
-        cast_parent(scene, {:search_next, scene.assigns.state.id})
+      %{id: :next} ->
+        cast_parent(scene, {:search_next, state.id})
         {:noreply, scene}
 
-      # Input field area - focus search
-      true ->
-        new_state = %{scene.assigns.state | focused_field: :search}
-        graph = Renderer.render(new_state)
-        new_scene = scene |> assign(state: new_state) |> assign(graph: graph) |> push_graph(graph)
-        {:noreply, new_scene}
-    end
-  end
+      %{id: :toggle_replace} ->
+        cast_parent(scene, {:replace_mode_requested, state.id})
+        {:noreply, scene}
 
-  defp handle_replace_row_click(scene, click_x, width) do
-    state = scene.assigns.state
-    replace_btn_width = 70
-    all_btn_width = 40
-    # button_width + input_padding
-    input_x = 32 + 8
-    nav_start_x = width - replace_btn_width - all_btn_width - 8
+      %{id: {:toggle, option}} ->
+        new_state = State.toggle_option(state, option)
 
-    cond do
-      # Replace button
-      click_x >= nav_start_x and click_x < nav_start_x + replace_btn_width ->
+        # The search has to run again: the same query means something
+        # different now.
+        cast_parent(
+          scene,
+          {:search_options_changed, state.id, State.search_opts(new_state)}
+        )
+
+        {:noreply, redraw(scene, new_state)}
+
+      %{id: :replace_one} ->
         cast_parent(scene, {:replace_requested, state.id, state.replace_query})
         {:noreply, scene}
 
-      # All button
-      click_x >= nav_start_x + replace_btn_width ->
+      %{id: :replace_all} ->
         cast_parent(scene, {:replace_all_requested, state.id, state.replace_query})
         {:noreply, scene}
 
-      # Replace input field area - focus replace
-      click_x >= input_x ->
-        new_state = %{state | focused_field: :replace}
-        graph = Renderer.render(new_state)
-        new_scene = scene |> assign(state: new_state) |> assign(graph: graph) |> push_graph(graph)
-        {:noreply, new_scene}
+      %{id: :search_field} ->
+        {:noreply, redraw(scene, %{state | focused_field: :search})}
 
-      true ->
+      %{id: :replace_field} ->
+        {:noreply, redraw(scene, %{state | focused_field: :replace})}
+
+      %{id: :count} ->
         {:noreply, scene}
     end
   end
 
-  # Handle button click events from child components
-  def handle_event({:click, :close_button}, _from, scene) do
-    cast_parent(scene, {:search_close, scene.assigns.state.id})
-    {:noreply, scene}
+  # Hover, for the tooltips. Only the widgets that HAVE something to say get
+  # tracked, so moving across the field does not blink a label on and off.
+  defp handle_hover(scene, coords) do
+    state = scene.assigns.state
+
+    hovered =
+      case State.widget_at(state, coords) do
+        %{id: id, tooltip: tooltip} when is_binary(tooltip) -> id
+        _ -> nil
+      end
+
+    if hovered == state.hovered do
+      {:noreply, scene}
+    else
+      {:noreply, redraw(scene, %{state | hovered: hovered})}
+    end
   end
 
-  def handle_event({:click, :prev_button}, _from, scene) do
-    cast_parent(scene, {:search_prev, scene.assigns.state.id})
-    {:noreply, scene}
+  defp redraw(scene, state) do
+    graph = Renderer.render(state)
+    scene |> assign(state: state, graph: graph) |> push_graph(graph)
   end
-
-  def handle_event({:click, :next_button}, _from, scene) do
-    cast_parent(scene, {:search_next, scene.assigns.state.id})
-    {:noreply, scene}
-  end
-
-  def handle_event(_event, _from, scene) do
-    {:noreply, scene}
-  end
-
-  # ===========================================================================
-  # Semantic Registration
-  # ===========================================================================
 
   defp register_replace_semantic_elements(scene, %State{}, frame) do
     viewport = scene.viewport
