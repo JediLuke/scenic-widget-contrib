@@ -585,6 +585,19 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     )
   end
 
+  # Scope rows are part of the settings section, not part of the results, and
+  # they say so by sharing its background. Without that the tree reads as a
+  # strange first result — a list of directories among a list of matches.
+  defp row_background(graph, %{kind: kind} = row, hovered?, %State{theme: theme, frame: frame})
+       when kind in [:scope, :scope_header] do
+    fill = if hovered?, do: theme.row_hover, else: theme.header_background
+
+    Primitives.rect(graph, {frame.size.width, row.height},
+      fill: fill,
+      id: {:row_background, row.id}
+    )
+  end
+
   defp row_background(graph, _row, false, _state), do: graph
 
   defp row_background(graph, row, true, %State{theme: theme, frame: frame}) do

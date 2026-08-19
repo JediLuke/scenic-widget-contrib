@@ -307,8 +307,15 @@ defmodule ScenicWidgets.SearchPane.State do
     %{theme: theme, model: model} = state
     h = theme.row_height
 
+    # The scope tree belongs to the settings section, and appears with it. It
+    # lives in the SCROLLING body rather than the fixed header because it is a
+    # whole project's worth of directories — a header that could grow to that
+    # would leave no pane for the results.
     scope_rows =
       case model.scope do
+        _ when not state.domain_open? ->
+          []
+
         [] ->
           []
 
