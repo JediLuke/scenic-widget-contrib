@@ -133,6 +133,7 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
       moved? or body_changed?(old_state, new_state),
       &render_body(&1, new_state)
     )
+    |> then(fn g -> if moved?, do: move_fields(g, new_state), else: g end)
   end
 
   defp maybe_replace(graph, _id, false, _render), do: graph
@@ -217,7 +218,15 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     State.header_widgets(state)
     |> Enum.filter(&match?(%{id: {:field, _}}, &1))
     |> Enum.reduce(graph, fn %{id: {:field, field}} = w, g ->
-      ScenicWidgets.TextField.add_to_graph(g, field_data(w, field, state), id: field_id(field))
+      # TRANSLATE, not a pinned frame. A TextField draws from its own origin
+      # and hit-tests against 0..width (State.point_inside?/2), so a frame
+      # pinned where the field belongs draws it in the right place by accident
+      # while testing every click in the wrong space — clicks near its right
+      # edge fall outside and blur it.
+      ScenicWidgets.TextField.add_to_graph(g, field_data(w, field, state),
+        id: field_id(field),
+        translate: {w.x, w.y}
+      )
     end)
   end
 
@@ -226,11 +235,23 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     w = Enum.find(State.header_widgets(state), &(&1.id == {:field, field}))
 
     %{
-      frame: Widgex.Frame.new(%{pin: {w.x, w.y}, size: {w.w, w.h}}),
+      frame: Widgex.Frame.new(%{pin: {0, 0}, size: {w.w, w.h}}),
       colors: field_colors(theme),
       font: field_font(theme),
       placeholder: placeholder(field)
     }
+  end
+
+  @doc "Move the field components after a resize."
+  def move_fields(graph, %State{} = state) do
+    Enum.reduce(State.fields(), graph, fn field, g ->
+      w = Enum.find(State.header_widgets(state), &(&1.id == {:field, field}))
+
+      case Graph.get(g, field_id(field)) do
+        [] -> g
+        _ -> Graph.modify(g, field_id(field), &Scenic.Primitive.put_transform(&1, :translate, {w.x, w.y}))
+      end
+    end)
   end
 
   @doc "The component id a field's TextField is registered under."
@@ -240,7 +261,7 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   defp field_data(w, field, %State{theme: theme} = state) do
     %{
       id: field_id(field),
-      frame: Widgex.Frame.new(%{pin: {w.x, w.y}, size: {w.w, w.h}}),
+      frame: Widgex.Frame.new(%{pin: {0, 0}, size: {w.w, w.h}}),
       initial_text: State.field_value(state, field),
       # A pane opened on a seeded query shows it selected. The seed arrives as
       # part of the pane's own construction, before there is a field to send

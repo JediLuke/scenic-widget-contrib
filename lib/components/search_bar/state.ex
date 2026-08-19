@@ -147,12 +147,20 @@ defmodule ScenicWidgets.SearchBar.State do
   # option toggles tucked inside the right-hand end of the field they apply
   # to.
 
-  @bar_height 36
-  @caret_width 24
-  @button_width 32
-  @toggle_width 24
-  @match_count_width 84
-  @pad 8
+  # Metrics, in one place, so the bar has a rhythm rather than a collection of
+  # magic numbers. The two that matter: @pad is the air between the card's
+  # edge and anything in it, and @gap is the air between groups of controls.
+  # Everything else is sized to sit comfortably inside those.
+  @bar_height 38
+  @field_height 26
+  @caret_width 22
+  @button_width 30
+  @toggle_width 22
+  @toggle_gap 2
+  # Enough for "1238/1238" at 13px mono without being a canyon at "1/3".
+  @match_count_width 66
+  @pad 10
+  @gap 6
 
   def bar_height, do: @bar_height
   def button_width, do: @button_width
@@ -171,76 +179,90 @@ defmodule ScenicWidgets.SearchBar.State do
   def widgets(%__MODULE__{} = state) do
     width = frame_width(state)
 
+    # Laid out from the right: the close button anchors the row, and
+    # everything else is measured back from it.
     close_x = width - @pad - @button_width
-    next_x = close_x - @button_width
+    next_x = close_x - @gap - @button_width
     count_x = next_x - @match_count_width
     prev_x = count_x - @button_width
 
-    input_x = @caret_width + @pad
-    input_w = max(prev_x - @pad - input_x, 60)
+    input_x = @pad + @caret_width + @gap
+    input_w = max(prev_x - @gap - input_x, 60)
 
-    regex_x = input_x + input_w - @pad / 2 - @toggle_width
-    case_x = regex_x - @toggle_width
+    field_y = round((@bar_height - @field_height) / 2)
 
-    search_row =
-      [
-        %{
-          id: :toggle_replace,
-          x: 0,
-          y: 0,
-          w: @caret_width,
-          h: @bar_height,
-          tooltip: if(state.replace_mode, do: "Hide Replace", else: "Show Replace")
-        },
-        %{id: :search_field, x: input_x, y: 4, w: input_w, h: @bar_height - 8, tooltip: nil},
-        %{
-          id: {:toggle, :case_sensitive},
-          x: case_x,
-          y: 6,
-          w: @toggle_width,
-          h: @bar_height - 12,
-          tooltip: "Match Case"
-        },
-        %{
-          id: {:toggle, :regex},
-          x: regex_x,
-          y: 6,
-          w: @toggle_width,
-          h: @bar_height - 12,
-          tooltip: "Use Regular Expression"
-        },
-        %{
-          id: :prev,
-          x: prev_x,
-          y: 0,
-          w: @button_width,
-          h: @bar_height,
-          tooltip: "Previous Match (Shift+F3)"
-        },
-        %{id: :count, x: count_x, y: 0, w: @match_count_width, h: @bar_height, tooltip: nil},
-        %{id: :next, x: next_x, y: 0, w: @button_width, h: @bar_height, tooltip: "Next Match (F3)"},
-        %{id: :close, x: close_x, y: 0, w: @button_width, h: @bar_height, tooltip: "Close (Esc)"}
-      ]
+    toggle_h = @field_height - 6
+    toggle_y = round((@bar_height - toggle_h) / 2)
+    regex_x = input_x + input_w - @toggle_gap - @toggle_width
+    case_x = regex_x - @toggle_gap - @toggle_width
 
-    search_row ++ replace_row(state, width, input_x)
+    search_row = [
+      %{
+        id: :toggle_replace,
+        x: @pad,
+        y: 0,
+        w: @caret_width,
+        h: @bar_height,
+        tooltip: if(state.replace_mode, do: "Hide Replace", else: "Show Replace")
+      },
+      %{id: :search_field, x: input_x, y: field_y, w: input_w, h: @field_height, tooltip: nil},
+      %{
+        id: {:toggle, :case_sensitive},
+        x: case_x,
+        y: toggle_y,
+        w: @toggle_width,
+        h: toggle_h,
+        tooltip: "Match Case"
+      },
+      %{
+        id: {:toggle, :regex},
+        x: regex_x,
+        y: toggle_y,
+        w: @toggle_width,
+        h: toggle_h,
+        tooltip: "Use Regular Expression"
+      },
+      %{
+        id: :prev,
+        x: prev_x,
+        y: 0,
+        w: @button_width,
+        h: @bar_height,
+        tooltip: "Previous Match (Shift+Enter)"
+      },
+      %{id: :count, x: count_x, y: 0, w: @match_count_width, h: @bar_height, tooltip: nil},
+      %{
+        id: :next,
+        x: next_x,
+        y: 0,
+        w: @button_width,
+        h: @bar_height,
+        tooltip: "Next Match (Enter)"
+      },
+      %{id: :close, x: close_x, y: 0, w: @button_width, h: @bar_height, tooltip: "Close (Esc)"}
+    ]
+
+    search_row ++ replace_row(state, width, input_x, field_y)
   end
 
-  defp replace_row(%__MODULE__{replace_mode: false}, _width, _input_x), do: []
+  defp replace_row(%__MODULE__{replace_mode: false}, _width, _input_x, _field_y), do: []
 
-  defp replace_row(%__MODULE__{}, width, input_x) do
+  defp replace_row(%__MODULE__{}, width, input_x, field_y) do
     y = @bar_height
 
+    # Replace All sits directly under Close, and Replace under Next, so the
+    # two rows share a right-hand edge instead of each finding their own.
     all_x = width - @pad - @button_width
-    one_x = all_x - @button_width
-    input_w = max(one_x - @pad - input_x, 60)
+    one_x = all_x - @gap - @button_width
+    input_w = max(one_x - @gap - input_x, 60)
 
     [
       %{
         id: :replace_field,
         x: input_x,
-        y: y + 4,
+        y: y + field_y,
         w: input_w,
-        h: @bar_height - 8,
+        h: @field_height,
         tooltip: nil
       },
       %{

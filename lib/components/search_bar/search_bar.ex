@@ -47,7 +47,10 @@ defmodule ScenicWidgets.SearchBar do
   - `End` - Move cursor to end
   """
 
-  use Scenic.Component
+  # It has children now: its two fields are TextFields. Declared false, Scenic
+  # takes the graph's component primitives at their word and never starts
+  # them — the fields appear and every keystroke goes nowhere.
+  use Scenic.Component, has_children: true
   use ScenicWidgets.ScenicEventsDefinitions
 
   require Logger
@@ -128,125 +131,64 @@ defmodule ScenicWidgets.SearchBar do
     {:noreply, new_scene}
   end
 
+  # Seeded from outside — the word under the cursor, or the last thing
+  # searched for. The field shows it SELECTED, so the next character typed
+  # replaces the guess rather than being appended to it.
   def handle_put({:set_query, query}, scene) do
     state = State.set_query(scene.assigns.state, query)
-    graph = Renderer.render(state)
-
-    new_scene =
-      scene
-      |> assign(state: state)
-      |> assign(graph: graph)
-      |> push_graph(graph)
-
-    {:noreply, new_scene}
+    Scenic.Scene.put_child(scene, Renderer.field_id(:search), {:seed_text, query})
+    {:noreply, redraw(scene, state)}
   end
 
   def handle_put({:update_frame, frame}, scene) do
-    state = %{scene.assigns.state | frame: frame}
-    graph = Renderer.render(state)
-    {:noreply, scene |> assign(state: state, graph: graph) |> push_graph(graph)}
+    {:noreply, redraw(scene, %{scene.assigns.state | frame: frame})}
   end
 
+  # The parent gives the bar the keyboard; the bar hands it to whichever of
+  # its fields is current. Both halves are needed: the fields gate on their
+  # own flags, so a bar that is blurred while a field still thinks it is
+  # focused would go on eating keystrokes meant for the editor.
   def handle_put(:focus, scene) do
     state = %{scene.assigns.state | focused: true}
-    graph = Renderer.render(state)
+    {:noreply, focus_fields(redraw(scene, state), state)}
+  end
 
-    new_scene =
-      scene
-      |> assign(state: state)
-      |> assign(graph: graph)
-      |> push_graph(graph)
-
-    {:noreply, new_scene}
+  def handle_put(:blur, scene) do
+    state = %{scene.assigns.state | focused: false}
+    {:noreply, focus_fields(redraw(scene, state), state)}
   end
 
   def handle_put(:clear, scene) do
     state = State.clear(scene.assigns.state)
-    graph = Renderer.render(state)
-
-    new_scene =
-      scene
-      |> assign(state: state)
-      |> assign(graph: graph)
-      |> push_graph(graph)
-
-    {:noreply, new_scene}
+    Scenic.Scene.put_child(scene, Renderer.field_id(:search), {:seed_text, ""})
+    {:noreply, redraw(scene, state)}
   end
 
   def handle_put(:enable_replace_mode, scene) do
     state = State.enable_replace_mode(scene.assigns.state)
-    graph = Renderer.render(state)
-
-    new_scene =
-      scene
-      |> assign(state: state)
-      |> assign(graph: graph)
-      |> push_graph(graph)
-
+    new_scene = focus_fields(redraw(scene, state), state)
     register_replace_semantic_elements(new_scene, state, state.frame)
-
     {:noreply, new_scene}
   end
 
-  # Handle text input (codepoints)
-  def handle_input({:codepoint, {char, _}}, _context, scene) when char != "" do
-    state =
-      if scene.assigns.state.replace_mode do
-        State.insert_char_to_focused(scene.assigns.state, char)
-      else
-        State.insert_char(scene.assigns.state, char)
-      end
+  # The fields are TextFields now, and they own the keyboard: typing, the
+  # caret, backspace, Home and End, selection, the clipboard — all of it
+  # arrives back here as events rather than being reimplemented one key at a
+  # time. What is left below is only the chords that belong to the BAR rather
+  # than to a field.
 
-    graph = Renderer.render(state)
-
-    new_scene =
-      scene
-      |> assign(state: state)
-      |> assign(graph: graph)
-      |> push_graph(graph)
-
-    # Only emit query changed when focused on search field
-    if state.focused_field == :search do
-      cast_parent(new_scene, {:search_query_changed, state.id, state.query})
-    end
-
-    {:noreply, new_scene}
+  # Escape closes the bar. Read here rather than taken from the field's
+  # escape_pressed event, because closing is the BAR's affair: a field that
+  # happens not to hold focus — after a click elsewhere, say — would
+  # otherwise leave Escape doing nothing at all, and the bar unclosable
+  # without the mouse.
+  def handle_input({:key, {:key_esc, @key_pressed, _}}, _context, scene) do
+    cast_parent(scene, {:search_close, scene.assigns.state.id})
+    {:noreply, scene}
   end
 
-  # Handle Tab - switch focus between search and replace fields (when in replace mode)
-  def handle_input({:key, {:key_tab, @key_pressed, _}}, _context, scene) do
-    state = scene.assigns.state
-
-    if state.replace_mode do
-      new_state = State.toggle_focus(state)
-      graph = Renderer.render(new_state)
-
-      new_scene =
-        scene
-        |> assign(state: new_state)
-        |> assign(graph: graph)
-        |> push_graph(graph)
-
-      {:noreply, new_scene}
-    else
-      {:noreply, scene}
-    end
-  end
-
-  # Handle Enter in replace mode (focused on replace field) - trigger replace
-  def handle_input({:key, {:key_enter, @key_pressed, []}}, _context, scene) do
-    state = scene.assigns.state
-
-    if state.replace_mode and state.focused_field == :replace do
-      cast_parent(scene, {:replace_requested, state.id, state.replace_query})
-      {:noreply, scene}
-    else
-      cast_parent(scene, {:search_next, state.id})
-      {:noreply, scene}
-    end
-  end
-
-  # Handle Shift+Enter - previous match
+  # Shift+Enter — the previous match. TextField reports a plain Enter as an
+  # event; the modifier does not survive that, so this one is read directly.
   def handle_input({:key, {:key_enter, @key_pressed, [:shift]}}, _context, scene) do
     cast_parent(scene, {:search_prev, scene.assigns.state.id})
     {:noreply, scene}
@@ -258,8 +200,6 @@ defmodule ScenicWidgets.SearchBar do
   # replacement field, which is where the user is heading.
   def handle_input({:key, {:key_h, @key_pressed, [:ctrl]}}, _context, scene) do
     cast_parent(scene, {:replace_mode_requested, scene.assigns.state.id})
-    # Focus first, mode second: the parent's :enable_replace_mode keeps the
-    # focused field, so the replace row appears already focused.
     {:noreply, focus_field(scene, :replace)}
   end
 
@@ -268,108 +208,6 @@ defmodule ScenicWidgets.SearchBar do
     {:noreply, focus_field(scene, :search)}
   end
 
-  # Handle Escape - close
-  def handle_input({:key, {:key_esc, @key_pressed, _}}, _context, scene) do
-    cast_parent(scene, {:search_close, scene.assigns.state.id})
-    {:noreply, scene}
-  end
-
-  # Handle Backspace
-  def handle_input({:key, {:key_backspace, @key_pressed, _}}, _context, scene) do
-    state =
-      if scene.assigns.state.replace_mode do
-        State.delete_before_cursor_focused(scene.assigns.state)
-      else
-        State.delete_before_cursor(scene.assigns.state)
-      end
-
-    graph = Renderer.render(state)
-
-    new_scene =
-      scene
-      |> assign(state: state)
-      |> assign(graph: graph)
-      |> push_graph(graph)
-
-    if state.focused_field == :search do
-      cast_parent(new_scene, {:search_query_changed, state.id, state.query})
-    end
-
-    {:noreply, new_scene}
-  end
-
-  # Handle Delete
-  def handle_input({:key, {:key_delete, @key_pressed, _}}, _context, scene) do
-    state = State.delete_at_cursor(scene.assigns.state)
-    graph = Renderer.render(state)
-
-    new_scene =
-      scene
-      |> assign(state: state)
-      |> assign(graph: graph)
-      |> push_graph(graph)
-
-    cast_parent(new_scene, {:search_query_changed, state.id, state.query})
-    {:noreply, new_scene}
-  end
-
-  # Handle Left arrow
-  def handle_input({:key, {:key_left, @key_pressed, _}}, _context, scene) do
-    state = State.cursor_left(scene.assigns.state)
-    graph = Renderer.render(state)
-
-    new_scene =
-      scene
-      |> assign(state: state)
-      |> assign(graph: graph)
-      |> push_graph(graph)
-
-    {:noreply, new_scene}
-  end
-
-  # Handle Right arrow
-  def handle_input({:key, {:key_right, @key_pressed, _}}, _context, scene) do
-    state = State.cursor_right(scene.assigns.state)
-    graph = Renderer.render(state)
-
-    new_scene =
-      scene
-      |> assign(state: state)
-      |> assign(graph: graph)
-      |> push_graph(graph)
-
-    {:noreply, new_scene}
-  end
-
-  # Handle Home key
-  def handle_input({:key, {:key_home, @key_pressed, _}}, _context, scene) do
-    state = State.cursor_home(scene.assigns.state)
-    graph = Renderer.render(state)
-
-    new_scene =
-      scene
-      |> assign(state: state)
-      |> assign(graph: graph)
-      |> push_graph(graph)
-
-    {:noreply, new_scene}
-  end
-
-  # Handle End key
-  def handle_input({:key, {:key_end, @key_pressed, _}}, _context, scene) do
-    state = State.cursor_end(scene.assigns.state)
-    graph = Renderer.render(state)
-
-    new_scene =
-      scene
-      |> assign(state: state)
-      |> assign(graph: graph)
-      |> push_graph(graph)
-
-    {:noreply, new_scene}
-  end
-
-  # Handle mouse clicks on buttons
   def handle_input({:cursor_button, {:btn_left, 1, _, coords}}, _context, scene) do
     handle_click(scene, coords)
   end
@@ -383,14 +221,105 @@ defmodule ScenicWidgets.SearchBar do
     {:noreply, scene}
   end
 
-  defp focus_field(scene, field) do
-    state = %{scene.assigns.state | focused_field: field}
-    graph = Renderer.render(state)
+  # ── Events from the fields ────────────────────────────────────────────────
+
+  @impl Scenic.Scene
+  def handle_event({:text_changed, id, text}, _from, scene) do
+    state = put_field_text(scene.assigns.state, field_of(id), text)
+    scene = assign(scene, state: state)
+
+    # Only the query steers the search. The replacement is carried on the
+    # action instead — typing it must not re-run anything.
+    if field_of(id) == :search do
+      cast_parent(scene, {:search_query_changed, state.id, state.query})
+    end
+
+    {:noreply, scene}
+  end
+
+  # Enter means "the next match", except in the replacement field where it
+  # means "replace this one" — the only destructive thing the bar does from
+  # the keyboard.
+  def handle_event({:enter_pressed, id, _text}, _from, scene) do
+    state = scene.assigns.state
+
+    if field_of(id) == :replace do
+      cast_parent(scene, {:replace_requested, state.id, state.replace_query})
+    else
+      cast_parent(scene, {:search_next, state.id})
+    end
+
+    {:noreply, scene}
+  end
+
+  # Escape is handled as a key above, so the field's own report of it is
+  # already accounted for — acting on both would ask the parent to close
+  # twice.
+  def handle_event({:escape_pressed, _id}, _from, scene), do: {:noreply, scene}
+
+  def handle_event({:tab_pressed, _id, _shift?}, _from, scene) do
+    state = scene.assigns.state
+
+    if state.replace_mode do
+      {:noreply, focus_field(scene, other_field(state.focused_field))}
+    else
+      {:noreply, scene}
+    end
+  end
+
+  # A click in a field gives it the keyboard; the bar's job is to take it off
+  # the other one, and to remember which is current for Tab.
+  def handle_event({:focus_taken, id}, _from, scene)
+      when id in [:search_bar_query_field, :search_bar_replace_field] do
+    {:noreply, focus_field(scene, field_of(id))}
+  end
+
+  def handle_event(_event, _from, scene), do: {:noreply, scene}
+
+  defp field_of(:search_bar_query_field), do: :search
+  defp field_of(:search_bar_replace_field), do: :replace
+
+  defp other_field(:search), do: :replace
+  defp other_field(:replace), do: :search
+
+  defp put_field_text(state, :search, text), do: %{state | query: text}
+  defp put_field_text(state, :replace, text), do: %{state | replace_query: text}
+
+  # Exactly one field holds the keyboard, and only while the bar itself has
+  # it. Told rather than derived, so a field cannot go on eating keystrokes
+  # after the parent has taken the keyboard off the bar.
+  defp focus_fields(scene, %State{} = state) do
+    for field <- [:search, :replace] do
+      focus? = state.focused and state.focused_field == field
+
+      Scenic.Scene.put_child(
+        scene,
+        Renderer.field_id(field),
+        if(focus?, do: :focus, else: :blur)
+      )
+    end
 
     scene
-    |> assign(state: state)
-    |> assign(graph: graph)
-    |> push_graph(graph)
+  end
+
+  # A resize or a theme change moves and recolours the fields. They are told,
+  # rather than redrawn: recreating a component throws away its cursor and its
+  # selection.
+  defp reframe_fields(scene, %State{} = old_state, %State{} = new_state) do
+    if Renderer.geometry_changed?(old_state, new_state) do
+      for field <- [:search, :replace],
+          settings = Renderer.field_settings(new_state, field),
+          settings != nil do
+        Scenic.Scene.put_child(scene, Renderer.field_id(field), {:update_settings, settings})
+      end
+    end
+
+    :ok
+  end
+
+  defp focus_field(scene, field) do
+    state = %{scene.assigns.state | focused_field: field}
+    focus_fields(redraw(scene, state), state)
   end
 
   # Handle clicks on different areas. Requested cursor_button input arrives
@@ -405,6 +334,7 @@ defmodule ScenicWidgets.SearchBar do
 
     case State.widget_at(state, coords) do
       nil ->
+        maybe_report_outside_click(scene, state, coords)
         {:noreply, scene}
 
       %{id: :close} ->
@@ -454,6 +384,21 @@ defmodule ScenicWidgets.SearchBar do
     end
   end
 
+  # A click that missed the bar entirely. The bar receives every click in the
+  # window (its input is not positional), and it is the only thing that does —
+  # the host scene never sees clicks that land on a component. So it reports
+  # them, in the host's coordinates, and the host decides what an outside
+  # click means: closing the bar, usually, but not when it lands in the
+  # sidebar, where browsing results with the bar still up is the point.
+  defp maybe_report_outside_click(scene, %State{} = state, {x, y}) do
+    if x < 0 or y < 0 or x > State.frame_width(state) or y > State.height(state) do
+      {px, py} = state.frame.pin.point
+      cast_parent(scene, {:clicked_outside, state.id, {px + x, py + y}})
+    end
+
+    :ok
+  end
+
   # Hover, for the tooltips. Only the widgets that HAVE something to say get
   # tracked, so moving across the field does not blink a label on and off.
   defp handle_hover(scene, coords) do
@@ -472,8 +417,21 @@ defmodule ScenicWidgets.SearchBar do
     end
   end
 
+  # Only what changed. The bar holds child components now, and a graph rebuilt
+  # from scratch would take them with it on every keystroke — except when the
+  # replace row appears or disappears, which changes which fields EXIST and so
+  # is the one case that has to build from nothing.
   defp redraw(scene, state) do
-    graph = Renderer.render(state)
+    old_state = scene.assigns.state
+
+    graph =
+      if Renderer.fields_changed?(old_state, state) do
+        Renderer.render(state)
+      else
+        reframe_fields(scene, old_state, state)
+        Renderer.update_render(scene.assigns.graph, old_state, state)
+      end
+
     scene |> assign(state: state, graph: graph) |> push_graph(graph)
   end
 
