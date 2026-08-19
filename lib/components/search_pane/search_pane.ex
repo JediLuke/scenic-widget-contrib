@@ -356,6 +356,21 @@ defmodule ScenicWidgets.SearchPane do
         send_parent_event(scene, {:search_pane, :replace_one, state.replace})
         {:noreply, scene}
 
+      # A scope row in the header: the summary line opens the tree, a node
+      # with children expands, and anything else ticks or unticks.
+      {:scope_row, :scope_header} ->
+        {:noreply, redraw(scene, State.toggle_scope_open(state))}
+
+      {:scope_row, {:scope, path}} ->
+        row = Enum.find(State.scope_rows(state), &(&1.id == {:scope, path}))
+
+        if row && row.expandable? do
+          {:noreply, redraw(scene, State.toggle_scope_expand(state, path))}
+        else
+          send_parent_event(scene, {:search_pane, :toggle_scope, path})
+          {:noreply, scene}
+        end
+
       :replace_caret ->
         {:noreply, redraw(scene, %{state | replace_open?: not state.replace_open?})}
 
@@ -535,6 +550,8 @@ defmodule ScenicWidgets.SearchPane do
   end
 
   defp semantic_id(:replace_caret), do: :search_pane_replace_caret
+  defp semantic_id({:scope_row, :scope_header}), do: :search_pane_scope
+  defp semantic_id({:scope_row, {:scope, id}}), do: :"search_pane_scope_#{id}"
   defp semantic_id(:clear), do: :search_pane_clear
   defp semantic_id(:edit_excludes), do: :search_pane_edit_excludes
   defp semantic_id(:replace_one), do: :search_pane_replace_one
@@ -568,6 +585,7 @@ defmodule ScenicWidgets.SearchPane do
   defp header_label(:status, _state), do: "Search status"
   defp header_label(:domain_header, _state), do: "Search domain"
   defp header_label(:replace_caret, _state), do: "Toggle replace"
+  defp header_label({:scope_row, _id}, _state), do: "Search scope"
   defp header_label(:clear, _state), do: "Clear the search"
   defp header_label(:edit_excludes, _state), do: "Edit the exclude list"
   defp header_label(:replace_one, _state), do: "Replace this occurrence"

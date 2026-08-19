@@ -149,6 +149,7 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
       moved? or body_changed?(old_state, new_state),
       &render_body(&1, new_state)
     )
+    |> update_hover(old_state, new_state)
     |> then(fn g -> if moved?, do: move_fields(g, new_state), else: g end)
   end
 
@@ -165,6 +166,15 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   defp geometry_changed?(old_state, new_state) do
     old_state.theme != new_state.theme or old_state.frame != new_state.frame or
       layout_signature(old_state) != layout_signature(new_state)
+  end
+
+  # Only a hover over a HEADER control redraws the header. Hovering a result
+  # is the body's business, and rebuilding the controls for it was half of
+  # why the highlight lagged the pointer.
+  defp header_hover(%State{hovered: nil}), do: nil
+
+  defp header_hover(%State{hovered: hovered} = state) do
+    if Enum.any?(State.header_widgets(state), &(&1.id == hovered)), do: hovered, else: nil
   end
 
   # Everything that changes the SHAPE of the header — where the rows sit, how
@@ -189,7 +199,7 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   end
 
   defp widget_signature(%State{model: model} = state) do
-    {state.focused, state.focused_field, state.hovered, model.status, model.error,
+    {state.focused, state.focused_field, header_hover(state), model.status, model.error,
      model.case_sensitive, model.regex, model.open_buffers_only, model.use_ignore_files,
      layout_signature(state)}
   end
@@ -200,9 +210,34 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   # list is cheap; building its primitives is not, and that is what this
   # avoids.
   defp body_changed?(old_state, new_state) do
-    old_state.hovered != new_state.hovered or
-      old_state.scroll != new_state.scroll or
+    old_state.scroll != new_state.scroll or
       State.rows(old_state) != State.rows(new_state)
+  end
+
+  # Hover used to rebuild the entire body — every result row, every scope row,
+  # on every crossing of a row boundary. With a few hundred matches on screen
+  # the highlight visibly trailed the pointer. Only two rows can change, so
+  # only two rectangles are touched.
+  defp update_hover(graph, %State{hovered: same}, %State{hovered: same}), do: graph
+
+  defp update_hover(graph, old_state, new_state) do
+    graph
+    |> paint_row(old_state.hovered, false, new_state)
+    |> paint_row(new_state.hovered, true, new_state)
+  end
+
+  defp paint_row(graph, nil, _hovered?, _state), do: graph
+
+  defp paint_row(graph, id, hovered?, %State{} = state) do
+    case Enum.find(State.rows(state), &(&1.id == id)) do
+      nil ->
+        graph
+
+      row ->
+        Graph.modify(graph, {:row_bg, id}, fn p ->
+          Primitives.rect(p, {state.frame.size.width, row.height}, fill: row_fill(row, hovered?, state.theme))
+        end)
+    end
   end
 
   @doc "Move the already-rendered body to a new scroll offset."
@@ -438,6 +473,33 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     |> Primitives.line({{cx + r, cy - r}, {cx - r, cy + r}}, stroke: {1.8, theme.text}, cap: :round)
   end
 
+  # A scope row, drawn in the header now. Same shape as a body row — a
+  # caret, a tick and a name — but it belongs to the settings section, so it
+  # sits on that background rather than the pane's.
+  defp render_header_widget(graph, %{id: {:scope_row, _id}} = w, %State{theme: theme} = state) do
+    row = w.row
+    hovered? = state.hovered == w.id
+    x = w.x + row.depth * theme.indent
+    text_x = if disclosing?(row), do: x + 12, else: x
+
+    graph
+    |> Primitives.rect({w.w + 2 * theme.padding, w.h},
+      fill: if(hovered?, do: theme.row_hover, else: theme.header_background),
+      translate: {0, w.y}
+    )
+    |> then(fn g ->
+      if disclosing?(row),
+        do: caret(g, x + 4, w.y + w.h / 2, row_open?(row), theme.dim_text),
+        else: g
+    end)
+    |> Primitives.text(clip(row.label, w.w - 24, theme.font_size),
+      translate: {text_x, w.y + w.h - 6},
+      fill: row_colour(row, theme),
+      font: theme.font,
+      font_size: row_font_size(row, theme)
+    )
+  end
+
   # Tree or list. Drawn as the shapes they mean rather than words: a small
   # hierarchy, and a stack of equal rows.
   defp render_header_widget(graph, %{id: {:results_view, which}} = w, %State{theme: theme} = state) do
@@ -633,27 +695,23 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     )
   end
 
-  # Scope rows are part of the settings section, not part of the results, and
-  # they say so by sharing its background. Without that the tree reads as a
+  # Every row gets a background rectangle, always, with a stable id — even
+  # when it is drawn in the pane's own colour. That is what lets a hover be a
+  # repaint of one rectangle instead of a rebuild of every row.
+  defp row_background(graph, row, hovered?, %State{theme: theme, frame: frame}) do
+    Primitives.rect(graph, {frame.size.width, row.height},
+      fill: row_fill(row, hovered?, theme),
+      id: {:row_bg, row.id}
+    )
+  end
+
+  # Scope rows share the settings background: without it the tree reads as a
   # strange first result — a list of directories among a list of matches.
-  defp row_background(graph, %{kind: kind} = row, hovered?, %State{theme: theme, frame: frame})
-       when kind in [:scope, :scope_header] do
-    fill = if hovered?, do: theme.row_hover, else: theme.header_background
+  defp row_fill(_row, true, theme), do: theme.row_hover
+  defp row_fill(%{kind: kind}, false, theme) when kind in [:scope, :scope_header],
+    do: theme.header_background
 
-    Primitives.rect(graph, {frame.size.width, row.height},
-      fill: fill,
-      id: {:row_background, row.id}
-    )
-  end
-
-  defp row_background(graph, _row, false, _state), do: graph
-
-  defp row_background(graph, row, true, %State{theme: theme, frame: frame}) do
-    Primitives.rect(graph, {frame.size.width, row.height},
-      fill: theme.row_hover,
-      id: {:row_hover, row.id}
-    )
-  end
+  defp row_fill(_row, false, theme), do: theme.background
 
   # The whole point of drawing matches in a pane of their own: the matched text
   # is marked inside the line, so a result reads as a hit rather than as a line

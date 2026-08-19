@@ -262,7 +262,7 @@ defmodule ScenicWidgets.SearchPane.State do
 
   defp domain_widgets(%__MODULE__{domain_open?: false}, _y, _width, _pad, _theme), do: []
 
-  defp domain_widgets(%__MODULE__{}, y, width, pad, theme) do
+  defp domain_widgets(%__MODULE__{} = state, y, width, pad, theme) do
     row = theme.row_height
     w = width - 2 * pad
 
@@ -273,11 +273,40 @@ defmodule ScenicWidgets.SearchPane.State do
       # the switch that says whether it is being honoured, rather than buried
       # in a menu three clicks away from the search it governs.
       %{id: :edit_excludes, x: pad, y: y + 2 * row, w: w, h: row}
-    ]
+    ] ++ scope_widgets(state, y + 3 * row, width, pad, theme)
+  end
+
+  # The scope tree lives in the settings section, which means the HEADER —
+  # above the status line, which is the boundary between the settings and the
+  # results. In the body it sat below that line, among the results it is
+  # meant to narrow.
+  #
+  # It is capped: a project's directories can run to hundreds, and a header
+  # that grew to that would leave no pane for the results. Past the cap the
+  # tree is collapsible — that is what the disclosure triangles are for.
+  @scope_cap 12
+
+  defp scope_widgets(%__MODULE__{} = state, y, width, pad, theme) do
+    state
+    |> scope_rows()
+    |> Enum.take(@scope_cap)
+    |> Enum.with_index()
+    |> Enum.map(fn {row, i} ->
+      %{
+        id: {:scope_row, row.id},
+        row: row,
+        x: pad,
+        y: y + i * theme.row_height,
+        w: width - 2 * pad,
+        h: theme.row_height
+      }
+    end)
   end
 
   @doc "How many rows the settings section adds when it is open."
-  def domain_rows(%__MODULE__{domain_open?: true}), do: 3
+  def domain_rows(%__MODULE__{domain_open?: true} = state),
+    do: 3 + length(Enum.take(scope_rows(state), @scope_cap))
+
   def domain_rows(%__MODULE__{}), do: 0
 
   # The status line is the boundary between the controls and the results, so
@@ -311,33 +340,6 @@ defmodule ScenicWidgets.SearchPane.State do
     # lives in the SCROLLING body rather than the fixed header because it is a
     # whole project's worth of directories — a header that could grow to that
     # would leave no pane for the results.
-    scope_rows =
-      case model.scope do
-        _ when not state.domain_open? ->
-          []
-
-        [] ->
-          []
-
-        scope ->
-          header = %{
-            id: :scope_header,
-            kind: :scope_header,
-            label: scope_summary(scope),
-            # Indented: the scope tree is a section INSIDE the settings, its
-            # own dropdown within them, rather than a sibling of the results.
-            depth: 1,
-            expanded?: state.scope_open?,
-            actions: []
-          }
-
-          if state.scope_open? do
-            [header | scope_nodes(scope, state, 2)]
-          else
-            [header]
-          end
-      end
-
     file_rows =
       Enum.flat_map(model.files, fn file ->
         collapsed? = MapSet.member?(state.collapsed_files, file.path)
@@ -359,7 +361,7 @@ defmodule ScenicWidgets.SearchPane.State do
         end
       end)
 
-    (scope_rows ++ file_rows)
+    file_rows
     |> Enum.with_index()
     |> Enum.map(fn {row, i} -> Map.merge(row, %{y: i * h, height: h}) end)
   end
@@ -382,6 +384,36 @@ defmodule ScenicWidgets.SearchPane.State do
         {:dismiss_match, path, match.line, match.col}
       ]
     }
+  end
+
+  @doc """
+  The scope tree's rows — the summary line, and the tree under it when open.
+
+  These are HEADER rows, not body rows: the scope belongs to the settings
+  section, above the status line that separates the settings from the
+  results.
+  """
+  def scope_rows(%__MODULE__{domain_open?: false}), do: []
+
+  def scope_rows(%__MODULE__{model: %{scope: []}}), do: []
+
+  def scope_rows(%__MODULE__{model: %{scope: scope}} = state) do
+    header = %{
+      id: :scope_header,
+      kind: :scope_header,
+      label: scope_summary(scope),
+      # Indented: the scope tree is a section INSIDE the settings, its own
+      # dropdown within them, rather than a sibling of the results.
+      depth: 1,
+      expanded?: state.scope_open?,
+      actions: []
+    }
+
+    if state.scope_open? do
+      [header | scope_nodes(scope, state, 2)]
+    else
+      [header]
+    end
   end
 
   defp scope_nodes(nodes, state, depth) do
