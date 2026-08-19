@@ -341,8 +341,19 @@ defmodule ScenicWidgets.SearchPane do
         send_parent_event(scene, {:search_pane, :toggle_option, option})
         {:noreply, scene}
 
-      {:results_view, which} ->
-        {:noreply, redraw(scene, %{state | results_view: which})}
+      # Which HALF of the slider was clicked. The setting lives with the host
+      # — it is saved with the rest of them — so the pane asks rather than
+      # deciding for itself.
+      :results_view ->
+        w = Enum.find(State.header_widgets(state), &(&1.id == :results_view))
+        {x, _y} = coords
+        which = if x - w.x > w.w / 2, do: :list, else: :tree
+
+        if which != state.results_view do
+          send_parent_event(scene, {:search_pane, :set_results_view, which})
+        end
+
+        {:noreply, scene}
 
       :clear ->
         send_parent_event(scene, {:search_pane, :clear})
@@ -440,7 +451,7 @@ defmodule ScenicWidgets.SearchPane do
       case State.hit_test(state, coords) do
         {:row, row, _action} -> row.id
         id when id in [:close, :replace_caret, :replace_all, :replace_one, :clear, :edit_excludes] -> id
-        {:results_view, _} = id -> id
+        :results_view -> :results_view
         _other -> nil
       end
 
@@ -555,7 +566,7 @@ defmodule ScenicWidgets.SearchPane do
   defp semantic_id(:clear), do: :search_pane_clear
   defp semantic_id(:edit_excludes), do: :search_pane_edit_excludes
   defp semantic_id(:replace_one), do: :search_pane_replace_one
-  defp semantic_id({:results_view, which}), do: :"search_pane_view_#{which}"
+  defp semantic_id(:results_view), do: :search_pane_view
   defp semantic_id(:domain_header), do: :search_pane_domain
   defp semantic_id({:domain, option}), do: :"search_pane_domain_#{option}"
   defp semantic_id(:close), do: :search_pane_close
@@ -589,8 +600,7 @@ defmodule ScenicWidgets.SearchPane do
   defp header_label(:clear, _state), do: "Clear the search"
   defp header_label(:edit_excludes, _state), do: "Edit the exclude list"
   defp header_label(:replace_one, _state), do: "Replace this occurrence"
-  defp header_label({:results_view, :tree}, _state), do: "Show results as a tree"
-  defp header_label({:results_view, :list}, _state), do: "Show results as a list"
+  defp header_label(:results_view, _state), do: "Show results as a tree or a list"
 
   defp header_label({:domain, :open_buffers_only}, _state), do: "Search only open buffers"
 

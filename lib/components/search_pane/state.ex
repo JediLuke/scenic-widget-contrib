@@ -51,6 +51,13 @@ defmodule ScenicWidgets.SearchPane.State do
 
   @fields [:query, :replace]
 
+  # The scope tree is capped: a project's directories run to hundreds, and a
+  # header that grew to that would leave no pane for the results.
+  @scope_cap 12
+
+  # Wide enough for two labelled halves at the pane's small type.
+  @slider_width 74
+
   defstruct [
     :frame,
     :theme,
@@ -72,6 +79,7 @@ defmodule ScenicWidgets.SearchPane.State do
     # searches are searches; the replacement field is a second job.
     replace_open?: false,
     # :tree groups matches under their file, :list gives one row per match.
+    # Owned by the host, which saves it with its other settings.
     results_view: :tree,
     scrollbar_drag: nil,
     scrollbar_drag_start: nil,
@@ -120,13 +128,15 @@ defmodule ScenicWidgets.SearchPane.State do
       # the results is a row of results you cannot see.
       open_buffers_only: Map.get(model, :open_buffers_only, false),
       use_ignore_files: Map.get(model, :use_ignore_files, true),
+      results_view: Map.get(model, :results_view, :tree),
       scope: Map.get(model, :scope, []),
       files: Map.get(model, :files, [])
     }
   end
 
   def put_model(%__MODULE__{} = state, model) do
-    resync_scroll(%{state | model: normalize_model(model)})
+    normalized = normalize_model(model)
+    resync_scroll(%{state | model: normalized, results_view: normalized.results_view})
   end
 
   def put_frame(%__MODULE__{} = state, frame) do
@@ -230,12 +240,23 @@ defmodule ScenicWidgets.SearchPane.State do
 
     header ++
       [
-        %{id: :status, x: pad, y: status, w: max(width - 2 * pad - 3 * button - 8, 40), h: theme.row_height},
-        # Results as a tree (grouped under their file) or as a flat list (one
-        # row per match). Which one is better depends entirely on whether you
-        # are looking for a file or for an occurrence.
-        %{id: {:results_view, :tree}, x: width - pad - 3 * button - 4, y: status, w: button, h: theme.row_height},
-        %{id: {:results_view, :list}, x: width - pad - 2 * button - 4, y: status, w: button, h: theme.row_height},
+        %{
+          id: :status,
+          x: pad,
+          y: status,
+          w: max(width - 2 * pad - @slider_width - button - 10, 40),
+          h: theme.row_height
+        },
+        # Tree or list, as ONE control with two positions rather than two
+        # buttons: they are not two things you can do, they are two settings
+        # of one thing, and a pair of buttons says the first.
+        %{
+          id: :results_view,
+          x: width - pad - button - 6 - @slider_width,
+          y: status + 2,
+          w: @slider_width,
+          h: theme.row_height - 4
+        },
         # And a way to put the pane back to empty without hunting for the
         # query field and selecting what is in it.
         %{id: :clear, x: width - pad - button, y: status, w: button, h: theme.row_height}
@@ -284,8 +305,6 @@ defmodule ScenicWidgets.SearchPane.State do
   # It is capped: a project's directories can run to hundreds, and a header
   # that grew to that would leave no pane for the results. Past the cap the
   # tree is collapsible — that is what the disclosure triangles are for.
-  @scope_cap 12
-
   defp scope_widgets(%__MODULE__{} = state, y, width, pad, theme) do
     state
     |> scope_rows()
@@ -340,7 +359,33 @@ defmodule ScenicWidgets.SearchPane.State do
     # lives in the SCROLLING body rather than the fixed header because it is a
     # whole project's worth of directories — a header that could grow to that
     # would leave no pane for the results.
-    file_rows =
+    file_rows = result_rows(state)
+
+    file_rows
+    |> Enum.with_index()
+    |> Enum.map(fn {row, i} -> Map.merge(row, %{y: i * h, height: h}) end)
+  end
+
+  # As a TREE: a row per file, with its matches under it, collapsible. As a
+  # LIST: a row per match and no file headings, each one carrying its own
+  # file name — which is what you want when you are looking for an
+  # occurrence rather than for a file.
+  defp result_rows(%__MODULE__{results_view: :list, model: model}) do
+    Enum.flat_map(model.files, fn file ->
+      Enum.map(file.matches, fn match ->
+        match
+        |> match_row(file.path)
+        |> Map.put(:depth, 0)
+        |> Map.update!(:label, &"#{file.label}:#{match.line}  #{&1}")
+      end)
+    end)
+  end
+
+  defp result_rows(%__MODULE__{model: model} = state) do
+    tree_rows(state, model)
+  end
+
+  defp tree_rows(state, model) do
       Enum.flat_map(model.files, fn file ->
         collapsed? = MapSet.member?(state.collapsed_files, file.path)
 
@@ -360,10 +405,6 @@ defmodule ScenicWidgets.SearchPane.State do
           [head | Enum.map(file.matches, &match_row(&1, file.path))]
         end
       end)
-
-    file_rows
-    |> Enum.with_index()
-    |> Enum.map(fn {row, i} -> Map.merge(row, %{y: i * h, height: h}) end)
   end
 
   defp match_row(match, path) do
@@ -483,6 +524,23 @@ defmodule ScenicWidgets.SearchPane.State do
   What is under `{x, y}` (frame-local): a header widget id, a
   `{:row, row, action_or_nil}`, or `nil`.
   """
+  @doc """
+  Like `hit_test/2`, but returns the whole header WIDGET rather than its id.
+
+  A control with more than one position — the tree/list slider — has to know
+  where inside itself it was clicked, and an id cannot say.
+  """
+  def hit_widget(%__MODULE__{} = state, {x, y} = coords) do
+    if y < header_height(state) do
+      state
+      |> header_widgets()
+      |> Enum.reverse()
+      |> Enum.find(fn w -> inside?(w, x, y) end)
+    else
+      body_hit(state, coords)
+    end
+  end
+
   def hit_test(%__MODULE__{} = state, {x, y}) do
     if y < header_height(state) do
       # REVERSE: the list is in drawing order and the thing drawn last is the

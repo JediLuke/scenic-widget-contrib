@@ -171,11 +171,18 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   # Only a hover over a HEADER control redraws the header. Hovering a result
   # is the body's business, and rebuilding the controls for it was half of
   # why the highlight lagged the pointer.
-  defp header_hover(%State{hovered: nil}), do: nil
+  # By the SHAPE of the id, not by searching the header for it: this runs on
+  # every mouse move, and building the header widgets to answer it meant
+  # walking the scope tree each time the pointer twitched.
+  @header_ids [:close, :replace_caret, :replace_all, :replace_one, :clear, :edit_excludes,
+               :domain_header, :status]
 
-  defp header_hover(%State{hovered: hovered} = state) do
-    if Enum.any?(State.header_widgets(state), &(&1.id == hovered)), do: hovered, else: nil
-  end
+  defp header_hover(%State{hovered: hovered}) when hovered in @header_ids, do: hovered
+  defp header_hover(%State{hovered: {:domain, _} = hovered}), do: hovered
+  defp header_hover(%State{hovered: {:results_view, _} = hovered}), do: hovered
+  defp header_hover(%State{hovered: {:scope_row, _} = hovered}), do: hovered
+  defp header_hover(%State{hovered: {:toggle, _} = hovered}), do: hovered
+  defp header_hover(%State{}), do: nil
 
   # Everything that changes the SHAPE of the header — where the rows sit, how
   # tall the backdrop is, where the rule under the controls goes.
@@ -217,10 +224,17 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   # compared directly rather than by guessing at their inputs. Building the
   # list is cheap; building its primitives is not, and that is what this
   # avoids.
+  # Compared by their INPUTS, not by building them. A project search can
+  # return five hundred rows, and this ran on every update — twice, once for
+  # each state — so a mouse crossing a row boundary cost a thousand row
+  # constructions before anything was drawn. That is the whole of the freeze.
   defp body_changed?(old_state, new_state) do
     old_state.scroll != new_state.scroll or
-      State.rows(old_state) != State.rows(new_state)
+      body_signature(old_state) != body_signature(new_state)
   end
+
+  defp body_signature(%State{model: model} = state),
+    do: {model.files, state.collapsed_files, state.results_view}
 
   # Hover used to rebuild the entire body — every result row, every scope row,
   # on every crossing of a row boundary. With a few hundred matches on screen
@@ -236,16 +250,14 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
 
   defp paint_row(graph, nil, _hovered?, _state), do: graph
 
-  defp paint_row(graph, id, hovered?, %State{} = state) do
-    case Enum.find(State.rows(state), &(&1.id == id)) do
-      nil ->
-        graph
+  # Only the FILL changes, so only the fill is set — no need to know the row's
+  # size, and therefore no need to build the rows to find it. Everything in
+  # the body is a result now (the scope tree moved to the header), so an
+  # unhovered row is the pane's own colour.
+  defp paint_row(graph, id, hovered?, %State{theme: theme}) do
+    fill = if hovered?, do: theme.row_hover, else: theme.background
 
-      row ->
-        Graph.modify(graph, {:row_bg, id}, fn p ->
-          Primitives.rect(p, {state.frame.size.width, row.height}, fill: row_fill(row, hovered?, state.theme))
-        end)
-    end
+    Graph.modify(graph, {:row_bg, id}, &Primitives.update_opts(&1, fill: fill))
   end
 
   @doc "Move the already-rendered body to a new scroll offset."
@@ -508,33 +520,38 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     )
   end
 
-  # Tree or list. Drawn as the shapes they mean rather than words: a small
-  # hierarchy, and a stack of equal rows.
-  defp render_header_widget(graph, %{id: {:results_view, which}} = w, %State{theme: theme} = state) do
-    on? = state.results_view == which
-    colour = if on?, do: theme.text, else: theme.dim_text
-    x = w.x + 5
-    y = w.y + 5
+  # A two-position slider: one track, and a thumb that sits over the half in
+  # force. Two buttons would say "here are two things you can do"; this says
+  # "here is one setting, and it is currently that" — which is what it is.
+  defp render_header_widget(graph, %{id: :results_view} = w, %State{theme: theme} = state) do
+    half = w.w / 2
+    list? = state.results_view == :list
+    thumb_x = if list?, do: w.x + half, else: w.x
 
     graph
-    |> hover_row(w, state)
-    |> then(fn g ->
-      if on? do
-        Primitives.rect(g, {w.w, w.h}, fill: theme.button_active, translate: {w.x, w.y})
-      else
-        g
-      end
-    end)
-    |> then(fn g ->
-      Enum.reduce(0..2, g, fn i, acc ->
-        indent = if which == :tree and i > 0, do: 4, else: 0
-
-        Primitives.line(acc, {{x + indent, y + i * 4}, {x + 12, y + i * 4}},
-          stroke: {1.4, colour},
-          cap: :round
-        )
-      end)
-    end)
+    |> Primitives.rounded_rectangle({w.w, w.h, w.h / 2},
+      fill: theme.button_background,
+      stroke: {1, theme.field_border},
+      translate: {w.x, w.y}
+    )
+    |> Primitives.rounded_rectangle({half, w.h, w.h / 2},
+      fill: theme.button_active,
+      translate: {thumb_x, w.y}
+    )
+    |> Primitives.text("tree",
+      translate: {w.x + half / 2, w.y + w.h - 5},
+      text_align: :center,
+      fill: if(list?, do: theme.dim_text, else: theme.text),
+      font: theme.font,
+      font_size: theme.small_font_size
+    )
+    |> Primitives.text("list",
+      translate: {w.x + half + half / 2, w.y + w.h - 5},
+      text_align: :center,
+      fill: if(list?, do: theme.text, else: theme.dim_text),
+      font: theme.font,
+      font_size: theme.small_font_size
+    )
   end
 
   # Clear: put the pane back to empty. A cross, like every other clear.
