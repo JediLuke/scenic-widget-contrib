@@ -341,8 +341,10 @@ defmodule ScenicWidgets.SearchBar do
     state = scene.assigns.state
 
     case State.widget_at(state, coords) do
+      # A click that missed every one of the bar's own controls is not the
+      # bar's business — including a click in the document, which leaves the
+      # bar exactly where it is.
       nil ->
-        maybe_report_outside_click(scene, state, coords)
         {:noreply, scene}
 
       %{id: :close} ->
@@ -393,21 +395,6 @@ defmodule ScenicWidgets.SearchBar do
       %{id: :count} ->
         {:noreply, scene}
     end
-  end
-
-  # A click that missed the bar entirely. The bar receives every click in the
-  # window (its input is not positional), and it is the only thing that does —
-  # the host scene never sees clicks that land on a component. So it reports
-  # them, in the host's coordinates, and the host decides what an outside
-  # click means: closing the bar, usually, but not when it lands in the
-  # sidebar, where browsing results with the bar still up is the point.
-  defp maybe_report_outside_click(scene, %State{} = state, {x, y}) do
-    if x < 0 or y < 0 or x > State.frame_width(state) or y > State.height(state) do
-      {px, py} = state.frame.pin.point
-      cast_parent(scene, {:clicked_outside, state.id, {px + x, py + y}})
-    end
-
-    :ok
   end
 
   # Hover, for the tooltips. Only the widgets that HAVE something to say get

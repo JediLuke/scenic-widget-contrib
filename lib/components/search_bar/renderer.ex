@@ -100,7 +100,7 @@ defmodule ScenicWidgets.SearchBar.Renderer do
         g
         |> render_widgets(drawn, state)
         |> Tooltip.add(
-          tooltip_for(state.hovered, widgets),
+          tooltip_for(state.hovered, widgets, state),
           state.theme,
           State.frame_width(state)
         )
@@ -240,12 +240,17 @@ defmodule ScenicWidgets.SearchBar.Renderer do
     end
   end
 
-  defp tooltip_for(nil, _widgets), do: nil
+  # Every tooltip hangs from the BOTTOM OF THE BAR, not from the bottom of
+  # whichever control it belongs to. The controls are not all the same height
+  # — the option toggles are inset inside the query field, and the caret spans
+  # both rows — so labels placed under each one landed at three different
+  # heights and read as scattered. One latitude, always.
+  defp tooltip_for(nil, _widgets, _state), do: nil
 
-  defp tooltip_for(id, widgets) do
+  defp tooltip_for(id, widgets, state) do
     case Enum.find(widgets, &(&1.id == id and &1.tooltip != nil)) do
       nil -> nil
-      w -> %{text: w.tooltip, at: {w.x, w.y + w.h}}
+      w -> %{text: w.tooltip, at: {w.x, State.height(state)}}
     end
   end
 
@@ -260,6 +265,7 @@ defmodule ScenicWidgets.SearchBar.Renderer do
     |> hover_backdrop(w, state)
     |> caret(w, state.replace_mode, state.theme.text)
   end
+
 
   defp render_widget(graph, %{id: {:toggle, option}} = w, %State{} = state) do
     on? = Map.fetch!(state, option)
@@ -339,9 +345,11 @@ defmodule ScenicWidgets.SearchBar.Renderer do
 
   # A disclosure triangle: pointing right when the replace row is hidden, down
   # when it is showing. It points AT what it opens.
+  # The glyph sits on the FIRST row even though the button spans them all: a
+  # triangle floating between two rows would not read as belonging to either.
   defp caret(graph, w, open?, colour) do
     cx = w.x + w.w / 2
-    cy = w.y + w.h / 2
+    cy = w.y + State.bar_height() / 2
     r = 4
 
     points =
