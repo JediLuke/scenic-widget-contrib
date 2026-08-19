@@ -209,7 +209,10 @@ defmodule ScenicWidgets.SearchPane.State do
 
     header =
       [
-        %{id: :close, x: width - pad - 18, y: title_y, w: 18, h: theme.row_height},
+        # A close button the size of the ones on the tabs, with room around it.
+        # It was 18px square and unhighlighted — smaller than every other close
+        # in the application and easy to miss entirely.
+        %{id: :close, x: width - pad - 26, y: title_y - 4, w: 26, h: 26},
         # The disclosure for the replacement row, on the left where a control
         # that opens another row belongs. It spans both rows when open, so its
         # highlight covers what it opened.
@@ -228,7 +231,21 @@ defmodule ScenicWidgets.SearchPane.State do
         [%{id: :domain_header, x: pad, y: domain_y, w: width - 2 * pad, h: theme.row_height}] ++
         domain_widgets(state, domain_y + theme.row_height, width, pad, theme)
 
-    header ++ [%{id: :status, x: pad, y: status_y(state), w: width - 2 * pad, h: theme.row_height}]
+    status = status_y(state)
+    button = 24
+
+    header ++
+      [
+        %{id: :status, x: pad, y: status, w: max(width - 2 * pad - 3 * button - 8, 40), h: theme.row_height},
+        # Results as a tree (grouped under their file) or as a flat list (one
+        # row per match). Which one is better depends entirely on whether you
+        # are looking for a file or for an occurrence.
+        %{id: {:results_view, :tree}, x: width - pad - 3 * button - 4, y: status, w: button, h: theme.row_height},
+        %{id: {:results_view, :list}, x: width - pad - 2 * button - 4, y: status, w: button, h: theme.row_height},
+        # And a way to put the pane back to empty without hunting for the
+        # query field and selecting what is in it.
+        %{id: :clear, x: width - pad - button, y: status, w: button, h: theme.row_height}
+      ]
   end
 
   defp replace_widgets(%__MODULE__{replace_open?: false}, _x, _y, _w, _pad, _fh, _bw, _gap),
@@ -236,10 +253,15 @@ defmodule ScenicWidgets.SearchPane.State do
 
   defp replace_widgets(%__MODULE__{}, query_x, y, width, pad, fh, button_w, gap) do
     all_x = width - pad - button_w
-    field_w = max(all_x - gap - query_x, 60)
+    one_x = all_x - 2 - button_w
+    field_w = max(one_x - gap - query_x, 60)
 
     [
       %{id: {:field, :replace}, x: query_x, y: y, w: field_w, h: fh},
+      # Replace this one, and replace all of them — the same pair the find bar
+      # offers, because a project replace is the one that most wants doing an
+      # occurrence at a time.
+      %{id: :replace_one, x: one_x, y: y, w: button_w, h: fh},
       %{id: :replace_all, x: all_x, y: y, w: button_w, h: fh}
     ]
   end
@@ -248,15 +270,20 @@ defmodule ScenicWidgets.SearchPane.State do
 
   defp domain_widgets(%__MODULE__{}, y, width, pad, theme) do
     row = theme.row_height
+    w = width - 2 * pad
 
     [
-      %{id: {:domain, :open_buffers_only}, x: pad, y: y, w: width - 2 * pad, h: row},
-      %{id: {:domain, :use_ignore_files}, x: pad, y: y + row, w: width - 2 * pad, h: row}
+      %{id: {:domain, :open_buffers_only}, x: pad, y: y, w: w, h: row},
+      %{id: {:domain, :use_ignore_files}, x: pad, y: y + row, w: w, h: row},
+      # The excludes list is a file, and this opens it — right here, beside
+      # the switch that says whether it is being honoured, rather than buried
+      # in a menu three clicks away from the search it governs.
+      %{id: :edit_excludes, x: pad, y: y + 2 * row, w: w, h: row}
     ]
   end
 
-  @doc "How many rows the domain section adds when it is open."
-  def domain_rows(%__MODULE__{domain_open?: true}), do: 2
+  @doc "How many rows the settings section adds when it is open."
+  def domain_rows(%__MODULE__{domain_open?: true}), do: 3
   def domain_rows(%__MODULE__{}), do: 0
 
   defp status_y(%__MODULE__{theme: theme} = state) do

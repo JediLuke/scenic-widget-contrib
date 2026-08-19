@@ -38,8 +38,12 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   def render(%State{} = state) do
     Graph.build()
     |> render_backdrop(state)
-    |> render_widgets(state)
+    # FIELDS FIRST, then the widgets that sit on top of them. The option
+    # toggles live inside the query field's right-hand end, and a field is a
+    # component with its own opaque background — drawn after them, it buries
+    # them completely.
     |> render_fields(state)
+    |> render_widgets(state)
     |> render_body(state)
   end
 
@@ -50,7 +54,6 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   defp render_backdrop(graph, %State{theme: theme} = state) do
     height = State.header_height(state)
     width = state.frame.size.width
-    close = Enum.find(State.header_widgets(state), &(&1.id == :close))
 
     graph
     |> Primitives.rect(state.frame.size.box,
@@ -64,17 +67,13 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
       id: :search_pane_header_rule,
       stroke: {1, theme.border}
     )
+    # The pane says what it is, and says it properly: it was set in the same
+    # small dim type as a row label, which made the top of the pane read as
+    # another result rather than as a title.
     |> Primitives.text("SEARCH",
       id: :search_pane_title,
-      translate: {theme.padding, theme.padding + theme.row_height - 6},
-      fill: theme.heading,
-      font: theme.font,
-      font_size: theme.small_font_size
-    )
-    |> Primitives.text("×",
-      id: :search_pane_close_glyph,
-      translate: {close.x + 4, close.y + close.h - 6},
-      fill: theme.dim_text,
+      translate: {theme.padding, theme.padding + theme.row_height - 4},
+      fill: theme.text,
       font: theme.font,
       font_size: theme.font_size
     )
@@ -194,7 +193,7 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   defp render_widgets(graph, %State{} = state) do
     live =
       State.header_widgets(state)
-      |> Enum.reject(&(&1.id == :close))
+
       |> Enum.reject(&match?(%{id: {:field, _}}, &1))
 
     Primitives.group(
@@ -351,14 +350,22 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     Primitives.triangle(graph, points, fill: theme.dim_text, id: :replace_disclosure)
   end
 
-  # Replace All: an arrow going into a stack of lines, the same glyph the find
-  # bar uses for it. Two spellings of one action in one editor is one too many.
-  defp render_header_widget(graph, %{id: :replace_all} = w, %State{theme: theme}) do
+  # Replace this one, and replace all of them — an arrow going into one line
+  # or into a stack of them. The same pair of glyphs the find bar uses: two
+  # spellings of one action in one editor is one too many.
+  defp render_header_widget(graph, %{id: :replace_one} = w, %State{} = state),
+    do: replace_button(graph, w, 1, state)
+
+  defp render_header_widget(graph, %{id: :replace_all} = w, %State{} = state),
+    do: replace_button(graph, w, 3, state)
+
+  defp replace_button(graph, w, lines, %State{theme: theme} = state) do
     cx = w.x + w.w / 2
     cy = w.y + w.h / 2
     arrow_y = cy - 5
 
     graph
+    |> hover_row(w, state)
     |> Primitives.rounded_rectangle({w.w, w.h, 3},
       fill: theme.button_background,
       stroke: {1, theme.field_border},
@@ -377,7 +384,7 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
       cap: :round
     )
     |> then(fn g ->
-      Enum.reduce(0..2, g, fn i, acc ->
+      Enum.reduce(0..(lines - 1), g, fn i, acc ->
         y = cy + 2 + i * 3
 
         Primitives.line(acc, {{cx - 6, y}, {cx + 6, y}},
@@ -388,10 +395,64 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     end)
   end
 
+  # The close, drawn rather than typed — a text "×" cannot be made to line up
+  # in a box, and this one needs to be the size of the closes on the tabs.
+  defp render_header_widget(graph, %{id: :close} = w, %State{theme: theme} = state) do
+    cx = w.x + w.w / 2
+    cy = w.y + w.h / 2
+    r = 5
+
+    graph
+    |> hover_row(w, state)
+    |> Primitives.line({{cx - r, cy - r}, {cx + r, cy + r}}, stroke: {1.8, theme.text}, cap: :round)
+    |> Primitives.line({{cx + r, cy - r}, {cx - r, cy + r}}, stroke: {1.8, theme.text}, cap: :round)
+  end
+
+  # Tree or list. Drawn as the shapes they mean rather than words: a small
+  # hierarchy, and a stack of equal rows.
+  defp render_header_widget(graph, %{id: {:results_view, which}} = w, %State{theme: theme} = state) do
+    on? = state.results_view == which
+    colour = if on?, do: theme.text, else: theme.dim_text
+    x = w.x + 5
+    y = w.y + 5
+
+    graph
+    |> hover_row(w, state)
+    |> then(fn g ->
+      if on? do
+        Primitives.rect(g, {w.w, w.h}, fill: theme.button_active, translate: {w.x, w.y})
+      else
+        g
+      end
+    end)
+    |> then(fn g ->
+      Enum.reduce(0..2, g, fn i, acc ->
+        indent = if which == :tree and i > 0, do: 4, else: 0
+
+        Primitives.line(acc, {{x + indent, y + i * 4}, {x + 12, y + i * 4}},
+          stroke: {1.4, colour},
+          cap: :round
+        )
+      end)
+    end)
+  end
+
+  # Clear: put the pane back to empty. A cross, like every other clear.
+  defp render_header_widget(graph, %{id: :clear} = w, %State{theme: theme} = state) do
+    cx = w.x + w.w / 2
+    cy = w.y + w.h / 2
+    r = 4
+
+    graph
+    |> hover_row(w, state)
+    |> Primitives.line({{cx - r, cy - r}, {cx + r, cy + r}}, stroke: {1.6, theme.dim_text}, cap: :round)
+    |> Primitives.line({{cx + r, cy - r}, {cx - r, cy + r}}, stroke: {1.6, theme.dim_text}, cap: :round)
+  end
+
   # The disclosure for the search domain: a caret and a word, not three dots.
   # A control that hides something should say what it is hiding.
   defp render_header_widget(graph, %{id: :domain_header} = w, %State{theme: theme} = state) do
-    label = if state.domain_open?, do: "▾ SEARCH DOMAIN", else: "▸ SEARCH DOMAIN"
+    label = if state.domain_open?, do: "▾ SEARCH SETTINGS", else: "▸ SEARCH SETTINGS"
 
     Primitives.text(graph, label,
       id: :domain_header_text,
@@ -418,6 +479,26 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
 
   defp domain_label(:open_buffers_only), do: "Search only open buffers"
   defp domain_label(:use_ignore_files), do: "Use exclude settings & ignore files"
+
+  # A plain action among the switches, so it reads as "and here is the list
+  # those settings are talking about".
+  defp render_header_widget(graph, %{id: :edit_excludes} = w, %State{theme: theme} = state) do
+    graph
+    |> hover_row(w, state)
+    |> Primitives.text("     Edit the exclude list…",
+      translate: {w.x + 2, w.y + w.h - 6},
+      fill: theme.dim_text,
+      font: theme.font,
+      font_size: theme.small_font_size
+    )
+  end
+
+  # Header controls light up under the pointer, like the rows do.
+  defp hover_row(graph, %{id: id} = w, %State{hovered: id, theme: theme}) do
+    Primitives.rect(graph, {w.w, w.h}, fill: theme.row_hover, translate: {w.x, w.y})
+  end
+
+  defp hover_row(graph, _w, _state), do: graph
 
   defp render_header_widget(graph, %{id: :status} = w, %State{theme: theme} = state) do
     {text, colour} = status_line(state)

@@ -138,6 +138,15 @@ defmodule ScenicWidgets.SearchPane do
   # searched for. The field shows it SELECTED so the next character typed
   # replaces it, rather than appending to a guess you then have to notice and
   # delete.
+  # An echo of what the field already holds is not a new query. The host
+  # mirrors the store's query back to the pane so that a search set off from
+  # anywhere else shows up here — but the pane is usually where it came from,
+  # and re-seeding on every keystroke would select the text just typed and
+  # let the next character replace it. Which is a field that only ever holds
+  # one letter.
+  def handle_put({:set_query, query}, %{assigns: %{state: %State{query: query}}} = scene),
+    do: {:noreply, scene}
+
   def handle_put({:set_query, query}, scene) do
     state = scene.assigns.state
     Scenic.Scene.put_child(scene, Renderizer.field_id(:query), {:seed_text, query})
@@ -332,6 +341,21 @@ defmodule ScenicWidgets.SearchPane do
         send_parent_event(scene, {:search_pane, :toggle_option, option})
         {:noreply, scene}
 
+      {:results_view, which} ->
+        {:noreply, redraw(scene, %{state | results_view: which})}
+
+      :clear ->
+        send_parent_event(scene, {:search_pane, :clear})
+        {:noreply, scene}
+
+      :edit_excludes ->
+        send_parent_event(scene, {:search_pane, :edit_excludes})
+        {:noreply, scene}
+
+      :replace_one ->
+        send_parent_event(scene, {:search_pane, :replace_one, state.replace})
+        {:noreply, scene}
+
       :replace_caret ->
         {:noreply, redraw(scene, %{state | replace_open?: not state.replace_open?})}
 
@@ -395,9 +419,13 @@ defmodule ScenicWidgets.SearchPane do
   defp hover(scene, coords) do
     state = scene.assigns.state
 
+    # Header controls light up under the pointer too. A button that gives no
+    # sign it is a button is one people click twice to check.
     hovered =
       case State.hit_test(state, coords) do
         {:row, row, _action} -> row.id
+        id when id in [:close, :replace_caret, :replace_all, :replace_one, :clear, :edit_excludes] -> id
+        {:results_view, _} = id -> id
         _other -> nil
       end
 
@@ -507,6 +535,10 @@ defmodule ScenicWidgets.SearchPane do
   end
 
   defp semantic_id(:replace_caret), do: :search_pane_replace_caret
+  defp semantic_id(:clear), do: :search_pane_clear
+  defp semantic_id(:edit_excludes), do: :search_pane_edit_excludes
+  defp semantic_id(:replace_one), do: :search_pane_replace_one
+  defp semantic_id({:results_view, which}), do: :"search_pane_view_#{which}"
   defp semantic_id(:domain_header), do: :search_pane_domain
   defp semantic_id({:domain, option}), do: :"search_pane_domain_#{option}"
   defp semantic_id(:close), do: :search_pane_close
@@ -536,6 +568,11 @@ defmodule ScenicWidgets.SearchPane do
   defp header_label(:status, _state), do: "Search status"
   defp header_label(:domain_header, _state), do: "Search domain"
   defp header_label(:replace_caret, _state), do: "Toggle replace"
+  defp header_label(:clear, _state), do: "Clear the search"
+  defp header_label(:edit_excludes, _state), do: "Edit the exclude list"
+  defp header_label(:replace_one, _state), do: "Replace this occurrence"
+  defp header_label({:results_view, :tree}, _state), do: "Show results as a tree"
+  defp header_label({:results_view, :list}, _state), do: "Show results as a list"
 
   defp header_label({:domain, :open_buffers_only}, _state), do: "Search only open buffers"
 
