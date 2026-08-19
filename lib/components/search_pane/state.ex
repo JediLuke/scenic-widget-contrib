@@ -64,6 +64,12 @@ defmodule ScenicWidgets.SearchPane.State do
     collapsed_files: MapSet.new(),
     expanded_scope: MapSet.new(),
     scope_open?: false,
+    # The search-domain disclosure: which files this search is allowed to
+    # look at. Shut by default — the default domain is right nearly always,
+    # and the pane is mostly for reading results.
+    domain_open?: false,
+    # :tree groups matches under their file, :list gives one row per match.
+    results_view: :tree,
     scrollbar_drag: nil,
     scrollbar_drag_start: nil,
     scrollbar_drag_offset: nil
@@ -106,6 +112,11 @@ defmodule ScenicWidgets.SearchPane.State do
       error: Map.get(model, :error),
       case_sensitive: Map.get(model, :case_sensitive, false),
       regex: Map.get(model, :regex, false),
+      # Where the search is allowed to look. Hidden behind a disclosure,
+      # because most searches want the default and a row of switches above
+      # the results is a row of results you cannot see.
+      open_buffers_only: Map.get(model, :open_buffers_only, false),
+      use_ignore_files: Map.get(model, :use_ignore_files, true),
       scope: Map.get(model, :scope, []),
       files: Map.get(model, :files, [])
     }
@@ -123,16 +134,27 @@ defmodule ScenicWidgets.SearchPane.State do
   # ── Geometry ──────────────────────────────────────────────────────────────
 
   @doc "Height of the fixed header, in pixels."
-  def header_height(%__MODULE__{theme: theme}), do: header_height(theme)
+  def header_height(%__MODULE__{theme: theme} = state),
+    do: header_height(theme) + domain_rows(state) * theme.row_height
 
   def header_height(theme) do
     pad = theme.padding
-    # title, query, replace, status — three gaps between four rows
-    pad + theme.row_height + 2 * (theme.field_height + 4) + theme.row_height + pad
+    # title, query, replace, domain disclosure, status
+    pad + theme.row_height + 2 * (theme.field_height + 4) + 6 + theme.row_height +
+      theme.row_height + pad
   end
 
   @doc "The frame the scrolling body occupies, as its own Widgex.Frame."
-  def body_frame(%__MODULE__{frame: frame, theme: theme}), do: body_frame(frame, theme)
+  # The body starts under whatever the header currently is — which grows when
+  # the domain section is open, so it cannot be measured from the theme alone.
+  def body_frame(%__MODULE__{frame: frame} = state) do
+    top = header_height(state)
+
+    Widgex.Frame.new(%{
+      pin: {0, top},
+      size: {frame.size.width, max(frame.size.height - top, 0)}
+    })
+  end
 
   def body_frame(frame, theme) do
     Widgex.Frame.new(%{
@@ -148,7 +170,7 @@ defmodule ScenicWidgets.SearchPane.State do
   and what the semantic layer publishes, so they double as the pane's API to
   anything driving it from outside.
   """
-  def header_widgets(%__MODULE__{frame: frame, theme: theme}) do
+  def header_widgets(%__MODULE__{frame: frame, theme: theme} = state) do
     pad = theme.padding
     width = frame.size.width
     fh = theme.field_height
@@ -158,22 +180,57 @@ defmodule ScenicWidgets.SearchPane.State do
     title_y = pad
     query_y = title_y + theme.row_height
     replace_y = query_y + fh + 4
+    domain_y = replace_y + fh + 6
+
+    header =
+      [
+        %{id: :close, x: width - pad - 18, y: title_y, w: 18, h: theme.row_height},
+        %{
+          id: {:field, :query},
+          x: pad,
+          y: query_y,
+          w: max(width - 2 * pad - 2 * toggle_w - 8, 40),
+          h: fh
+        },
+        %{
+          id: {:toggle, :case_sensitive},
+          x: width - pad - 2 * toggle_w - 4,
+          y: query_y,
+          w: toggle_w,
+          h: fh
+        },
+        %{id: {:toggle, :regex}, x: width - pad - toggle_w, y: query_y, w: toggle_w, h: fh},
+        %{id: {:field, :replace}, x: pad, y: replace_y, w: max(width - 2 * pad - all_w - 6, 40), h: fh},
+        %{id: :replace_all, x: width - pad - all_w, y: replace_y, w: all_w, h: fh},
+        # The disclosure for the search domain. A named row rather than three
+        # dots: a control that hides something should say what.
+        %{id: :domain_header, x: pad, y: domain_y, w: width - 2 * pad, h: theme.row_height}
+      ] ++ domain_widgets(state, domain_y + theme.row_height, width, pad, theme)
+
+    header ++ [%{id: :status, x: pad, y: status_y(state), w: width - 2 * pad, h: theme.row_height}]
+  end
+
+  defp domain_widgets(%__MODULE__{domain_open?: false}, _y, _width, _pad, _theme), do: []
+
+  defp domain_widgets(%__MODULE__{}, y, width, pad, theme) do
+    row = theme.row_height
 
     [
-      %{id: :close, x: width - pad - 18, y: title_y, w: 18, h: theme.row_height},
-      %{
-        id: {:field, :query},
-        x: pad,
-        y: query_y,
-        w: max(width - 2 * pad - 2 * toggle_w - 8, 40),
-        h: fh
-      },
-      %{id: {:toggle, :case_sensitive}, x: width - pad - 2 * toggle_w - 4, y: query_y, w: toggle_w, h: fh},
-      %{id: {:toggle, :regex}, x: width - pad - toggle_w, y: query_y, w: toggle_w, h: fh},
-      %{id: {:field, :replace}, x: pad, y: replace_y, w: max(width - 2 * pad - all_w - 6, 40), h: fh},
-      %{id: :replace_all, x: width - pad - all_w, y: replace_y, w: all_w, h: fh},
-      %{id: :status, x: pad, y: replace_y + fh + 4, w: width - 2 * pad, h: theme.row_height}
+      %{id: {:domain, :open_buffers_only}, x: pad, y: y, w: width - 2 * pad, h: row},
+      %{id: {:domain, :use_ignore_files}, x: pad, y: y + row, w: width - 2 * pad, h: row}
     ]
+  end
+
+  @doc "How many rows the domain section adds when it is open."
+  def domain_rows(%__MODULE__{domain_open?: true}), do: 2
+  def domain_rows(%__MODULE__{}), do: 0
+
+  defp status_y(%__MODULE__{theme: theme} = state) do
+    pad = theme.padding
+    fh = theme.field_height
+
+    pad + theme.row_height + 2 * (fh + 4) + 6 + theme.row_height +
+      domain_rows(state) * theme.row_height + 4
   end
 
   @doc """

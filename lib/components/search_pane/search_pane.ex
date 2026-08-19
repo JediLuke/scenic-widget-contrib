@@ -328,6 +328,13 @@ defmodule ScenicWidgets.SearchPane do
         send_parent_event(scene, {:search_pane, :toggle_option, option})
         {:noreply, scene}
 
+      :domain_header ->
+        {:noreply, redraw(scene, %{state | domain_open?: not state.domain_open?})}
+
+      {:domain, option} ->
+        send_parent_event(scene, {:search_pane, :toggle_option, option})
+        {:noreply, scene}
+
       {:row, row, nil} ->
         row_click(scene, state, row)
 
@@ -473,6 +480,8 @@ defmodule ScenicWidgets.SearchPane do
     :ok
   end
 
+  defp semantic_id(:domain_header), do: :search_pane_domain
+  defp semantic_id({:domain, option}), do: :"search_pane_domain_#{option}"
   defp semantic_id(:close), do: :search_pane_close
   defp semantic_id(:replace_all), do: :search_pane_replace_all
   defp semantic_id(:status), do: :search_pane_status
@@ -498,6 +507,12 @@ defmodule ScenicWidgets.SearchPane do
   defp header_label({:toggle, :case_sensitive}, _state), do: "Match case"
   defp header_label({:toggle, :regex}, _state), do: "Regular expression"
   defp header_label(:status, _state), do: "Search status"
+  defp header_label(:domain_header, _state), do: "Search domain"
+
+  defp header_label({:domain, :open_buffers_only}, _state), do: "Search only open buffers"
+
+  defp header_label({:domain, :use_ignore_files}, _state),
+    do: "Use exclude settings and ignore files"
 
   defp action_label({:replace_file, path}), do: "Replace all in #{path}"
   defp action_label({:dismiss_file, path}), do: "Dismiss #{path}"

@@ -342,6 +342,37 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     )
   end
 
+  # The disclosure for the search domain: a caret and a word, not three dots.
+  # A control that hides something should say what it is hiding.
+  defp render_header_widget(graph, %{id: :domain_header} = w, %State{theme: theme} = state) do
+    label = if state.domain_open?, do: "▾ SEARCH DOMAIN", else: "▸ SEARCH DOMAIN"
+
+    Primitives.text(graph, label,
+      id: :domain_header_text,
+      translate: {w.x, w.y + w.h - 6},
+      fill: theme.heading,
+      font: theme.font,
+      font_size: theme.small_font_size
+    )
+  end
+
+  # A domain option, drawn as a tick box and a sentence — these are choices
+  # about where to look, and a two-letter glyph could not say which is which.
+  defp render_header_widget(graph, %{id: {:domain, option}} = w, %State{theme: theme} = state) do
+    on? = Map.fetch!(state.model, option)
+    mark = if on?, do: "[x]", else: "[ ]"
+
+    Primitives.text(graph, mark <> "  " <> domain_label(option),
+      translate: {w.x + 2, w.y + w.h - 6},
+      fill: if(on?, do: theme.text, else: theme.dim_text),
+      font: theme.font,
+      font_size: theme.small_font_size
+    )
+  end
+
+  defp domain_label(:open_buffers_only), do: "Search only open buffers"
+  defp domain_label(:use_ignore_files), do: "Use exclude settings & ignore files"
+
   defp render_header_widget(graph, %{id: :status} = w, %State{theme: theme} = state) do
     {text, colour} = status_line(state)
 
