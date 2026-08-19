@@ -197,14 +197,11 @@ defmodule ScenicWidgets.SearchBar.State do
     case_x = regex_x - @toggle_gap - @toggle_width
 
     search_row = [
-      %{
-        id: :toggle_replace,
-        x: @pad,
-        y: 0,
-        w: @caret_width,
-        h: @bar_height,
-        tooltip: if(state.replace_mode, do: "Hide Replace", else: "Show Replace")
-      },
+      # No tooltip. The caret is the one control here whose meaning is already
+      # on its face — it points right when the row is closed and down when it
+      # is open — and a label for it lands right on top of the query field,
+      # covering the thing you are reading.
+      %{id: :toggle_replace, x: @pad, y: 0, w: @caret_width, h: @bar_height, tooltip: nil},
       %{id: :search_field, x: input_x, y: field_y, w: input_w, h: @field_height, tooltip: nil},
       %{
         id: {:toggle, :case_sensitive},

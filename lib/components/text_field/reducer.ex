@@ -101,11 +101,16 @@ defmodule ScenicWidgets.TextField.Reducer do
   end
 
   # Enter key - emit :enter_pressed event in single_line mode (for command bars, search fields, etc.)
+  #
+  # PLAIN Enter only. A modified Enter belongs to the host: Shift+Enter in a
+  # search bar means "the previous match", and reporting it as an ordinary
+  # Enter made the host do both — forward from the event, back from the key —
+  # which nets out to the cursor never moving at all.
   def process_input(
         %State{focused: true, mode: :single_line} = state,
-        {:key, {:key_enter, key_state, _mods}}
+        {:key, {:key_enter, key_state, mods}}
       )
-      when key_state > 0 do
+      when key_state > 0 and mods == [] do
     # Don't insert newline - emit event for parent to handle
     {:event, {:enter_pressed, state.id, State.get_text(state)}, state}
   end

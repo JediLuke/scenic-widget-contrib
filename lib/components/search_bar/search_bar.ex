@@ -164,6 +164,14 @@ defmodule ScenicWidgets.SearchBar do
     {:noreply, redraw(scene, state)}
   end
 
+  # Back to plain find. The replacement field goes with the row, so the graph
+  # is rebuilt from nothing — which is exactly the case redraw/2 already
+  # treats as "which fields exist has changed".
+  def handle_put(:disable_replace_mode, scene) do
+    state = %{scene.assigns.state | replace_mode: false, focused_field: :search}
+    {:noreply, focus_fields(redraw(scene, state), state)}
+  end
+
   def handle_put(:enable_replace_mode, scene) do
     state = State.enable_replace_mode(scene.assigns.state)
     new_scene = focus_fields(redraw(scene, state), state)
@@ -349,8 +357,11 @@ defmodule ScenicWidgets.SearchBar do
         cast_parent(scene, {:search_next, state.id})
         {:noreply, scene}
 
+      # TOGGLED, not requested. The caret is a disclosure control: it has to
+      # close the row it opened. Asking for replace mode is what Ctrl+H does,
+      # and that is a different message because it only ever opens.
       %{id: :toggle_replace} ->
-        cast_parent(scene, {:replace_mode_requested, state.id})
+        cast_parent(scene, {:replace_mode_toggled, state.id})
         {:noreply, scene}
 
       %{id: {:toggle, option}} ->

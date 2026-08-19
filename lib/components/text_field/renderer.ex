@@ -1,6 +1,7 @@
 defmodule ScenicWidgets.TextField.Renderer do
   @multiline_row_y_offset 4
 
+
   @moduledoc """
   Rendering logic for the TextField component.
 
@@ -33,6 +34,17 @@ defmodule ScenicWidgets.TextField.Renderer do
   alias Scenic.Graph
   alias Scenic.Primitives
   alias ScenicWidgets.TextField.State
+
+  # The top of a row's box — the selection, a search match, the cursor. In
+  # multi-line mode rows stack from the top; in single-line mode the text is
+  # CENTRED in the frame (it is drawn with text_base: :middle), so a box
+  # placed by the stacking formula sits a little high. Visible in a search
+  # bar, where the field is barely taller than the line.
+  def row_top(%State{mode: :single_line} = state, _row),
+    do: state.frame.size.height / 2 - State.line_height(state) / 2
+
+  def row_top(%State{} = state, row),
+    do: (row - 1) * State.line_height(state) + @multiline_row_y_offset
   alias ScenicWidgets.TextField.MatchingBrace
   alias ScenicWidgets.TextField.Wrapping
   require Logger
@@ -106,6 +118,7 @@ defmodule ScenicWidgets.TextField.Renderer do
       |> update_gutter_scroll(old_state, new_state)
       |> update_content_scroll(old_state, new_state)
       |> update_lines_if_changed(old_state, new_state)
+      |> update_placeholder_if_changed(old_state, new_state)
       |> update_highlights_if_changed(old_state, new_state)
       |> update_semantic_if_changed(old_state, new_state)
       |> update_line_numbers_if_changed(old_state, new_state)
@@ -932,7 +945,7 @@ defmodule ScenicWidgets.TextField.Renderer do
             g,
             {width, line_height},
             fill: selection_color,
-            translate: {x_offset + lead, (row - 1) * line_height + @multiline_row_y_offset},
+            translate: {x_offset + lead, row_top(state, row)},
             id: {:selection_highlight, row}
           )
         else
@@ -1380,6 +1393,23 @@ defmodule ScenicWidgets.TextField.Renderer do
   end
 
   defp update_lines_if_changed(graph, _old_state, _new_state), do: graph
+
+  # The placeholder REPLACES the text primitives rather than sitting beside
+  # them, so appearing or disappearing changes which primitives exist — and
+  # the line-edit path above only modifies primitives it expects to be there.
+  # Typing the first character into an empty field kept its line count at one,
+  # took that path, and edited a {:text_line, 1} that had never been drawn:
+  # the placeholder stayed on screen and the text was invisible.
+  defp update_placeholder_if_changed(graph, old_state, new_state) do
+    if placeholder_visible?(old_state) == placeholder_visible?(new_state) do
+      graph
+    else
+      rebuild_content_area(graph, new_state)
+    end
+  end
+
+  defp placeholder_visible?(%State{} = state),
+    do: placeholder_showing?(state, wrap_lines(state))
 
   defp highlighting_active?(%State{highlights: highlights, highlight_styles: styles}) do
     is_map(highlights) and map_size(highlights) > 0 and is_map(styles) and map_size(styles) > 0
