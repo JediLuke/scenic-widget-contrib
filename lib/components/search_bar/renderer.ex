@@ -240,18 +240,27 @@ defmodule ScenicWidgets.SearchBar.Renderer do
     end
   end
 
-  # Every tooltip hangs from the BOTTOM OF THE BAR, not from the bottom of
-  # whichever control it belongs to. The controls are not all the same height
-  # — the option toggles are inset inside the query field, and the caret spans
-  # both rows — so labels placed under each one landed at three different
-  # heights and read as scattered. One latitude, always.
   defp tooltip_for(nil, _widgets, _state), do: nil
 
   defp tooltip_for(id, widgets, state) do
     case Enum.find(widgets, &(&1.id == id and &1.tooltip != nil)) do
       nil -> nil
-      w -> %{text: w.tooltip, at: {w.x, State.height(state)}}
+      w -> %{text: w.tooltip, at: {w.x, tooltip_y(w, state)}}
     end
+  end
+
+  # A tooltip hangs from the bottom of the ROW its control is on, not from the
+  # bottom of the control itself — the option toggles are inset inside the
+  # query field, so hanging them from their own edge put them a dozen pixels
+  # above the labels beside them.
+  #
+  # The caret is the exception: it spans every row, so it hangs from the
+  # bottom of the whole bar, level with the replace buttons it sits beside
+  # when the second row is open.
+  defp tooltip_y(%{id: :toggle_replace}, state), do: State.height(state)
+
+  defp tooltip_y(%{y: y}, state) when y >= 0 do
+    if y >= State.bar_height(), do: State.height(state), else: State.bar_height()
   end
 
   defp render_widgets(graph, widgets, state) do

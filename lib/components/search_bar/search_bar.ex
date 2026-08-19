@@ -211,6 +211,32 @@ defmodule ScenicWidgets.SearchBar do
     {:noreply, focus_field(scene, :replace)}
   end
 
+  # Undo and redo belong to the DOCUMENT, even while the bar holds the
+  # keyboard. Replacing is the destructive thing this bar does, and the moment
+  # you want to take it back is the moment right after — with the bar still
+  # open and the query still in it. Nothing here handled the chord at all, so
+  # it simply vanished.
+  def handle_input({:key, {:key_z, @key_pressed, mods}}, _context, scene)
+      when is_list(mods) do
+    cond do
+      :ctrl not in mods ->
+        :ok
+
+      :shift in mods ->
+        cast_parent(scene, {:redo_requested, scene.assigns.state.id})
+
+      true ->
+        cast_parent(scene, {:undo_requested, scene.assigns.state.id})
+    end
+
+    {:noreply, scene}
+  end
+
+  def handle_input({:key, {:key_y, @key_pressed, [:ctrl]}}, _context, scene) do
+    cast_parent(scene, {:redo_requested, scene.assigns.state.id})
+    {:noreply, scene}
+  end
+
   # Ctrl+F while already open: back to the search field.
   def handle_input({:key, {:key_f, @key_pressed, [:ctrl]}}, _context, scene) do
     {:noreply, focus_field(scene, :search)}

@@ -215,7 +215,17 @@ defmodule ScenicWidgets.TextField.State do
     font_config = Map.get(data, :font) || default_font()
     font = ensure_font_metrics(font_config)
     lines = parse_initial_text(data)
-    wrap_mode = Map.get(data, :wrap_mode, :word)
+    # A one-line field never wraps, whatever it was told. Wrapping is what
+    # makes a long query spill onto a second row the field has no room for —
+    # and it is also what switches OFF horizontal scrolling, since the code
+    # that keeps the cursor in view only tracks an x offset when nothing
+    # wraps. So the query ran off the end, over its neighbours, and then
+    # folded onto a line nobody could see.
+    wrap_mode =
+      case Map.get(data, :mode, :multi_line) do
+        :single_line -> :none
+        _ -> Map.get(data, :wrap_mode, :word)
+      end
     show_line_numbers = Map.get(data, :show_line_numbers, false)
 
     # Calculate dynamic gutter width based on line count
