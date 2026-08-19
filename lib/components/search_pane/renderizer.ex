@@ -230,16 +230,26 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     end)
   end
 
-  @doc "Where a field is and how it looks — everything it takes from the pane."
-  def field_settings(%State{theme: theme} = state, field) do
-    w = Enum.find(State.header_widgets(state), &(&1.id == {:field, field}))
+  @doc """
+  Where a field is and how it looks — everything it takes from the pane.
 
-    %{
-      frame: Widgex.Frame.new(%{pin: {0, 0}, size: {w.w, w.h}}),
-      colors: field_colors(theme),
-      font: field_font(theme),
-      placeholder: placeholder(field)
-    }
+  `nil` when that field is not on screen: the replacement row lives behind a
+  disclosure, and asking after it while it is shut used to hand a nil
+  rectangle to Frame.new and take the pane down with it.
+  """
+  def field_settings(%State{theme: theme} = state, field) do
+    case Enum.find(State.header_widgets(state), &(&1.id == {:field, field})) do
+      nil ->
+        nil
+
+      w ->
+        %{
+          frame: Widgex.Frame.new(%{pin: {0, 0}, size: {w.w, w.h}}),
+          colors: field_colors(theme),
+          font: field_font(theme),
+          placeholder: placeholder(field)
+        }
+    end
   end
 
   @doc "Move the field components after a resize."
@@ -326,20 +336,56 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     )
   end
 
+  # The disclosure for the replacement row — a triangle pointing at what it
+  # opens, the same idiom as the find bar's.
+  defp render_header_widget(graph, %{id: :replace_caret} = w, %State{theme: theme} = state) do
+    cx = w.x + w.w / 2
+    cy = w.y + theme.field_height / 2
+    r = 4
+
+    points =
+      if state.replace_open?,
+        do: {{cx - r, cy - r / 2}, {cx + r, cy - r / 2}, {cx, cy + r}},
+        else: {{cx - r / 2, cy - r}, {cx + r, cy}, {cx - r / 2, cy + r}}
+
+    Primitives.triangle(graph, points, fill: theme.dim_text, id: :replace_disclosure)
+  end
+
+  # Replace All: an arrow going into a stack of lines, the same glyph the find
+  # bar uses for it. Two spellings of one action in one editor is one too many.
   defp render_header_widget(graph, %{id: :replace_all} = w, %State{theme: theme}) do
+    cx = w.x + w.w / 2
+    cy = w.y + w.h / 2
+    arrow_y = cy - 5
+
     graph
-    |> Primitives.rect({w.w, w.h},
+    |> Primitives.rounded_rectangle({w.w, w.h, 3},
       fill: theme.button_background,
       stroke: {1, theme.field_border},
       translate: {w.x, w.y}
     )
-    |> Primitives.text("All",
-      translate: {w.x + w.w / 2, w.y + w.h - 7},
-      text_align: :center,
-      fill: theme.button_text,
-      font: theme.font,
-      font_size: theme.small_font_size
+    |> Primitives.line({{cx - 6, arrow_y}, {cx + 3, arrow_y}},
+      stroke: {1.5, theme.button_text},
+      cap: :round
     )
+    |> Primitives.line({{cx, arrow_y - 3}, {cx + 3, arrow_y}},
+      stroke: {1.5, theme.button_text},
+      cap: :round
+    )
+    |> Primitives.line({{cx, arrow_y + 3}, {cx + 3, arrow_y}},
+      stroke: {1.5, theme.button_text},
+      cap: :round
+    )
+    |> then(fn g ->
+      Enum.reduce(0..2, g, fn i, acc ->
+        y = cy + 2 + i * 3
+
+        Primitives.line(acc, {{cx - 6, y}, {cx + 6, y}},
+          stroke: {1.3, theme.button_text},
+          cap: :round
+        )
+      end)
+    end)
   end
 
   # The disclosure for the search domain: a caret and a word, not three dots.

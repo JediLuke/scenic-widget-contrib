@@ -68,6 +68,9 @@ defmodule ScenicWidgets.SearchPane.State do
     # look at. Shut by default — the default domain is right nearly always,
     # and the pane is mostly for reading results.
     domain_open?: false,
+    # The replacement row, behind a disclosure like the find bar's. Most
+    # searches are searches; the replacement field is a second job.
+    replace_open?: false,
     # :tree groups matches under their file, :list gives one row per match.
     results_view: :tree,
     scrollbar_drag: nil,
@@ -134,13 +137,24 @@ defmodule ScenicWidgets.SearchPane.State do
   # ── Geometry ──────────────────────────────────────────────────────────────
 
   @doc "Height of the fixed header, in pixels."
-  def header_height(%__MODULE__{theme: theme} = state),
-    do: header_height(theme) + domain_rows(state) * theme.row_height
+  # What the header currently IS, which depends on what it is showing: the
+  # replacement row and the domain options are both behind disclosures.
+  def header_height(%__MODULE__{theme: theme} = state) do
+    pad = theme.padding
+    fh = theme.field_height
 
+    pad + theme.row_height + fh + 4 +
+      if(state.replace_open?, do: fh + 4, else: 0) +
+      6 + theme.row_height +
+      domain_rows(state) * theme.row_height +
+      theme.row_height + pad
+  end
+
+  # The shut-and-empty height, for callers holding a theme and no state.
   def header_height(theme) do
     pad = theme.padding
-    # title, query, replace, domain disclosure, status
-    pad + theme.row_height + 2 * (theme.field_height + 4) + 6 + theme.row_height +
+
+    pad + theme.row_height + theme.field_height + 4 + 6 + theme.row_height +
       theme.row_height + pad
   end
 
@@ -174,40 +188,60 @@ defmodule ScenicWidgets.SearchPane.State do
     pad = theme.padding
     width = frame.size.width
     fh = theme.field_height
-    toggle_w = 26
-    all_w = 46
+    caret_w = 18
+    toggle_w = 22
+    button_w = 26
+    gap = 6
 
     title_y = pad
     query_y = title_y + theme.row_height
     replace_y = query_y + fh + 4
-    domain_y = replace_y + fh + 6
+    domain_y = replace_y + if(state.replace_open?, do: fh + 6, else: 6)
+
+    # The query field, with its option toggles INSIDE its right-hand end —
+    # the same arrangement as the find bar, where it reads that they modify
+    # the query rather than the search. They used to sit outside it, which
+    # made them look like two more buttons in a row of buttons.
+    query_x = pad + caret_w + gap
+    query_w = max(width - pad - query_x, 60)
+    regex_x = query_x + query_w - 3 - toggle_w
+    case_x = regex_x - 2 - toggle_w
 
     header =
       [
         %{id: :close, x: width - pad - 18, y: title_y, w: 18, h: theme.row_height},
+        # The disclosure for the replacement row, on the left where a control
+        # that opens another row belongs. It spans both rows when open, so its
+        # highlight covers what it opened.
         %{
-          id: {:field, :query},
+          id: :replace_caret,
           x: pad,
           y: query_y,
-          w: max(width - 2 * pad - 2 * toggle_w - 8, 40),
-          h: fh
+          w: caret_w,
+          h: if(state.replace_open?, do: 2 * fh + 4, else: fh)
         },
-        %{
-          id: {:toggle, :case_sensitive},
-          x: width - pad - 2 * toggle_w - 4,
-          y: query_y,
-          w: toggle_w,
-          h: fh
-        },
-        %{id: {:toggle, :regex}, x: width - pad - toggle_w, y: query_y, w: toggle_w, h: fh},
-        %{id: {:field, :replace}, x: pad, y: replace_y, w: max(width - 2 * pad - all_w - 6, 40), h: fh},
-        %{id: :replace_all, x: width - pad - all_w, y: replace_y, w: all_w, h: fh},
-        # The disclosure for the search domain. A named row rather than three
-        # dots: a control that hides something should say what.
-        %{id: :domain_header, x: pad, y: domain_y, w: width - 2 * pad, h: theme.row_height}
-      ] ++ domain_widgets(state, domain_y + theme.row_height, width, pad, theme)
+        %{id: {:field, :query}, x: query_x, y: query_y, w: query_w, h: fh},
+        %{id: {:toggle, :case_sensitive}, x: case_x, y: query_y + 3, w: toggle_w, h: fh - 6},
+        %{id: {:toggle, :regex}, x: regex_x, y: query_y + 3, w: toggle_w, h: fh - 6}
+      ] ++
+        replace_widgets(state, query_x, replace_y, width, pad, fh, button_w, gap) ++
+        [%{id: :domain_header, x: pad, y: domain_y, w: width - 2 * pad, h: theme.row_height}] ++
+        domain_widgets(state, domain_y + theme.row_height, width, pad, theme)
 
     header ++ [%{id: :status, x: pad, y: status_y(state), w: width - 2 * pad, h: theme.row_height}]
+  end
+
+  defp replace_widgets(%__MODULE__{replace_open?: false}, _x, _y, _w, _pad, _fh, _bw, _gap),
+    do: []
+
+  defp replace_widgets(%__MODULE__{}, query_x, y, width, pad, fh, button_w, gap) do
+    all_x = width - pad - button_w
+    field_w = max(all_x - gap - query_x, 60)
+
+    [
+      %{id: {:field, :replace}, x: query_x, y: y, w: field_w, h: fh},
+      %{id: :replace_all, x: all_x, y: y, w: button_w, h: fh}
+    ]
   end
 
   defp domain_widgets(%__MODULE__{domain_open?: false}, _y, _width, _pad, _theme), do: []
@@ -229,7 +263,9 @@ defmodule ScenicWidgets.SearchPane.State do
     pad = theme.padding
     fh = theme.field_height
 
-    pad + theme.row_height + 2 * (fh + 4) + 6 + theme.row_height +
+    pad + theme.row_height + fh + 4 +
+      if(state.replace_open?, do: fh + 4, else: 0) +
+      6 + theme.row_height +
       domain_rows(state) * theme.row_height + 4
   end
 
@@ -384,9 +420,15 @@ defmodule ScenicWidgets.SearchPane.State do
   """
   def hit_test(%__MODULE__{} = state, {x, y}) do
     if y < header_height(state) do
-      Enum.find_value(header_widgets(state), fn w ->
-        if inside?(w, x, y), do: w.id
-      end)
+      # REVERSE: the list is in drawing order and the thing drawn last is the
+      # thing on top. The option toggles sit inside the query field's
+      # right-hand end, so a forward search hands every click on them to the
+      # field underneath — which is exactly what happened to the find bar
+      # when its toggles moved inside its field.
+      state
+      |> header_widgets()
+      |> Enum.reverse()
+      |> Enum.find_value(fn w -> if inside?(w, x, y), do: w.id end)
     else
       body_hit(state, {x, y})
     end

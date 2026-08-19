@@ -218,6 +218,12 @@ defmodule ScenicWidgets.SearchPane do
     {:noreply, scene}
   end
 
+  # Tab cycles between the fields — when there are two. With the replacement
+  # row shut there is only the query, and moving focus to a field that has not
+  # been built would hand the keyboard to nothing at all.
+  def handle_event({:tab_pressed, _id, _shift?}, _from, %{assigns: %{state: %State{replace_open?: false}}} = scene),
+    do: {:noreply, scene}
+
   def handle_event({:tab_pressed, _id, shift?}, _from, scene) do
     state = scene.assigns.state
     next = if shift?, do: State.prev_field(state), else: State.next_field(state)
@@ -240,12 +246,10 @@ defmodule ScenicWidgets.SearchPane do
   # its cursor and its selection sixty times a second.
   defp reframe_fields(scene, %State{} = old_state, %State{} = new_state) do
     if old_state.frame != new_state.frame or old_state.theme != new_state.theme do
-      for field <- State.fields() do
-        Scenic.Scene.put_child(
-          scene,
-          Renderizer.field_id(field),
-          {:update_settings, Renderizer.field_settings(new_state, field)}
-        )
+      for field <- State.fields(),
+          settings = Renderizer.field_settings(new_state, field),
+          settings != nil do
+        Scenic.Scene.put_child(scene, Renderizer.field_id(field), {:update_settings, settings})
       end
     end
 
@@ -327,6 +331,9 @@ defmodule ScenicWidgets.SearchPane do
       {:toggle, option} ->
         send_parent_event(scene, {:search_pane, :toggle_option, option})
         {:noreply, scene}
+
+      :replace_caret ->
+        {:noreply, redraw(scene, %{state | replace_open?: not state.replace_open?})}
 
       :domain_header ->
         {:noreply, redraw(scene, %{state | domain_open?: not state.domain_open?})}
@@ -412,6 +419,25 @@ defmodule ScenicWidgets.SearchPane do
   # from scratch would take them with it on every keystroke.
   defp redraw(scene, state) do
     old_state = scene.assigns.state
+
+    # Opening or closing the replacement row changes which FIELDS exist, and a
+    # field is a component: it has to be built, not drawn. That is the one
+    # case that rebuilds from nothing.
+    if old_state.replace_open? != state.replace_open? do
+      graph = Renderizer.render(state)
+      scene = scene |> assign(state: state, graph: graph) |> push_graph(graph)
+      register_semantic_elements(scene, state)
+
+      # Both fields are new processes, and a new field does not know whether
+      # it has the keyboard. Without this the pane looks focused and answers
+      # to nothing.
+      focus_fields(scene, state)
+    else
+      do_redraw(scene, old_state, state)
+    end
+  end
+
+  defp do_redraw(scene, old_state, state) do
     graph = Renderizer.update_render(scene.assigns.graph, old_state, state)
     reframe_fields(scene, old_state, state)
 
@@ -480,6 +506,7 @@ defmodule ScenicWidgets.SearchPane do
     :ok
   end
 
+  defp semantic_id(:replace_caret), do: :search_pane_replace_caret
   defp semantic_id(:domain_header), do: :search_pane_domain
   defp semantic_id({:domain, option}), do: :"search_pane_domain_#{option}"
   defp semantic_id(:close), do: :search_pane_close
@@ -508,6 +535,7 @@ defmodule ScenicWidgets.SearchPane do
   defp header_label({:toggle, :regex}, _state), do: "Regular expression"
   defp header_label(:status, _state), do: "Search status"
   defp header_label(:domain_header, _state), do: "Search domain"
+  defp header_label(:replace_caret, _state), do: "Toggle replace"
 
   defp header_label({:domain, :open_buffers_only}, _state), do: "Search only open buffers"
 
