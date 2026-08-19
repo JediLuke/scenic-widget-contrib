@@ -67,6 +67,15 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
       id: :search_pane_header_rule,
       stroke: {1, theme.border}
     )
+    # And a rule above the status line: it is the boundary between the
+    # controls and the results, and crowded against the settings it read as
+    # one more option rather than as the end of them.
+    |> Primitives.line(
+      {{theme.padding, State.status_rule_y(state)},
+       {width - theme.padding, State.status_rule_y(state)}},
+      id: :search_pane_status_rule,
+      stroke: {1, theme.border}
+    )
     # The pane says what it is, and says it properly: it was set in the same
     # small dim type as a row label, which made the top of the pane read as
     # another result rather than as a title.
@@ -90,6 +99,14 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     end)
     |> Graph.modify(:search_pane_header_bg, fn p ->
       Primitives.rect(p, {width, height}, fill: theme.header_background)
+    end)
+    |> Graph.modify(:search_pane_status_rule, fn p ->
+      Primitives.line(
+        p,
+        {{theme.padding, State.status_rule_y(state)},
+         {width - theme.padding, State.status_rule_y(state)}},
+        stroke: {1, theme.border}
+      )
     end)
     |> Graph.modify(:search_pane_header_rule, fn p ->
       Primitives.line(p, {{0, height}, {width, height}}, stroke: {1, theme.border})
@@ -320,16 +337,19 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     on? = Map.fetch!(state.model, option)
     label = if option == :case_sensitive, do: "Aa", else: ".*"
 
+    # Rounded, and lit the way the find bar lights its own: the two widgets
+    # ask the same question and had grown two different answers.
     graph
-    |> Primitives.rect({w.w, w.h},
+    |> hover_row(w, state)
+    |> Primitives.rounded_rectangle({w.w, w.h, 3},
       fill: if(on?, do: theme.button_active, else: theme.button_background),
-      stroke: {1, theme.field_border},
+      stroke: {1, if(on?, do: theme.field_focus_border, else: theme.field_border)},
       translate: {w.x, w.y}
     )
     |> Primitives.text(label,
-      translate: {w.x + w.w / 2, w.y + w.h - 7},
+      translate: {w.x + w.w / 2, w.y + w.h - 6},
       text_align: :center,
-      fill: theme.button_text,
+      fill: if(on?, do: theme.text, else: theme.dim_text),
       font: theme.font,
       font_size: theme.small_font_size
     )
@@ -338,16 +358,9 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   # The disclosure for the replacement row — a triangle pointing at what it
   # opens, the same idiom as the find bar's.
   defp render_header_widget(graph, %{id: :replace_caret} = w, %State{theme: theme} = state) do
-    cx = w.x + w.w / 2
-    cy = w.y + theme.field_height / 2
-    r = 4
-
-    points =
-      if state.replace_open?,
-        do: {{cx - r, cy - r / 2}, {cx + r, cy - r / 2}, {cx, cy + r}},
-        else: {{cx - r / 2, cy - r}, {cx + r, cy}, {cx - r / 2, cy + r}}
-
-    Primitives.triangle(graph, points, fill: theme.dim_text, id: :replace_disclosure)
+    graph
+    |> hover_row(w, state)
+    |> caret(w.x + w.w / 2, w.y + theme.field_height / 2, state.replace_open?, theme.dim_text)
   end
 
   # Replace this one, and replace all of them — an arrow going into one line
@@ -449,18 +462,33 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     |> Primitives.line({{cx + r, cy - r}, {cx - r, cy + r}}, stroke: {1.6, theme.dim_text}, cap: :round)
   end
 
-  # The disclosure for the search domain: a caret and a word, not three dots.
+  # The disclosure for the search settings: a caret and a word, not three dots.
   # A control that hides something should say what it is hiding.
   defp render_header_widget(graph, %{id: :domain_header} = w, %State{theme: theme} = state) do
-    label = if state.domain_open?, do: "▾ SEARCH SETTINGS", else: "▸ SEARCH SETTINGS"
-
-    Primitives.text(graph, label,
+    graph
+    |> hover_row(w, state)
+    |> caret(w.x + 3, w.y + w.h / 2, state.domain_open?, theme.heading)
+    |> Primitives.text("SEARCH SETTINGS",
       id: :domain_header_text,
-      translate: {w.x, w.y + w.h - 6},
+      translate: {w.x + 16, w.y + w.h - 6},
       fill: theme.heading,
       font: theme.font,
       font_size: theme.small_font_size
     )
+  end
+
+  # A disclosure triangle, DRAWN. Typed as a character it is a character the
+  # font may not have, and an empty box where the triangle should be is worse
+  # than no triangle at all.
+  defp caret(graph, cx, cy, open?, colour) do
+    r = 3.5
+
+    points =
+      if open?,
+        do: {{cx - r, cy - r / 2}, {cx + r, cy - r / 2}, {cx, cy + r}},
+        else: {{cx - r / 2, cy - r}, {cx + r, cy}, {cx - r / 2, cy + r}}
+
+    Primitives.triangle(graph, points, fill: colour)
   end
 
   # A domain option, drawn as a tick box and a sentence — these are choices
@@ -564,7 +592,9 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   defp render_row(graph, row, %State{theme: theme} = state) do
     hovered? = state.hovered == row.id
     x = theme.padding + row.depth * theme.indent
-    room = state.frame.size.width - x - 60
+    # A row that opens something leaves room for its triangle.
+    text_x = if disclosing?(row), do: x + 12, else: x
+    room = state.frame.size.width - text_x - 60
     label = clip(row.label, room, theme.font_size)
 
     Primitives.group(
@@ -572,9 +602,10 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
       fn g ->
         g
         |> row_background(row, hovered?, state)
-        |> maybe_match_highlight(row, x, String.length(label), theme)
+        |> maybe_row_caret(row, x, theme)
+        |> maybe_match_highlight(row, text_x, String.length(label), theme)
         |> Primitives.text(label,
-          translate: {x, row.height - 6},
+          translate: {text_x, row.height - 6},
           fill: row_colour(row, theme),
           font: theme.font,
           font_size: row_font_size(row, theme)
@@ -629,6 +660,24 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   end
 
   defp maybe_match_highlight(graph, _row, _x, _drawn_chars, _theme), do: graph
+
+  # Which rows have a triangle: the scope header, and any scope node with
+  # children. Files in the results have their own collapse marker already.
+  defp disclosing?(%{kind: :scope_header}), do: true
+  defp disclosing?(%{kind: :scope, expandable?: true}), do: true
+  defp disclosing?(_row), do: false
+
+  defp maybe_row_caret(graph, row, x, theme) do
+    if disclosing?(row) do
+      caret(graph, x + 4, row.height / 2, row_open?(row), theme.dim_text)
+    else
+      graph
+    end
+  end
+
+  defp row_open?(%{kind: :scope_header, expanded?: open?}), do: open?
+  defp row_open?(%{expanded?: open?}), do: open?
+  defp row_open?(_row), do: false
 
   defp row_colour(%{kind: :file}, theme), do: theme.text
   defp row_colour(%{kind: :scope_header}, theme), do: theme.heading

@@ -139,16 +139,8 @@ defmodule ScenicWidgets.SearchPane.State do
   @doc "Height of the fixed header, in pixels."
   # What the header currently IS, which depends on what it is showing: the
   # replacement row and the domain options are both behind disclosures.
-  def header_height(%__MODULE__{theme: theme} = state) do
-    pad = theme.padding
-    fh = theme.field_height
-
-    pad + theme.row_height + fh + 4 +
-      if(state.replace_open?, do: fh + 4, else: 0) +
-      6 + theme.row_height +
-      domain_rows(state) * theme.row_height +
-      theme.row_height + pad
-  end
+  def header_height(%__MODULE__{theme: theme} = state),
+    do: status_y(state) + theme.row_height + theme.padding
 
   # The shut-and-empty height, for callers holding a theme and no state.
   def header_height(theme) do
@@ -194,9 +186,11 @@ defmodule ScenicWidgets.SearchPane.State do
     gap = 6
 
     title_y = pad
-    query_y = title_y + theme.row_height
+    # Air under the title. At one row exactly, the heading's baseline sat four
+    # pixels above the field and the two read as one crowded block.
+    query_y = title_y + theme.row_height + 8
     replace_y = query_y + fh + 4
-    domain_y = replace_y + if(state.replace_open?, do: fh + 6, else: 6)
+    domain_y = replace_y + if(state.replace_open?, do: fh + 10, else: 10)
 
     # The query field, with its option toggles INSIDE its right-hand end —
     # the same arrangement as the find bar, where it reads that they modify
@@ -286,15 +280,21 @@ defmodule ScenicWidgets.SearchPane.State do
   def domain_rows(%__MODULE__{domain_open?: true}), do: 3
   def domain_rows(%__MODULE__{}), do: 0
 
+  # The status line is the boundary between the controls and the results, so
+  # it gets room above it and a rule to sit under — crowded up against the
+  # settings it read as one more option.
   defp status_y(%__MODULE__{theme: theme} = state) do
     pad = theme.padding
     fh = theme.field_height
 
-    pad + theme.row_height + fh + 4 +
+    pad + theme.row_height + 8 + fh + 4 +
       if(state.replace_open?, do: fh + 4, else: 0) +
-      6 + theme.row_height +
-      domain_rows(state) * theme.row_height + 4
+      10 + theme.row_height +
+      domain_rows(state) * theme.row_height + 10
   end
+
+  @doc "Where the rule above the status line goes."
+  def status_rule_y(%__MODULE__{theme: theme} = state), do: status_y(state) - 5 + 0 * theme.padding
 
   @doc """
   The body's rows, in content coordinates.
@@ -324,12 +324,15 @@ defmodule ScenicWidgets.SearchPane.State do
             id: :scope_header,
             kind: :scope_header,
             label: scope_summary(scope),
-            depth: 0,
+            # Indented: the scope tree is a section INSIDE the settings, its
+            # own dropdown within them, rather than a sibling of the results.
+            depth: 1,
+            expanded?: state.scope_open?,
             actions: []
           }
 
           if state.scope_open? do
-            [header | scope_nodes(scope, state, 1)]
+            [header | scope_nodes(scope, state, 2)]
           else
             [header]
           end
@@ -387,17 +390,13 @@ defmodule ScenicWidgets.SearchPane.State do
       expandable? = node.children != []
       mark = if node.included?, do: "[x] ", else: "[ ] "
 
-      chevron =
-        cond do
-          not expandable? -> "  "
-          expanded? -> "▾ "
-          true -> "▸ "
-        end
-
       row = %{
         id: {:scope, node.id},
         kind: :scope,
-        label: chevron <> mark <> node.label,
+        # No chevron in the text: it is DRAWN, like the file navigator's. A
+        # triangle typed as a character is a triangle the font may not have,
+        # and an empty box beside every folder is worse than no triangle.
+        label: mark <> node.label,
         path: node.id,
         depth: depth,
         expandable?: expandable?,

@@ -283,8 +283,11 @@ defmodule ScenicWidgets.SearchBar.Renderer do
     graph
     |> Primitives.rounded_rectangle({w.w, w.h, 3},
       id: {:option, option},
-      fill: if(on?, do: state.theme.option_on, else: :clear),
-      stroke: {1, if(on?, do: state.theme.option_on_border, else: state.theme.background)},
+      # Grey when off rather than transparent: an unlit toggle still has to
+      # look like a button you could press. Lit, it keeps the find bar's own
+      # colours, which the pane has now adopted too.
+      fill: if(on?, do: state.theme.option_on, else: state.theme.button_bg),
+      stroke: {1, if(on?, do: state.theme.option_on_border, else: state.theme.border)},
       translate: {w.x, w.y}
     )
     |> Primitives.text(label,
