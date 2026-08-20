@@ -370,9 +370,15 @@ defmodule ScenicWidgets.SearchPane do
         send_parent_event(scene, {:search_pane, :set_results_view, which})
         {:noreply, scene}
 
+      # Clearing is the START of a search, not the end of one, so the keyboard
+      # belongs back in the query field afterwards. Without this the × emptied
+      # the box and took the keyboard with it: the next thing typed went
+      # nowhere at all, and the pane sat there saying "Type to search the
+      # project" while somebody did exactly that.
       :clear ->
         send_parent_event(scene, {:search_pane, :clear})
-        {:noreply, scene}
+        new_state = State.focus_field(state, :query)
+        {:noreply, focus_fields(redraw(scene, new_state), new_state)}
 
       :edit_excludes ->
         send_parent_event(scene, {:search_pane, :edit_excludes})

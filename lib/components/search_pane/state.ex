@@ -495,10 +495,23 @@ defmodule ScenicWidgets.SearchPane.State do
           file.matches
           |> Enum.slice(lo, hi - lo)
           |> Enum.map(fn match ->
-            match
-            |> match_row(file.path)
-            |> Map.put(:depth, 0)
-            |> Map.update!(:label, &"#{file.label}:#{match.line}  #{&1}")
+            row = match |> match_row(file.path) |> Map.put(:depth, 0)
+
+            # The file's name goes in FRONT of the row, and the highlight
+            # moves along with it.
+            #
+            # The line number used to be pasted on here as well, onto a label
+            # that already began with it — every row in the list read
+            # "README.md:3  3  find the needle here" — and match_start was
+            # left where the tree had put it, so the marked text was drawn ten
+            # characters to the left of the match it was marking.
+            prefix = "#{file.label}:"
+
+            %{
+              row
+              | label: prefix <> row.label,
+                match_start: row.match_start + String.length(prefix)
+            }
           end)
         end
       }
