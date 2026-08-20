@@ -488,61 +488,139 @@ defmodule ScenicWidgets.SearchPane.State do
     |> Enum.map(fn {row, i} -> Map.merge(row, %{y: i * h, height: h}) end)
   end
 
-  # One block per file: how many rows it contributes, and a function that
-  # builds any sub-range of them. The count is arithmetic, so a file the
-  # viewport has scrolled past costs a subtraction rather than a list of
-  # match rows — which is what makes `rows_window/3` proportional to the
-  # window rather than to the result set.
+  # ── The two views ─────────────────────────────────────────────────────────
   #
-  # As a TREE: a row per file, with its matches under it, collapsible. As a
-  # LIST: a row per match and no file headings, each one carrying its own
-  # file name — which is what you want when you are looking for an
-  # occurrence rather than for a file.
-  defp blocks(%__MODULE__{results_view: :list, model: model}) do
-    Enum.map(model.files, fn file ->
-      %{
-        count: length(file.matches),
-        slice: fn lo, hi ->
-          file.matches
-          |> Enum.slice(lo, hi - lo)
-          |> Enum.map(fn match ->
-            row = match |> match_row(file.path) |> Map.put(:depth, 0)
-
-            # The file's name goes in FRONT of the row, and the highlight
-            # moves along with it.
-            #
-            # The line number used to be pasted on here as well, onto a label
-            # that already began with it — every row in the list read
-            # "README.md:3  3  find the needle here" — and match_start was
-            # left where the tree had put it, so the marked text was drawn ten
-            # characters to the left of the match it was marking.
-            prefix = "#{file.label}:"
-
-            %{
-              row
-              | label: prefix <> row.label,
-                match_start: row.match_start + String.length(prefix)
-            }
-          end)
-        end
-      }
-    end)
-  end
-
-  defp blocks(%__MODULE__{model: model} = state) do
+  # A block is a run of rows that knows HOW MANY it is without building any of
+  # them, and can build any sub-range on demand. That is what makes
+  # `rows_window/3` proportional to the window rather than to the result set,
+  # and both views provide it.
+  #
+  #   LIST  every matching file, one after another, its path shown in full,
+  #         with its matches under it. One block per file.
+  #
+  #   TREE  the project's own shape — only the directories that contain a
+  #         match — with the files inside them and the matches inside those.
+  #         One block for the whole tree, sliced by walking it; the counts on
+  #         each node let a subtree the window has passed be skipped whole.
+  #
+  # These used to be the same idea twice: what was called "tree" was this
+  # list, and what was called "list" was the same rows again with the file
+  # name repeated onto each one. Neither said where in the project anything
+  # was, which is most of what you want a project search to tell you.
+  defp blocks(%__MODULE__{results_view: :list, model: model} = state) do
     Enum.map(model.files, fn file ->
       collapsed? = MapSet.member?(state.collapsed_files, file.path)
 
       %{
         count: if(collapsed?, do: 1, else: 1 + length(file.matches)),
-        slice: fn lo, hi -> tree_slice(file, collapsed?, lo, hi) end
+        slice: fn lo, hi -> file_slice(file, file.label, collapsed?, 0, lo, hi) end
       }
     end)
   end
 
-  # Local index 0 is the file heading; 1.. are its matches.
-  defp tree_slice(file, collapsed?, lo, hi) do
-    head = if lo == 0, do: [file_row(file, collapsed?)], else: []
+  defp blocks(%__MODULE__{model: model} = state) do
+    nodes = dir_nodes(model.files, state)
+
+    [
+      %{
+        count: Enum.sum(Enum.map(nodes, & &1.count)),
+        slice: fn lo, hi -> node_slice(nodes, 0, lo, hi) end
+      }
+    ]
+  end
+
+  # The results' directory tree, built from the paths they are already
+  # labelled with. Directories sort before files at each level, the way a file
+  # navigator shows them.
+  defp dir_nodes(files, state) do
+    files
+    |> Enum.map(fn file -> {dir_segments(file.label), file} end)
+    |> group_nodes("", state)
+  end
+
+  defp dir_segments(label) do
+    case Path.dirname(label) do
+      "." -> []
+      dir -> Path.split(dir)
+    end
+  end
+
+  defp group_nodes(entries, prefix, state) do
+    {here, deeper} = Enum.split_with(entries, fn {segments, _file} -> segments == [] end)
+
+    dirs =
+      deeper
+      |> Enum.group_by(fn {[seg | _], _f} -> seg end, fn {[_ | rest], f} -> {rest, f} end)
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.map(fn {segment, nested} ->
+        path = if prefix == "", do: segment, else: prefix <> "/" <> segment
+        children = group_nodes(nested, path, state)
+        collapsed? = MapSet.member?(state.collapsed_files, path)
+
+        %{
+          kind: :dir,
+          path: path,
+          label: segment,
+          collapsed?: collapsed?,
+          children: children,
+          count: if(collapsed?, do: 1, else: 1 + Enum.sum(Enum.map(children, & &1.count)))
+        }
+      end)
+
+    files =
+      Enum.map(here, fn {_segments, file} ->
+        collapsed? = MapSet.member?(state.collapsed_files, file.path)
+
+        %{
+          kind: :file,
+          file: file,
+          # In a tree the folders above already say where the file is;
+          # repeating the whole path on its own row says it twice.
+          label: Path.basename(file.label),
+          collapsed?: collapsed?,
+          count: if(collapsed?, do: 1, else: 1 + length(file.matches))
+        }
+      end)
+
+    dirs ++ files
+  end
+
+  # Rows `lo` up to `hi` of these nodes and everything open under them, at
+  # `depth`. A node whose whole subtree falls outside the window costs a
+  # subtraction — which is the point of carrying `count` on it.
+  defp node_slice(nodes, depth, lo, hi) do
+    nodes
+    |> Enum.reduce({[], 0}, fn node, {acc, idx} ->
+      next = idx + node.count
+
+      if next <= lo or idx >= hi do
+        {acc, next}
+      else
+        {acc ++ node_rows(node, depth, idx, lo, hi), next}
+      end
+    end)
+    |> elem(0)
+  end
+
+  defp node_rows(%{kind: :dir} = node, depth, idx, lo, hi) do
+    own = if idx >= lo and idx < hi, do: [dir_row(node, depth)], else: []
+
+    children =
+      if node.collapsed?,
+        do: [],
+        else: node_slice(node.children, depth + 1, max(lo - idx - 1, 0), hi - idx - 1)
+
+    own ++ children
+  end
+
+  defp node_rows(%{kind: :file} = node, depth, idx, lo, hi) do
+    file_slice(node.file, node.label, node.collapsed?, depth, max(lo - idx, 0), hi - idx)
+  end
+
+  # A file heading and its matches, as one run: local index 0 is the heading,
+  # 1.. are the matches.
+  defp file_slice(file, label, collapsed?, depth, lo, hi) do
+    head = if lo <= 0 and hi > 0, do: [file_row(file, label, collapsed?, depth)], else: []
 
     matches =
       if collapsed? do
@@ -552,25 +630,41 @@ defmodule ScenicWidgets.SearchPane.State do
 
         file.matches
         |> Enum.slice(m_lo, max(hi - 1 - m_lo, 0))
-        |> Enum.map(&match_row(&1, file.path))
+        |> Enum.map(&match_row(&1, file.path, depth + 1))
       end
 
     head ++ matches
   end
 
-  defp file_row(file, collapsed?) do
+  defp dir_row(node, depth) do
+    %{
+      id: {:dir, node.path},
+      kind: :dir,
+      label: node.label,
+      path: node.path,
+      depth: depth,
+      collapsed?: node.collapsed?,
+      expandable?: true,
+      expanded?: not node.collapsed?,
+      actions: []
+    }
+  end
+
+  defp file_row(file, label, collapsed?, depth) do
     %{
       id: {:file, file.path},
       kind: :file,
-      label: "#{file.label}  (#{length(file.matches)})",
+      label: "#{label}  (#{length(file.matches)})",
       path: file.path,
-      depth: 0,
+      depth: depth,
       collapsed?: collapsed?,
+      expandable?: true,
+      expanded?: not collapsed?,
       actions: [{:replace_file, file.path}, {:dismiss_file, file.path}]
     }
   end
 
-  defp match_row(match, path) do
+  defp match_row(match, path, depth) do
     %{
       id: {:match, path, match.line, match.col},
       kind: :match,
@@ -582,7 +676,7 @@ defmodule ScenicWidgets.SearchPane.State do
       path: path,
       line: match.line,
       col: match.col,
-      depth: 1,
+      depth: depth,
       actions: [
         {:replace_match, path, match.line, match.col},
         {:dismiss_match, path, match.line, match.col}

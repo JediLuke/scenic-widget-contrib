@@ -826,6 +826,11 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   # children. Files in the results have their own collapse marker already.
   defp disclosing?(%{kind: :scope_header}), do: true
   defp disclosing?(%{kind: :scope, expandable?: true}), do: true
+  # A directory and a file both open and shut, and a triangle is how a person
+  # can tell before clicking. A file used to have no marker at all — the only
+  # sign it was collapsed was its matches not being there.
+  defp disclosing?(%{kind: :dir}), do: true
+  defp disclosing?(%{kind: :file}), do: true
   defp disclosing?(_row), do: false
 
   defp maybe_row_caret(graph, row, x, theme) do
@@ -840,6 +845,7 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   defp row_open?(%{expanded?: open?}), do: open?
   defp row_open?(_row), do: false
 
+  defp row_colour(%{kind: :dir}, theme), do: theme.heading
   defp row_colour(%{kind: :file}, theme), do: theme.text
   defp row_colour(%{kind: :scope_header}, theme), do: theme.heading
   defp row_colour(%{kind: :scope}, theme), do: theme.dim_text

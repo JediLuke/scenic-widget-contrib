@@ -469,6 +469,12 @@ defmodule ScenicWidgets.SearchPane do
       {:row, row, nil} ->
         row_click(scene, state, row)
 
+      # The triangle on a RESULTS row opens and shuts the same thing its row
+      # does, so it needs no separate meaning. Only the scope tree's triangle
+      # is a second control, because there the row itself ticks.
+      {:row, %{kind: kind} = row, :expand} when kind in [:dir, :file] ->
+        {:noreply, redraw(scene, State.toggle_file(state, row.path))}
+
       {:row, row, :expand} ->
         {:noreply, redraw(scene, State.toggle_scope_expand(state, row.path))}
 
@@ -487,6 +493,12 @@ defmodule ScenicWidgets.SearchPane do
     send_parent_event(scene, {:search_pane, :toggle_scope, row.path})
     {:noreply, scene}
   end
+
+  # A directory and a file both shut and open the same way, and both are keyed
+  # by their path — `collapsed_files` is a set of paths, and a directory has
+  # one too.
+  defp row_click(scene, state, %{kind: :dir} = row),
+    do: {:noreply, redraw(scene, State.toggle_file(state, row.path))}
 
   defp row_click(scene, state, %{kind: :file} = row),
     do: {:noreply, redraw(scene, State.toggle_file(state, row.path))}
@@ -661,6 +673,7 @@ defmodule ScenicWidgets.SearchPane do
   defp semantic_id({:toggle, option}), do: :"search_pane_toggle_#{option}"
   defp semantic_id({:scope, id}), do: :"search_pane_scope_#{id}"
   defp semantic_id(:expand), do: :search_pane_expand
+  defp semantic_id({:dir, path}), do: :"search_pane_dir_#{path}"
   defp semantic_id({:file, path}), do: :"search_pane_file_#{path}"
   defp semantic_id({:match, path, line, col}), do: :"search_pane_match_#{line}_#{col}_#{path}"
   defp semantic_id({:dismiss_file, path}), do: :"search_pane_dismiss_file_#{path}"
