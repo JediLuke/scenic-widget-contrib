@@ -292,7 +292,11 @@ defmodule ScenicWidgets.SearchPane do
     state = scene.assigns.state
 
     if inside_frame?(state, {x, y}) do
-      new_state = %{state | scroll: ScrollReducer.handle_wheel(state.scroll, dy)}
+      # NEGATED, the way SideNav negates it: a wheel turned down means the
+      # content moves up. Unnegated, the pane in the sidebar scrolled the
+      # opposite way to the file navigator directly above it in the same
+      # sidebar — which is only invisible while the results fit on one screen.
+      new_state = %{state | scroll: ScrollReducer.handle_wheel(state.scroll, -dy)}
       graph = Renderizer.scroll_to(scene.assigns.graph, state, new_state)
 
       scene = scene |> assign(state: new_state, graph: graph) |> push_graph(graph)
@@ -470,9 +474,14 @@ defmodule ScenicWidgets.SearchPane do
     end
   end
 
+  # Requested positional input arrives already transformed into this
+  # component's LOCAL coordinates — the same space `State.hit_test/2` works
+  # in, which is why clicking a row works at all. It was compared against the
+  # frame's PIN, which is expressed in the parent's space: with the pane
+  # pinned below the top bar, that quietly refused the wheel over its
+  # top-most rows and accepted nothing past its bottom edge.
   defp inside_frame?(%State{frame: frame}, {x, y}) do
-    {px, py} = frame.pin.point
-    x >= px and x <= px + frame.size.width and y >= py and y <= py + frame.size.height
+    x >= 0 and x <= frame.size.width and y >= 0 and y <= frame.size.height
   end
 
   # ── Plumbing ──────────────────────────────────────────────────────────────
@@ -524,8 +533,12 @@ defmodule ScenicWidgets.SearchPane do
           {semantic_id(w.id), w.x, w.y, w.w, w.h, header_label(w.id, state)}
         end)
 
+      # The rows that are DRAWN, which is the window around the viewport and no
+      # more. Registering the whole result set would publish five hundred
+      # entries for forty visible rows, and advertise as clickable a row that
+      # is nowhere on the screen.
       body =
-        Enum.flat_map(State.rows(state), fn row ->
+        Enum.flat_map(State.visible_rows(state), fn row ->
           row_entry =
             {semantic_id(row.id), 0, header_h + ty + row.y, state.frame.size.width, row.height,
              row.label}

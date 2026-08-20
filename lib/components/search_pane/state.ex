@@ -58,6 +58,10 @@ defmodule ScenicWidgets.SearchPane.State do
   # Wide enough for two labelled halves at the pane's small type.
   @slider_width 74
 
+  # How many rows either side of the viewport are drawn anyway, so that
+  # scrolling a notch does not rebuild the body.
+  @overscan 6
+
   defstruct [
     :frame,
     :theme,
@@ -350,61 +354,150 @@ defmodule ScenicWidgets.SearchPane.State do
   Every row carries the actions drawn at its right edge, so the renderer, the
   hit test and the semantic registration cannot disagree about where a button
   is.
+
+  This builds them ALL. Drawing does not go through here — see
+  `visible_rows/1` — because a project search returns hundreds and the pane
+  shows forty. This is for the callers that genuinely want the whole list.
   """
-  def rows(%__MODULE__{} = state) do
-    %{theme: theme, model: model} = state
+  def rows(%__MODULE__{} = state), do: rows_window(state, 0, row_count(state))
+
+  @doc """
+  The rows the body actually draws: those inside the viewport, plus
+  `@overscan` either side.
+
+  Rows are a uniform `theme.row_height`, so which ones those are is
+  arithmetic. Nothing outside the window is built, never mind drawn, so a
+  five-hundred-match search costs the same to draw as a five-match one — which
+  is the whole of why the pane used to stall for a tenth of a second every
+  time results landed.
+  """
+  def visible_rows(%__MODULE__{} = state) do
+    {first, count} = visible_window(state)
+    rows_window(state, first, count)
+  end
+
+  @doc """
+  Which rows the body draws, as `{first_index, count}`.
+
+  The overscan is what keeps an ordinary scroll cheap: a wheel notch or two
+  lands inside the window that is already drawn, so the body moves by a
+  transform and is only rebuilt once the pointer has run past the margin.
+  """
+  def visible_window(%__MODULE__{theme: theme, scroll: scroll} = state) do
     h = theme.row_height
+    total = row_count(state)
 
-    # The scope tree belongs to the settings section, and appears with it. It
-    # lives in the SCROLLING body rather than the fixed header because it is a
-    # whole project's worth of directories — a header that could grow to that
-    # would leave no pane for the results.
-    file_rows = result_rows(state)
+    first = max(trunc(scroll.offset_y / h) - @overscan, 0)
+    on_screen = ceil(body_frame(state).size.height / h)
+    last = min(first + on_screen + 2 * @overscan, total)
 
-    file_rows
-    |> Enum.with_index()
+    {first, max(last - first, 0)}
+  end
+
+  @doc "How many rows the body has, without building a single one of them."
+  def row_count(%__MODULE__{} = state),
+    do: state |> blocks() |> Enum.reduce(0, fn block, n -> n + block.count end)
+
+  @doc "The row at `index`, or `nil` past the end. What hit testing asks."
+  def row_at(%__MODULE__{} = state, index) when index >= 0 do
+    case rows_window(state, index, 1) do
+      [row] -> row
+      [] -> nil
+    end
+  end
+
+  def row_at(%__MODULE__{}, _index), do: nil
+
+  @doc "Rows `first` up to (not including) `first + count`, and only those."
+  def rows_window(%__MODULE__{theme: theme} = state, first, count) do
+    h = theme.row_height
+    last = first + count
+
+    state
+    |> blocks()
+    |> Enum.map_reduce(0, fn block, idx ->
+      next = idx + block.count
+
+      if idx < last and next > first do
+        lo = max(first - idx, 0)
+        hi = min(last - idx, block.count)
+        {Enum.with_index(block.slice.(lo, hi), idx + lo), next}
+      else
+        {[], next}
+      end
+    end)
+    |> elem(0)
+    |> Enum.concat()
     |> Enum.map(fn {row, i} -> Map.merge(row, %{y: i * h, height: h}) end)
   end
 
+  # One block per file: how many rows it contributes, and a function that
+  # builds any sub-range of them. The count is arithmetic, so a file the
+  # viewport has scrolled past costs a subtraction rather than a list of
+  # match rows — which is what makes `rows_window/3` proportional to the
+  # window rather than to the result set.
+  #
   # As a TREE: a row per file, with its matches under it, collapsible. As a
   # LIST: a row per match and no file headings, each one carrying its own
   # file name — which is what you want when you are looking for an
   # occurrence rather than for a file.
-  defp result_rows(%__MODULE__{results_view: :list, model: model}) do
-    Enum.flat_map(model.files, fn file ->
-      Enum.map(file.matches, fn match ->
-        match
-        |> match_row(file.path)
-        |> Map.put(:depth, 0)
-        |> Map.update!(:label, &"#{file.label}:#{match.line}  #{&1}")
-      end)
+  defp blocks(%__MODULE__{results_view: :list, model: model}) do
+    Enum.map(model.files, fn file ->
+      %{
+        count: length(file.matches),
+        slice: fn lo, hi ->
+          file.matches
+          |> Enum.slice(lo, hi - lo)
+          |> Enum.map(fn match ->
+            match
+            |> match_row(file.path)
+            |> Map.put(:depth, 0)
+            |> Map.update!(:label, &"#{file.label}:#{match.line}  #{&1}")
+          end)
+        end
+      }
     end)
   end
 
-  defp result_rows(%__MODULE__{model: model} = state) do
-    tree_rows(state, model)
+  defp blocks(%__MODULE__{model: model} = state) do
+    Enum.map(model.files, fn file ->
+      collapsed? = MapSet.member?(state.collapsed_files, file.path)
+
+      %{
+        count: if(collapsed?, do: 1, else: 1 + length(file.matches)),
+        slice: fn lo, hi -> tree_slice(file, collapsed?, lo, hi) end
+      }
+    end)
   end
 
-  defp tree_rows(state, model) do
-      Enum.flat_map(model.files, fn file ->
-        collapsed? = MapSet.member?(state.collapsed_files, file.path)
+  # Local index 0 is the file heading; 1.. are its matches.
+  defp tree_slice(file, collapsed?, lo, hi) do
+    head = if lo == 0, do: [file_row(file, collapsed?)], else: []
 
-        head = %{
-          id: {:file, file.path},
-          kind: :file,
-          label: "#{file.label}  (#{length(file.matches)})",
-          path: file.path,
-          depth: 0,
-          collapsed?: collapsed?,
-          actions: [{:replace_file, file.path}, {:dismiss_file, file.path}]
-        }
+    matches =
+      if collapsed? do
+        []
+      else
+        m_lo = max(lo - 1, 0)
 
-        if collapsed? do
-          [head]
-        else
-          [head | Enum.map(file.matches, &match_row(&1, file.path))]
-        end
-      end)
+        file.matches
+        |> Enum.slice(m_lo, max(hi - 1 - m_lo, 0))
+        |> Enum.map(&match_row(&1, file.path))
+      end
+
+    head ++ matches
+  end
+
+  defp file_row(file, collapsed?) do
+    %{
+      id: {:file, file.path},
+      kind: :file,
+      label: "#{file.label}  (#{length(file.matches)})",
+      path: file.path,
+      depth: 0,
+      collapsed?: collapsed?,
+      actions: [{:replace_file, file.path}, {:dismiss_file, file.path}]
+    }
   end
 
   defp match_row(match, path) do
@@ -557,11 +650,18 @@ defmodule ScenicWidgets.SearchPane.State do
     end
   end
 
-  defp body_hit(%__MODULE__{} = state, {x, y}) do
+  # Which row is under the pointer is arithmetic — the rows are a uniform
+  # height — so exactly one row is built to answer it. It used to build every
+  # row in the pane and walk them looking for the one it had just computed the
+  # index of.
+  defp body_hit(%__MODULE__{theme: theme} = state, {x, y}) do
     content_y = y - header_height(state) + state.scroll.offset_y
 
-    Enum.find_value(rows(state), fn row ->
-      if content_y >= row.y and content_y < row.y + row.height do
+    case state |> row_at(floor(content_y / theme.row_height)) do
+      nil ->
+        nil
+
+      row ->
         action =
           Enum.find_value(action_bounds(state, row), fn b ->
             if x >= b.x and x < b.x + b.w and content_y >= b.y and content_y < b.y + b.h,
@@ -569,8 +669,7 @@ defmodule ScenicWidgets.SearchPane.State do
           end)
 
         {:row, row, action || expander_hit(state, row, x)}
-      end
-    end)
+    end
   end
 
   # A scope directory carries its own disclosure triangle at the head of the
@@ -641,7 +740,7 @@ defmodule ScenicWidgets.SearchPane.State do
 
   @doc "Recompute the scrollable content height after the rows changed."
   def resync_scroll(%__MODULE__{} = state) do
-    content_height = length(rows(state)) * state.theme.row_height + state.theme.row_height
+    content_height = row_count(state) * state.theme.row_height + state.theme.row_height
     body = body_frame(state)
 
     scroll =

@@ -260,17 +260,31 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     Graph.modify(graph, {:row_bg, id}, &Primitives.update_opts(&1, fill: fill))
   end
 
-  @doc "Move the already-rendered body to a new scroll offset."
+  @doc """
+  Move the already-rendered body to a new scroll offset.
+
+  The body only holds the rows around the viewport, so far enough and there
+  are no rows left to move: past the overscan the window is rebuilt at the new
+  offset, which draws the forty rows now under the viewport rather than the
+  five hundred that are not. Inside it — which is most wheel notches — this
+  stays what it always was, one transform.
+  """
   def scroll_to(graph, %State{} = old_state, %State{} = new_state) do
-    graph
-    |> update_scroll_transform(:search_pane_scroll, old_state.scroll, new_state.scroll)
-    |> update_scrollbars(
-      old_state.scroll,
-      new_state.scroll,
-      State.body_frame(new_state),
-      color: new_state.theme.scrollbar_color,
-      group_id: :search_pane
-    )
+    if State.visible_window(old_state) == State.visible_window(new_state) do
+      graph
+      |> update_scroll_transform(:search_pane_scroll, old_state.scroll, new_state.scroll)
+      |> update_scrollbars(
+        old_state.scroll,
+        new_state.scroll,
+        State.body_frame(new_state),
+        color: new_state.theme.scrollbar_color,
+        group_id: :search_pane
+      )
+    else
+      # render_body draws the scrollbars too, and at the new offset, so this
+      # needs no separate scrollbar update.
+      graph |> Graph.delete(:search_pane_body) |> render_body(new_state)
+    end
   end
 
   # ── Header ────────────────────────────────────────────────────────────────
@@ -668,9 +682,13 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
 
   # ── Body ──────────────────────────────────────────────────────────────────
 
+  # Only the rows the viewport can show (plus the overscan) are built and
+  # drawn. The rest of the result set exists as a content height and nothing
+  # else: a row that is scrolled a thousand pixels out of sight is not a
+  # cheaper primitive, it is no primitive.
   defp render_body(graph, %State{theme: theme} = state) do
     body = State.body_frame(state)
-    rows = State.rows(state)
+    rows = State.visible_rows(state)
 
     Primitives.group(
       graph,
