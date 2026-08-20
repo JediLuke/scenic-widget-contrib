@@ -140,8 +140,32 @@ defmodule ScenicWidgets.SearchPane.State do
 
   def put_model(%__MODULE__{} = state, model) do
     normalized = normalize_model(model)
-    resync_scroll(%{state | model: normalized, results_view: normalized.results_view})
+
+    resync_scroll(%{
+      state
+      | model: normalized,
+        results_view: normalized.results_view,
+        expanded_scope: seed_root_expansion(state, normalized)
+    })
   end
+
+  # The project row at the top of the scope tree starts OPEN. Shut, the tree
+  # is one row naming the directory you are already searching, which tells you
+  # nothing and hides everything.
+  #
+  # Seeded once per project rather than on every snapshot, so that shutting it
+  # yourself sticks: results land continuously while you type, and a default
+  # reapplied on each one would prise the tree open again under your hand.
+  defp seed_root_expansion(
+         %__MODULE__{model: %{scope: [%{id: root} | _]}, expanded_scope: expanded},
+         %{scope: [%{id: root} | _]}
+       ),
+       do: expanded
+
+  defp seed_root_expansion(%__MODULE__{expanded_scope: expanded}, %{scope: [%{id: root} | _]}),
+    do: MapSet.put(expanded, root)
+
+  defp seed_root_expansion(%__MODULE__{expanded_scope: expanded}, _model), do: expanded
 
   def put_frame(%__MODULE__{} = state, frame) do
     scroll = ScrollState.update_viewport_size(state.scroll, body_frame(frame, state.theme))
@@ -310,20 +334,42 @@ defmodule ScenicWidgets.SearchPane.State do
   # that grew to that would leave no pane for the results. Past the cap the
   # tree is collapsible — that is what the disclosure triangles are for.
   defp scope_widgets(%__MODULE__{} = state, y, width, pad, theme) do
-    state
-    |> scope_rows()
-    |> Enum.take(@scope_cap)
-    |> Enum.with_index()
-    |> Enum.map(fn {row, i} ->
-      %{
-        id: {:scope_row, row.id},
-        row: row,
-        x: pad,
-        y: y + i * theme.row_height,
-        w: width - 2 * pad,
-        h: theme.row_height
-      }
-    end)
+    rows = state |> scope_rows() |> Enum.take(@scope_cap) |> Enum.with_index()
+
+    row_widgets =
+      Enum.map(rows, fn {row, i} ->
+        %{
+          id: {:scope_row, row.id},
+          row: row,
+          x: pad,
+          y: y + i * theme.row_height,
+          w: width - 2 * pad,
+          h: theme.row_height
+        }
+      end)
+
+    # The disclosure triangle is its OWN control, laid over the row's
+    # left-hand end — LAST, because `hit_test/2` walks the list backwards and
+    # the thing drawn last is the thing on top.
+    #
+    # Expanding a directory and excluding it are different intentions, and one
+    # rectangle cannot carry both. It used to: a scope row whose node had
+    # children spent every click on expanding itself, so the one thing a scope
+    # tree exists to do — "not that folder" — could not be done to any folder
+    # with anything in it. Only empty directories and files could be unticked.
+    expanders =
+      for {row, i} <- rows, Map.get(row, :expandable?, false) do
+        %{
+          id: {:scope_expand, row.id},
+          row: row,
+          x: pad + row.depth * theme.indent,
+          y: y + i * theme.row_height,
+          w: 16,
+          h: theme.row_height
+        }
+      end
+
+    row_widgets ++ expanders
   end
 
   @doc "How many rows the settings section adds when it is open."
@@ -617,23 +663,6 @@ defmodule ScenicWidgets.SearchPane.State do
   What is under `{x, y}` (frame-local): a header widget id, a
   `{:row, row, action_or_nil}`, or `nil`.
   """
-  @doc """
-  Like `hit_test/2`, but returns the whole header WIDGET rather than its id.
-
-  A control with more than one position — the tree/list slider — has to know
-  where inside itself it was clicked, and an id cannot say.
-  """
-  def hit_widget(%__MODULE__{} = state, {x, y} = coords) do
-    if y < header_height(state) do
-      state
-      |> header_widgets()
-      |> Enum.reverse()
-      |> Enum.find(fn w -> inside?(w, x, y) end)
-    else
-      body_hit(state, coords)
-    end
-  end
-
   def hit_test(%__MODULE__{} = state, {x, y}) do
     if y < header_height(state) do
       # REVERSE: the list is in drawing order and the thing drawn last is the

@@ -353,18 +353,21 @@ defmodule ScenicWidgets.SearchPane do
         send_parent_event(scene, {:search_pane, :toggle_option, option})
         {:noreply, scene}
 
-      # Which HALF of the slider was clicked. The setting lives with the host
-      # — it is saved with the rest of them — so the pane asks rather than
-      # deciding for itself.
+      # It is ONE control with two positions, so a click FLIPS it — the way a
+      # switch works, and the way its own comment in State says it should.
+      #
+      # It used to resolve the click to a half and select that half, which
+      # left a dead zone down the middle of a 74px control: clicking the
+      # middle resolved to the position it was already in and sent nothing at
+      # all, so the commonest way to click a small slider was the one way that
+      # did nothing. Aiming is not a thing a two-position control should ask
+      # for.
+      #
+      # The setting lives with the host — it is saved with the rest of them —
+      # so the pane asks rather than deciding for itself.
       :results_view ->
-        w = Enum.find(State.header_widgets(state), &(&1.id == :results_view))
-        {x, _y} = coords
-        which = if x - w.x > w.w / 2, do: :list, else: :tree
-
-        if which != state.results_view do
-          send_parent_event(scene, {:search_pane, :set_results_view, which})
-        end
-
+        which = if state.results_view == :list, do: :tree, else: :list
+        send_parent_event(scene, {:search_pane, :set_results_view, which})
         {:noreply, scene}
 
       :clear ->
@@ -384,15 +387,17 @@ defmodule ScenicWidgets.SearchPane do
       {:scope_row, :scope_header} ->
         {:noreply, redraw(scene, State.toggle_scope_open(state))}
 
-      {:scope_row, {:scope, path}} ->
-        row = Enum.find(State.scope_rows(state), &(&1.id == {:scope, path}))
+      # The triangle expands. Nothing else does, and it does nothing else.
+      {:scope_expand, {:scope, path}} ->
+        {:noreply, redraw(scene, State.toggle_scope_expand(state, path))}
 
-        if row && row.expandable? do
-          {:noreply, redraw(scene, State.toggle_scope_expand(state, path))}
-        else
-          send_parent_event(scene, {:search_pane, :toggle_scope, path})
-          {:noreply, scene}
-        end
+      # And the row TICKS — always, whether or not the directory has anything
+      # in it. This used to expand instead whenever the node had children,
+      # which meant no directory you would ever want to exclude could be
+      # excluded.
+      {:scope_row, {:scope, path}} ->
+        send_parent_event(scene, {:search_pane, :toggle_scope, path})
+        {:noreply, scene}
 
       :replace_caret ->
         {:noreply, redraw(scene, %{state | replace_open?: not state.replace_open?})}
@@ -530,7 +535,7 @@ defmodule ScenicWidgets.SearchPane do
 
       header =
         Enum.map(State.header_widgets(state), fn w ->
-          {semantic_id(w.id), w.x, w.y, w.w, w.h, header_label(w.id, state)}
+          {semantic_id(w.id), w.x, w.y, w.w, w.h, header_label(w, state)}
         end)
 
       # The rows that are DRAWN, which is the window around the viewport and no
@@ -584,6 +589,7 @@ defmodule ScenicWidgets.SearchPane do
   defp semantic_id(:replace_caret), do: :search_pane_replace_caret
   defp semantic_id({:scope_row, :scope_header}), do: :search_pane_scope
   defp semantic_id({:scope_row, {:scope, id}}), do: :"search_pane_scope_#{id}"
+  defp semantic_id({:scope_expand, {:scope, id}}), do: :"search_pane_scope_expand_#{id}"
   defp semantic_id(:clear), do: :search_pane_clear
   defp semantic_id(:edit_excludes), do: :search_pane_edit_excludes
   defp semantic_id(:replace_one), do: :search_pane_replace_one
@@ -608,6 +614,18 @@ defmodule ScenicWidgets.SearchPane do
 
   defp semantic_id({:replace_match, path, line, col}),
     do: :"search_pane_replace_match_#{line}_#{col}_#{path}"
+
+  # The scope rows carry their own row, so they can say WHICH directory they
+  # are and whether it is being searched — every one of them used to publish
+  # the same "Search scope", which is no use to anything reading the pane.
+  defp header_label(%{id: {:scope_row, {:scope, _}}, row: row}, _state), do: row.label
+
+  defp header_label(%{id: {:scope_expand, _}, row: row}, _state) do
+    name = row.label |> String.replace_prefix("[x] ", "") |> String.replace_prefix("[ ] ", "")
+    if row.expanded?, do: "Collapse #{name}", else: "Expand #{name}"
+  end
+
+  defp header_label(%{id: id}, state), do: header_label(id, state)
 
   defp header_label({:field, field}, state), do: State.field_value(state, field)
   defp header_label(:close, _state), do: "Close project search"

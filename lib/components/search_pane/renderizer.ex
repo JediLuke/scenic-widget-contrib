@@ -181,6 +181,7 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   defp header_hover(%State{hovered: {:domain, _} = hovered}), do: hovered
   defp header_hover(%State{hovered: {:results_view, _} = hovered}), do: hovered
   defp header_hover(%State{hovered: {:scope_row, _} = hovered}), do: hovered
+  defp header_hover(%State{hovered: {:scope_expand, _} = hovered}), do: hovered
   defp header_hover(%State{hovered: {:toggle, _} = hovered}), do: hovered
   defp header_hover(%State{}), do: nil
 
@@ -510,9 +511,16 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   # A scope row, drawn in the header now. Same shape as a body row — a
   # caret, a tick and a name — but it belongs to the settings section, so it
   # sits on that background rather than the pane's.
+  # The triangle is its own control (it expands; the row it sits on ticks),
+  # but it is DRAWN by the row, so there is nothing to add here — only the
+  # hit area and the semantic entry, which State and SearchPane provide.
+  defp render_header_widget(graph, %{id: {:scope_expand, _id}}, %State{}), do: graph
+
   defp render_header_widget(graph, %{id: {:scope_row, _id}} = w, %State{theme: theme} = state) do
     row = w.row
-    hovered? = state.hovered == w.id
+    # Including when the pointer is on the triangle at its left-hand end:
+    # that is one row to look at, whatever it is made of.
+    hovered? = state.hovered in [w.id, {:scope_expand, row.id}]
     x = w.x + row.depth * theme.indent
     text_x = if disclosing?(row), do: x + 12, else: x
 
