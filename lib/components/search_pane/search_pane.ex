@@ -69,6 +69,7 @@ defmodule ScenicWidgets.SearchPane do
   require Logger
 
   alias ScenicWidgets.SearchPane.{Renderizer, State}
+  alias Widgex.Scroll.Drag
   alias Widgex.Scroll.{ScrollReducer, ScrollState}
 
   @key_pressed 1
@@ -186,7 +187,57 @@ defmodule ScenicWidgets.SearchPane do
   def handle_input({:key, {key, action, mods}}, context, scene),
     do: route_input({:key, {key, action, ScenicWidgets.PrimaryModifier.normalize(mods)}}, context, scene)
 
+  # The scrollbar, BEFORE the catch-all that treats every left click as a click
+  # on the pane. Routed by the id ScrollRenderer gave the primitive, the way
+  # SideNav routes its own — these clauses were simply absent, so every press
+  # on the pane's bar fell through to `route_input/3`, found no row under it
+  # and was dropped. The bar could be looked at and not moved.
+  def handle_input({:cursor_button, {:btn_left, 1, _mods, at}}, {:scrollbar_y_thumb, _}, scene),
+    do: grab_scrollbar(scene, :y, at)
+
+  def handle_input({:cursor_button, {:btn_left, 1, _mods, at}}, {:scrollbar_x_thumb, _}, scene),
+    do: grab_scrollbar(scene, :x, at)
+
+  def handle_input({:cursor_button, {:btn_left, 1, _mods, {_x, y}}}, {:scrollbar_y_track, _}, scene),
+    do: page_scrollbar(scene, :y, y)
+
+  def handle_input({:cursor_button, {:btn_left, 1, _mods, {x, _y}}}, {:scrollbar_x_track, _}, scene),
+    do: page_scrollbar(scene, :x, x)
+
+  # While a drag is on, the pointer belongs to the bar and nothing else — the
+  # input is captured, so this sees moves from anywhere on the screen.
+  def handle_input({:cursor_pos, at}, _context, %{assigns: %{state: state}} = scene) do
+    if Drag.dragging?(state) do
+      {:noreply, redraw(scene, Drag.move(state, State.body_frame(state), at))}
+    else
+      route_input({:cursor_pos, at}, nil, scene)
+    end
+  end
+
+  def handle_input(
+        {:cursor_button, {:btn_left, 0, _mods, _at}},
+        _context,
+        %{assigns: %{state: state}} = scene
+      ) do
+    if Drag.dragging?(state) do
+      :ok = release_input(scene, [:cursor_pos, :cursor_button])
+      {:noreply, assign(scene, state: Drag.stop(state))}
+    else
+      {:noreply, scene}
+    end
+  end
+
   def handle_input(input, context, scene), do: route_input(input, context, scene)
+
+  defp grab_scrollbar(scene, axis, at) do
+    :ok = capture_input(scene, [:cursor_pos, :cursor_button])
+    {:noreply, assign(scene, state: Drag.start(scene.assigns.state, axis, at))}
+  end
+
+  defp page_scrollbar(scene, axis, pointer) do
+    state = scene.assigns.state
+    {:noreply, redraw(scene, Drag.page(state, State.body_frame(state), axis, pointer))}
+  end
 
   defp route_input({:cursor_button, {:btn_left, 1, _mods, coords}}, _context, scene) do
     click(scene, coords)

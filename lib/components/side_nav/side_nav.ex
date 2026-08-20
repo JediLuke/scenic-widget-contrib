@@ -56,7 +56,7 @@ defmodule ScenicWidgets.SideNav do
 
   alias ScenicWidgets.SideNav.{State, Renderizer, Reducer, Api, Item}
   alias Scenic.Graph
-  alias Widgex.Scroll.{ScrollController, ScrollState}
+  alias Widgex.Scroll.{Drag, ScrollState}
 
   # Pointer travel, in pixels, before a press becomes a drag rather than a click.
   @drag_threshold 6
@@ -310,16 +310,7 @@ defmodule ScenicWidgets.SideNav do
       when axis in [:x, :y] do
     :ok = release_input(scene, [:cursor_pos, :cursor_button])
 
-    state = scene.assigns.state
-
-    new_state = %{
-      state
-      | scrollbar_drag: nil,
-        scrollbar_drag_start: nil,
-        scrollbar_drag_offset: nil
-    }
-
-    {:noreply, assign(scene, state: new_state)}
+    {:noreply, assign(scene, state: Drag.stop(scene.assigns.state))}
   end
 
   def handle_input(
@@ -746,133 +737,37 @@ defmodule ScenicWidgets.SideNav do
     x >= 0 and x <= w and y >= 0 and y <= h
   end
 
+  # All three delegate to Widgex.Scroll.Drag, which is where this belongs: the
+  # geometry and the arithmetic were written here first, then again in
+  # TextField, and SearchPane got the state fields with no code at all. Only
+  # the input routing has to stay in a component, because that is what Scenic
+  # delivers to.
   defp start_scrollbar_drag(scene, axis, coords) do
     :ok = capture_input(scene, [:cursor_pos, :cursor_button])
-    state = scene.assigns.state
-
-    start_offset =
-      case axis do
-        :x -> state.scroll.offset_x
-        :y -> state.scroll.offset_y
-      end
-
-    new_state = %{
-      state
-      | scrollbar_drag: axis,
-        scrollbar_drag_start: coords,
-        scrollbar_drag_offset: start_offset
-    }
-
-    {:noreply, assign(scene, state: new_state)}
+    {:noreply, assign(scene, state: Drag.start(scene.assigns.state, axis, coords))}
   end
 
-  defp drag_scrollbar(scene, axis, {x, y}) do
+  # The axis is already on the state, put there when the drag began.
+  defp drag_scrollbar(scene, _axis, coords) do
     state = scene.assigns.state
-    {start_x, start_y} = state.scrollbar_drag_start
-
-    {track_length, content_size, viewport_size, max_offset, pointer_delta} =
-      scrollbar_drag_geometry(state, axis, x - start_x, y - start_y)
-
-    thumb_length =
-      ScrollController.thumb_length(track_length, content_size, viewport_size)
-
-    offset =
-      ScrollController.drag_offset(
-        state.scrollbar_drag_offset,
-        pointer_delta,
-        track_length,
-        thumb_length,
-        max_offset
-      )
-
-    new_scroll =
-      case axis do
-        :x -> %{state.scroll | offset_x: offset, scrollbar_visible: true, scrollbar_opacity: 255}
-        :y -> %{state.scroll | offset_y: offset, scrollbar_visible: true, scrollbar_opacity: 255}
-      end
-
-    new_state = %{state | scroll: new_scroll}
-    graph = Renderizer.update_render(scene.assigns.graph, state, new_state)
-
-    scene = scene |> assign(state: new_state, graph: graph) |> push_graph(graph)
-    register_semantic_elements(scene, new_state)
-    {:noreply, scene}
+    redraw_scroll(scene, Drag.move(state, state.frame, coords))
   end
 
   defp page_scrollbar(scene, axis, {x, y}) do
     state = scene.assigns.state
+    pointer = if axis == :x, do: x, else: y
+    redraw_scroll(scene, Drag.page(state, state.frame, axis, pointer))
+  end
 
-    {track_length, content_size, viewport_size, max_offset, pointer, current_offset} =
-      case axis do
-        :x ->
-          track_length = horizontal_track_length(state)
-
-          {track_length, state.scroll.content_width, state.scroll.viewport_width,
-           ScrollState.max_offset_x(state.scroll), x, state.scroll.offset_x}
-
-        :y ->
-          track_length = state.frame.size.height - 4
-
-          {track_length, state.scroll.content_height, state.scroll.viewport_height,
-           ScrollState.max_offset_y(state.scroll), y, state.scroll.offset_y}
-      end
-
-    thumb_length = ScrollController.thumb_length(track_length, content_size, viewport_size)
-
-    thumb_start =
-      if max_offset > 0 do
-        current_offset / max_offset * max(track_length - thumb_length, 0)
-      else
-        0
-      end
-
-    offset =
-      ScrollController.page_offset(
-        current_offset,
-        pointer,
-        thumb_start,
-        thumb_length,
-        viewport_size,
-        max_offset
-      )
-
-    new_scroll =
-      case axis do
-        :x -> %{state.scroll | offset_x: offset, scrollbar_visible: true, scrollbar_opacity: 255}
-        :y -> %{state.scroll | offset_y: offset, scrollbar_visible: true, scrollbar_opacity: 255}
-      end
-
-    new_state = %{state | scroll: new_scroll}
+  defp redraw_scroll(scene, new_state) do
+    state = scene.assigns.state
     graph = Renderizer.update_render(scene.assigns.graph, state, new_state)
     scene = scene |> assign(state: new_state, graph: graph) |> push_graph(graph)
+
+    # Scrolling moves every row on screen, so the positions published to the
+    # semantic layer are stale until re-registered.
     register_semantic_elements(scene, new_state)
     {:noreply, scene}
-  end
-
-  defp scrollbar_drag_geometry(state, :x, dx, _dy) do
-    track_length = horizontal_track_length(state)
-    scroll = state.scroll
-
-    {track_length, scroll.content_width, scroll.viewport_width, ScrollState.max_offset_x(scroll),
-     dx}
-  end
-
-  defp scrollbar_drag_geometry(state, :y, _dx, dy) do
-    track_length = state.frame.size.height - 4
-    scroll = state.scroll
-
-    {track_length, scroll.content_height, scroll.viewport_height,
-     ScrollState.max_offset_y(scroll), dy}
-  end
-
-  defp horizontal_track_length(state) do
-    # ScrollRenderer shortens the horizontal track when the vertical bar is
-    # present: width - scrollbar width (12) - three 2px padding gaps.
-    if ScrollState.scrollable_y?(state.scroll) do
-      state.frame.size.width - 18
-    else
-      state.frame.size.width - 4
-    end
   end
 
   # Keyboard navigation — gated on component focus. SideNav requests [:key]
