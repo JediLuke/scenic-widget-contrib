@@ -93,6 +93,17 @@ defmodule ScenicWidgets.SearchPane.State do
   @doc "The theme every SearchPane starts from; parents override keys piecemeal."
   def default_theme, do: @default_theme
 
+  @doc """
+  Are the results on screen the answer to the query in the box, or the last
+  one?
+
+  True from the keystroke until the search that keystroke started comes back.
+  The pane draws stale results faded rather than removing them: the debounce
+  fires on every character, and a pane that empties itself between letters is
+  a pane you cannot read while you type.
+  """
+  def stale?(%__MODULE__{model: %{status: status}}), do: status in [:debouncing, :searching]
+
   @doc "The names of the three editable fields, in Tab order."
   def fields, do: @fields
 

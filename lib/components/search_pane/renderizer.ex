@@ -234,8 +234,11 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
       body_signature(old_state) != body_signature(new_state)
   end
 
+  # Including whether the results are STALE: the fade is a property of the
+  # body, so a body that does not notice the status changing goes on drawing
+  # the previous query's results at full strength.
   defp body_signature(%State{model: model} = state),
-    do: {model.files, state.collapsed_files, state.results_view}
+    do: {model.files, state.collapsed_files, state.results_view, State.stale?(state)}
 
   # Hover used to rebuild the entire body — every result row, every scope row,
   # on every crossing of a row boundary. With a few hundred matches on screen
@@ -675,6 +678,10 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     text =
       case model.status do
         :idle -> "Type to search the project"
+        # Two different things, and worth telling apart: nothing has started
+        # yet, versus something is running. A pane that says "searching…"
+        # during the debounce is claiming work it has not begun.
+        :debouncing -> "typing…"
         :searching -> "searching…"
         {:done, 0, 0, _ms} -> "no matches"
         {:done, n, files, ms} -> "#{n} in #{files} #{plural(files, "file")}  (#{ms}ms)"
@@ -713,11 +720,29 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
           color: theme.scrollbar_color,
           group_id: :search_pane
         )
+        |> searching_line(rows, state)
       end,
       id: :search_pane_body,
       translate: {0, State.header_height(state)}
     )
   end
+
+  # The first search of a session has no previous results to fade, and an
+  # empty pane is what "no matches" looks like — so it says which it is.
+  defp searching_line(graph, [], %State{theme: theme} = state) do
+    if State.stale?(state) do
+      Primitives.text(graph, "Searching…",
+        translate: {theme.padding, theme.row_height + 2},
+        fill: theme.dim_text,
+        font: theme.font,
+        font_size: theme.font_size
+      )
+    else
+      graph
+    end
+  end
+
+  defp searching_line(graph, _rows, %State{}), do: graph
 
   defp render_row(graph, row, %State{theme: theme} = state) do
     hovered? = state.hovered == row.id
@@ -733,10 +758,10 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
         g
         |> row_background(row, hovered?, state)
         |> maybe_row_caret(row, x, theme)
-        |> maybe_match_highlight(row, text_x, String.length(label), theme)
+        |> maybe_match_highlight(row, text_x, String.length(label), theme, state)
         |> Primitives.text(label,
           translate: {text_x, row.height - 6},
-          fill: row_colour(row, theme),
+          fill: row_colour(row, theme) |> fade_if_stale(state),
           font: theme.font,
           font_size: row_font_size(row, theme)
         )
@@ -767,7 +792,7 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   # The whole point of drawing matches in a pane of their own: the matched text
   # is marked inside the line, so a result reads as a hit rather than as a line
   # that happens to be listed.
-  defp maybe_match_highlight(graph, %{kind: :match} = row, x, drawn_chars, theme) do
+  defp maybe_match_highlight(graph, %{kind: :match} = row, x, drawn_chars, theme, state) do
     # The row's text is clipped to the pane's width, so the highlight has to be
     # clipped with it. Drawing the full match regardless left a stray block
     # floating past the end of a truncated line, marking nothing.
@@ -777,7 +802,7 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
       cw = char_width(theme.font_size)
 
       Primitives.rect(graph, {visible * cw, theme.font_size + 2},
-        fill: theme.match_highlight,
+        fill: fade_if_stale(theme.match_highlight, state),
         translate: {x + row.match_start * cw, @highlight_top}
       )
     else
@@ -785,7 +810,17 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     end
   end
 
-  defp maybe_match_highlight(graph, _row, _x, _drawn_chars, _theme), do: graph
+  defp maybe_match_highlight(graph, _row, _x, _drawn_chars, _theme, _state), do: graph
+
+  # Half way to the pane's own colour, which reads as "not yet" in a light
+  # theme and a dark one alike — the results are still legible, still
+  # scrollable, still clickable, and visibly not the answer to what is in the
+  # box.
+  defp fade_if_stale(colour, %State{} = state) do
+    if State.stale?(state), do: blend(colour, state.theme.background), else: colour
+  end
+
+  defp blend({r, g, b}, {br, bg, bb}), do: {div(r + br, 2), div(g + bg, 2), div(b + bb, 2)}
 
   # Which rows have a triangle: the scope header, and any scope node with
   # children. Files in the results have their own collapse marker already.
