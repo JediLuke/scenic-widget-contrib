@@ -624,6 +624,10 @@ defmodule ScenicWidgets.SearchPane.State do
     end)
   end
 
+  # The project row is the whole of the scope, so when it is unticked there is
+  # nothing to count — saying "1 excluded" would be true and useless.
+  defp scope_summary([%{included?: false} | _]), do: "SCOPE  (nothing selected)"
+
   defp scope_summary(scope) do
     excluded = count_excluded(scope)
 
@@ -632,9 +636,13 @@ defmodule ScenicWidgets.SearchPane.State do
       else: "SCOPE  (#{excluded} excluded)"
   end
 
+  # An excluded directory counts ONCE, not once per thing inside it. Exclusion
+  # is inherited, so a folder with forty files in it would otherwise report
+  # itself as forty-one exclusions for one click.
   defp count_excluded(nodes) do
-    Enum.reduce(nodes, 0, fn node, acc ->
-      acc + if(node.included?, do: 0, else: 1) + count_excluded(node.children)
+    Enum.reduce(nodes, 0, fn
+      %{included?: false}, acc -> acc + 1
+      node, acc -> acc + count_excluded(node.children)
     end)
   end
 
