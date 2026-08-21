@@ -112,6 +112,72 @@ defmodule ScenicWidgets.Menu.Dropdown do
   end
 
   @doc """
+  Every node of a `Tree` row, with the rectangle it is drawn in.
+
+  For anything that has to address the nodes from outside — a semantic layer,
+  a test driving the panel by name — rather than by guessing at the
+  arithmetic and drifting away from it.
+  """
+  def tree_node_bounds(%Model.Tree{} = tree, row_bounds, theme) do
+    if tree.expanded? do
+      row_height = theme.dropdown_item_height
+
+      tree
+      |> Model.visible_tree_nodes()
+      |> Enum.drop(tree.scroll_offset)
+      |> Enum.take(tree.max_visible)
+      |> Enum.with_index()
+      |> Enum.map(fn {{node, depth}, i} ->
+        {node,
+         %{
+           x: row_bounds.x,
+           y: row_bounds.y + (i + 1) * row_height,
+           width: row_bounds.width,
+           height: row_height,
+           # Where its triangle is, for anything that needs to press one.
+           expander: %{
+             x: row_bounds.x + 8 + depth * Model.tree_indent(),
+             width: Model.tree_indent()
+           }
+         }}
+      end)
+    else
+      []
+    end
+  end
+
+  @doc """
+  What a click inside a `Tree` row hit, given where it landed in that row.
+
+  `:header` is the row itself, which opens and shuts the tree. Inside it, the
+  TRIANGLE expands a branch and the rest of the row ticks it — two intentions,
+  two targets, because one rectangle carrying both means the commonest thing
+  you want from a tree ("not that one") cannot be done to anything that has
+  children.
+  """
+  def tree_hit(%Model.Tree{} = tree, {x, y}, theme) do
+    row_height = theme.dropdown_item_height
+
+    if not tree.expanded? or y < row_height do
+      :header
+    else
+      index = tree.scroll_offset + floor((y - row_height) / row_height)
+
+      case Enum.at(Model.visible_tree_nodes(tree), index) do
+        nil ->
+          nil
+
+        {node, depth} ->
+          gutter = 8 + depth * Model.tree_indent()
+
+          if node.children != [] and x >= gutter and x < gutter + Model.tree_indent(),
+            do: {:expand, node.id},
+            else: {:tick, node.id}
+      end
+    end
+  end
+
+  @doc """
   Draw a panel of rows.
 
   The panel is translated to `bounds.x/y`, so rows inside it are positioned
@@ -359,7 +425,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
     baseline = row_height / 2 + theme.dropdown_font_size / 3
 
     graph
-    |> Primitives.text(ScenicWidgets.IconMenu.Model.display_label(tree),
+    |> Primitives.text(Model.display_label(tree),
       id: {:tree_label, tree.id},
       fill: text_color,
       font: theme.font,

@@ -421,6 +421,91 @@ defmodule ScenicWidgets.SearchPane.State do
   end
 
   @doc """
+  The settings, as `ScenicWidgets.Menu.Model` rows.
+
+  The panel is drawn by `ScenicWidgets.Menu.Dropdown` — the same code that
+  draws the menubar's dropdowns — so what the pane supplies is rows, not
+  rectangles. The scope tree is a `Tree` row, which is a menu row you can
+  pick a set out of; it exists because this pane needed one, and it is
+  generic because the next thing to need one should not have to write it
+  again.
+  """
+  def settings_rows(%__MODULE__{model: model} = state) do
+    alias ScenicWidgets.Menu.Model
+
+    [
+      %Model.Toggle{
+        id: {:domain, :open_buffers_only},
+        label: "Search only open buffers",
+        checked?: model.open_buffers_only
+      },
+      %Model.Toggle{
+        id: {:domain, :use_ignore_files},
+        label: "Use exclude settings & ignore files",
+        checked?: model.use_ignore_files
+      },
+      %Model.Item{id: :edit_excludes, label: "Edit the exclude list…"}
+    ] ++ scope_row(state)
+  end
+
+  defp scope_row(%__MODULE__{model: %{scope: []}}), do: []
+
+  defp scope_row(%__MODULE__{model: %{scope: scope}} = state) do
+    [
+      %ScenicWidgets.Menu.Model.Tree{
+        id: :scope,
+        label: "SCOPE",
+        expanded?: state.scope_open?,
+        max_visible: @scope_cap,
+        nodes: Enum.map(scope, &scope_node(&1, state))
+      }
+    ]
+  end
+
+  defp scope_node(node, state) do
+    %ScenicWidgets.Menu.Model.TreeNode{
+      id: node.id,
+      label: node.label,
+      checked?: node.included?,
+      expanded?: MapSet.member?(state.expanded_scope, node.id),
+      children: Enum.map(node.children, &scope_node(&1, state))
+    }
+  end
+
+  @doc """
+  The pane's theme, said in the words a menu dropdown uses.
+
+  The pane and the menubar name their colours differently — one talks about
+  panes and rows, the other about dropdowns and items — and the panel needs
+  the second. Translated in one place rather than by giving the pane a second
+  set of theme keys nobody else would ever set.
+  """
+  def dropdown_theme(%__MODULE__{theme: theme}) do
+    %{
+      font: theme.font,
+      dropdown_bg: theme.header_background,
+      dropdown_border: theme.border,
+      dropdown_padding: @settings_pad,
+      dropdown_item_height: theme.row_height,
+      dropdown_font_size: theme.small_font_size,
+      dropdown_divider_height: 13,
+      dropdown_column_gap: 24,
+      item_hover_bg: theme.row_hover,
+      item_text_color: theme.text,
+      item_hover_text_color: theme.text
+    }
+  end
+
+  @doc "Where the settings panel goes, and where each row sits inside it."
+  def settings_layout(%__MODULE__{frame: frame} = state) do
+    ScenicWidgets.Menu.Dropdown.layout(settings_rows(state), dropdown_theme(state),
+      x: @settings_inset,
+      y: settings_top(state),
+      width: max(frame.size.width - @settings_inset + @settings_overhang, 0)
+    )
+  end
+
+  @doc """
   Which header widgets live inside the floating settings panel.
 
   They are in `header_widgets/1` like everything else — one list still serves
@@ -432,6 +517,9 @@ defmodule ScenicWidgets.SearchPane.State do
   def settings_widget?(%{id: {:scope_row, _}}), do: true
   def settings_widget?(%{id: {:scope_expand, _}}), do: true
   def settings_widget?(%{}), do: false
+
+  @doc "The rows inside the settings panel, with where each one is drawn."
+  def settings_row_bounds(%__MODULE__{} = state), do: settings_layout(state).items
 
   @doc "How many rows the settings section adds when it is open."
   def domain_rows(%__MODULE__{domain_open?: true} = state),
@@ -872,28 +960,16 @@ defmodule ScenicWidgets.SearchPane.State do
   What is under `{x, y}` (frame-local): a header widget id, a
   `{:row, row, action_or_nil}`, or `nil`.
   """
-  def hit_test(%__MODULE__{domain_open?: true} = state, {x, y} = coords) do
-    panel = settings_frame(state)
-    {px, py} = panel.pin.point
-
-    inside_panel? =
-      x >= px and x <= px + panel.size.width and y >= py and y <= py + panel.size.height
-
-    if inside_panel? do
-      # The panel is drawn over the results, so it takes the clicks that land
-      # on it — otherwise they would reach the row underneath, which is not
-      # the thing the person can see there.
-      state
-      |> header_widgets()
-      |> Enum.filter(&settings_widget?/1)
-      |> Enum.reverse()
-      |> Enum.find_value(fn w -> if inside?(w, x, y), do: w.id end)
-      |> case do
-        nil -> :settings_panel
-        id -> id
-      end
-    else
-      unpanelled_hit_test(state, coords)
+  # The panel is drawn over the results, so it is asked FIRST — otherwise a
+  # click on it reaches the row underneath, which is not the thing the person
+  # can see there. Asked of `Menu.Dropdown`, which is also what drew it: the
+  # one map says where every row is, so drawing and hit testing cannot come
+  # to different answers about it.
+  def hit_test(%__MODULE__{domain_open?: true} = state, coords) do
+    case ScenicWidgets.Menu.Dropdown.row_at(settings_layout(state), coords) do
+      nil -> unpanelled_hit_test(state, coords)
+      :panel -> :settings_panel
+      {row_id, local} -> {:settings_row, row_id, local}
     end
   end
 

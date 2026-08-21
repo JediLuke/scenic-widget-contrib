@@ -353,33 +353,24 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   """
   def render_settings(graph, %State{domain_open?: false}), do: graph
 
-  def render_settings(graph, %State{theme: theme} = state) do
-    panel = State.settings_frame(state)
-    {px, py} = panel.pin.point
-    {w, h} = panel.size.box
-
-    widgets = State.header_widgets(state) |> Enum.filter(&State.settings_widget?/1)
-
-    Primitives.group(
+  def render_settings(graph, %State{} = state) do
+    ScenicWidgets.Menu.Dropdown.render(
       graph,
-      fn g ->
-        g
-        # A panel needs to sit ON something, or the results read straight
-        # through it. Opaque fill, a border, and a lip of shadow under it.
-        # Cribbed from IconMenu's dropdown, shape for shape: a rounded
-        # rectangle with a one-pixel border and no shadow under it. The two
-        # are the same kind of object — a panel hanging off a button — and
-        # ought to look it, whatever else differs inside them.
-        |> Primitives.rrect({w, h, @panel_radius},
-          fill: theme.header_background,
-          stroke: {1, theme.border},
-          translate: {px, py}
-        )
-        |> then(&Enum.reduce(widgets, &1, fn wid, acc -> render_header_widget(acc, wid, state) end))
-      end,
+      State.settings_rows(state),
+      State.settings_layout(state),
+      theme: State.dropdown_theme(state),
+      hovered: settings_hover(state),
+      show_shortcuts: false,
       id: :search_pane_settings
     )
   end
+
+  # The pane stores hover as its own widget id; the panel wants the id of the
+  # ROW it was built from.
+  defp settings_hover(%State{hovered: {:domain, _} = id}), do: id
+  defp settings_hover(%State{hovered: :edit_excludes}), do: :edit_excludes
+  defp settings_hover(%State{hovered: {:scope_row, _}}), do: :scope
+  defp settings_hover(%State{}), do: nil
 
   @doc """
   The editable fields, as real TextFields.

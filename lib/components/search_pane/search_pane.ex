@@ -70,6 +70,7 @@ defmodule ScenicWidgets.SearchPane do
 
   alias ScenicWidgets.SearchPane.{Renderizer, State}
   alias Widgex.Scroll.Drag
+  alias ScenicWidgets.Menu.{Dropdown, Model}
   alias Widgex.Scroll.{ScrollReducer, ScrollState}
 
   @key_pressed 1
@@ -478,6 +479,9 @@ defmodule ScenicWidgets.SearchPane do
       :settings_panel ->
         {:noreply, scene}
 
+      {:settings_row, row_id, local} ->
+        settings_click(scene, state, row_id, local)
+
       {:domain, option} ->
         send_parent_event(scene, {:search_pane, :toggle_option, option})
         {:noreply, scene}
@@ -499,6 +503,41 @@ defmodule ScenicWidgets.SearchPane do
     end
   end
 
+  # A row in the settings panel. The two switches and the excludes link mean
+  # what they always meant; the scope tree is a Menu.Model.Tree now, so where
+  # inside it the click landed is worked out by the same module that drew it.
+  defp settings_click(scene, state, {:domain, option}, _local) do
+    send_parent_event(scene, {:search_pane, :toggle_option, option})
+    {:noreply, scene}
+  end
+
+  defp settings_click(scene, _state, :edit_excludes, _local) do
+    send_parent_event(scene, {:search_pane, :edit_excludes})
+    {:noreply, scene}
+  end
+
+  defp settings_click(scene, state, :scope, local) do
+    tree = Enum.find(State.settings_rows(state), &match?(%Model.Tree{}, &1))
+
+    case Dropdown.tree_hit(tree, local, State.dropdown_theme(state)) do
+      :header ->
+        {:noreply, redraw(scene, State.toggle_scope_open(state))}
+
+      {:expand, node_id} ->
+        {:noreply, redraw(scene, State.toggle_scope_expand(state, node_id))}
+
+      {:tick, node_id} ->
+        send_parent_event(scene, {:search_pane, :toggle_scope, node_id})
+        {:noreply, scene}
+
+      nil ->
+        {:noreply, scene}
+    end
+  end
+
+  defp settings_click(scene, _state, _row_id, _local), do: {:noreply, scene}
+
+  defp dismisses_settings?({:settings_row, _, _}), do: false
   defp dismisses_settings?(:settings_panel), do: false
   defp dismisses_settings?(:domain_header), do: false
   defp dismisses_settings?({:domain, _}), do: false
@@ -615,6 +654,44 @@ defmodule ScenicWidgets.SearchPane do
     scene
   end
 
+  defp settings_semantics(%State{domain_open?: false}), do: []
+
+  defp settings_semantics(%State{} = state) do
+    rows = State.settings_rows(state)
+    bounds = State.settings_row_bounds(state)
+    theme = State.dropdown_theme(state)
+
+    Enum.flat_map(rows, fn row ->
+      b = Map.fetch!(bounds, Model.get_item_id(row))
+
+      case row do
+        %Model.Tree{} = tree ->
+          [{:search_pane_scope, b.x, b.y, b.width, theme.dropdown_item_height, "Search scope"}] ++
+            Enum.flat_map(Dropdown.tree_node_bounds(tree, b, theme), fn {node, nb} ->
+              mark = if node.checked?, do: "[x] ", else: "[ ] "
+
+              [
+                {:"search_pane_scope_#{node.id}", nb.x, nb.y, nb.width, nb.height,
+                 mark <> node.label}
+                | if node.children == [] do
+                    []
+                  else
+                    [
+                      {:"search_pane_scope_expand_#{node.id}", nb.expander.x, nb.y,
+                       nb.expander.width, nb.height,
+                       if(node.expanded?, do: "Collapse ", else: "Expand ") <> node.label}
+                    ]
+                  end
+              ]
+            end)
+
+        _ ->
+          [{semantic_id(Model.get_item_id(row)), b.x, b.y, b.width, b.height,
+            Model.display_label(row)}]
+      end
+    end)
+  end
+
   # Everything the pane draws is published to the semantic layer under a
   # printable id, so a test (or any other tool) can click a row or a button by
   # name rather than by guessing at coordinates.
@@ -627,9 +704,17 @@ defmodule ScenicWidgets.SearchPane do
       {_tx, ty} = ScrollState.translate_offset(state.scroll)
 
       header =
-        Enum.map(State.header_widgets(state), fn w ->
+        State.header_widgets(state)
+        |> Enum.reject(&State.settings_widget?/1)
+        |> Enum.map(fn w ->
           {semantic_id(w.id), w.x, w.y, w.w, w.h, header_label(w, state)}
         end)
+
+      # The settings are menu rows now, so where they are comes from the panel
+      # that draws them rather than from a parallel set of rectangles this
+      # component keeps for the purpose. Same ids as before: they are the
+      # pane's API to anything driving it.
+      settings = settings_semantics(state)
 
       # The rows that are DRAWN, which is the window around the viewport and no
       # more. Registering the whole result set would publish five hundred
@@ -653,7 +738,7 @@ defmodule ScenicWidgets.SearchPane do
       :ets.match_delete(viewport.semantic_table, {{:search_pane, :_}, :_})
       :ets.match_delete(viewport.semantic_index, {:_, {:search_pane, :_}})
 
-      Enum.each(header ++ body, fn {id, x, y, w, h, label} ->
+      Enum.each(header ++ settings ++ body, fn {id, x, y, w, h, label} ->
         entry = %Scenic.Semantic.Compiler.Entry{
           id: id,
           type: :button,
