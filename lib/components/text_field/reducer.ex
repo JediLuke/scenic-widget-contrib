@@ -751,6 +751,7 @@ defmodule ScenicWidgets.TextField.Reducer do
   def input_to_buffer_action(%State{focused: true}, {:key, {:key_left, key_state, mods}})
       when key_state > 0 do
     cond do
+      :ctrl in mods and :shift in mods -> {:select_text, :prev_word}
       :ctrl in mods -> {:move_cursor, :prev_word}
       :shift in mods -> {:select_text, :left, 1}
       true -> {:move_cursor, :left, 1}
@@ -760,6 +761,9 @@ defmodule ScenicWidgets.TextField.Reducer do
   def input_to_buffer_action(%State{focused: true}, {:key, {:key_right, key_state, mods}})
       when key_state > 0 do
     cond do
+      # Ctrl+Shift together: a word, WITH the text. Checked before plain ctrl,
+      # which otherwise swallows it and moves the cursor selecting nothing.
+      :ctrl in mods and :shift in mods -> {:select_text, :next_word}
       :ctrl in mods -> {:move_cursor, :next_word}
       :shift in mods -> {:select_text, :right, 1}
       true -> {:move_cursor, :right, 1}
