@@ -45,6 +45,7 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     |> render_fields(state)
     |> render_widgets(state)
     |> render_body(state)
+    |> render_settings(state)
   end
 
   # Everything the live widgets sit ON TOP of. Each piece carries an id and is
@@ -150,7 +151,32 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
       &render_body(&1, new_state)
     )
     |> update_hover(old_state, new_state)
+    # Last, and whole: it is the one piece that overlaps another, so it has to
+    # land on top of whatever else was just replaced.
+    |> maybe_replace(
+      :search_pane_settings,
+      moved? or settings_changed?(old_state, new_state),
+      &render_settings(&1, new_state)
+    )
     |> then(fn g -> if moved?, do: move_fields(g, new_state), else: g end)
+  end
+
+  defp settings_changed?(old_state, new_state) do
+    settings_signature(old_state) != settings_signature(new_state)
+  end
+
+  # The scope rows are compared by their LABEL, not just their id and whether
+  # they are open — the tick is IN the label ("[x] lib"), and it is the thing
+  # most likely to change. Comparing ids alone, unticking a directory changed
+  # nothing the panel could see, and it went on drawing the old ticks until
+  # something else happened to redraw it.
+  #
+  # This used to work by accident: the scope tree was drawn by the header,
+  # whose signature includes model.status, and unticking anything starts a
+  # search — so the status changed, and the header redrew for that instead.
+  defp settings_signature(%State{model: model} = state) do
+    {state.domain_open?, state.scope_open?, header_hover(state), model.open_buffers_only,
+     model.use_ignore_files, Enum.map(State.scope_rows(state), &{&1.id, &1.label, Map.get(&1, :expanded?)})}
   end
 
   defp maybe_replace(graph, _id, false, _render), do: graph
@@ -300,14 +326,53 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   defp render_widgets(graph, %State{} = state) do
     live =
       State.header_widgets(state)
-
       |> Enum.reject(&match?(%{id: {:field, _}}, &1))
+      # The settings live in a panel of their own, drawn over the results.
+      |> Enum.reject(&State.settings_widget?/1)
 
     Primitives.group(
       graph,
       fn g -> Enum.reduce(live, g, &render_header_widget(&2, &1, state)) end,
       id: :search_pane_widgets,
       translate: {0, 0}
+    )
+  end
+
+  @doc """
+  The settings panel — a menu dropping out of the cog, drawn OVER the results.
+
+  Its own piece of the graph, and the only one that deliberately overlaps
+  another, so it is rendered last and replaced whole. Everything else in this
+  module is arranged so that the four pieces never overlap; this is the
+  exception, and it is the exception on purpose.
+  """
+  def render_settings(graph, %State{domain_open?: false}), do: graph
+
+  def render_settings(graph, %State{theme: theme} = state) do
+    panel = State.settings_frame(state)
+    {px, py} = panel.pin.point
+    {w, h} = panel.size.box
+
+    widgets = State.header_widgets(state) |> Enum.filter(&State.settings_widget?/1)
+
+    Primitives.group(
+      graph,
+      fn g ->
+        g
+        # A panel needs to sit ON something, or the results read straight
+        # through it. Opaque fill, a border, and a lip of shadow under it.
+        |> Primitives.rect({w + 3, h + 3},
+          fill: {0, 0, 0, 70},
+          translate: {px + 3, py + 3}
+        )
+        |> Primitives.rect({w, h},
+          fill: theme.header_background,
+          stroke: {1, theme.field_focus_border},
+          translate: {px, py}
+        )
+        |> then(&Enum.reduce(widgets, &1, fn wid, acc -> render_header_widget(acc, wid, state) end))
+      end,
+      id: :search_pane_settings
     )
   end
 
@@ -579,31 +644,61 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     )
   end
 
-  # Clear: put the pane back to empty. A cross, like every other clear.
+  # Clear: put the pane back to empty. The CANCEL sign — a ring with a bar
+  # struck through it — rather than a bare cross, which in this pane already
+  # means "dismiss this one result" on every row and "close the pane" in the
+  # corner. Three crosses meaning three things is two too many.
   defp render_header_widget(graph, %{id: :clear} = w, %State{theme: theme} = state) do
     cx = w.x + w.w / 2
     cy = w.y + w.h / 2
-    r = 4
+    r = 6
+    # The bar lies along the ring's own diagonal, so it meets the circle
+    # rather than crossing it at a tangent.
+    d = r * :math.sqrt(2) / 2
 
     graph
     |> hover_row(w, state)
-    |> Primitives.line({{cx - r, cy - r}, {cx + r, cy + r}}, stroke: {1.6, theme.dim_text}, cap: :round)
-    |> Primitives.line({{cx + r, cy - r}, {cx - r, cy + r}}, stroke: {1.6, theme.dim_text}, cap: :round)
+    |> Primitives.circle(r, stroke: {1.6, theme.dim_text}, translate: {cx, cy})
+    |> Primitives.line({{cx - d, cy + d}, {cx + d, cy - d}},
+      stroke: {1.6, theme.dim_text},
+      cap: :round
+    )
   end
 
   # The disclosure for the search settings: a caret and a word, not three dots.
   # A control that hides something should say what it is hiding.
+  # The settings, as a cog on the status bar. DRAWN, not typed: IBM Plex Mono
+  # has no U+2699, and Scenic draws a missing glyph as an empty box — the same
+  # reason the disclosure triangles are drawn and the shortcuts are spelled
+  # "Cmd" rather than "⌘".
+  #
+  # A ring with spokes standing out of it, which is what a gear is at this
+  # size; teeth as rotated rectangles at 24px come out as mush.
   defp render_header_widget(graph, %{id: :domain_header} = w, %State{theme: theme} = state) do
+    cx = w.x + w.w / 2
+    cy = w.y + w.h / 2
+    colour = if state.domain_open?, do: theme.text, else: theme.dim_text
+
     graph
     |> hover_row(w, state)
-    |> caret(w.x + 3, w.y + w.h / 2, state.domain_open?, theme.heading)
-    |> Primitives.text("SEARCH SETTINGS",
-      id: :domain_header_text,
-      translate: {w.x + 16, w.y + w.h - 6},
-      fill: theme.heading,
-      font: theme.font,
-      font_size: theme.small_font_size
-    )
+    |> Primitives.circle(5, stroke: {1.6, colour}, translate: {cx, cy})
+    |> cog_teeth(cx, cy, colour)
+    |> Primitives.circle(1.6, fill: colour, translate: {cx, cy})
+  end
+
+  @cog_teeth 8
+  defp cog_teeth(graph, cx, cy, colour) do
+    Enum.reduce(0..(@cog_teeth - 1), graph, fn i, g ->
+      angle = i * 2 * :math.pi() / @cog_teeth
+      {dx, dy} = {:math.cos(angle), :math.sin(angle)}
+
+      Primitives.line(
+        g,
+        {{cx + dx * 5.5, cy + dy * 5.5}, {cx + dx * 8.5, cy + dy * 8.5}},
+        stroke: {1.6, colour},
+        cap: :round
+      )
+    end)
   end
 
   # A disclosure triangle, DRAWN. Typed as a character it is a character the
@@ -674,10 +769,10 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   defp status_line(%State{model: %{error: error}, theme: theme}) when is_binary(error),
     do: {error, theme.error_text}
 
-  defp status_line(%State{model: model, theme: theme}) do
+  defp status_line(%State{model: model, theme: theme} = state) do
     text =
       case model.status do
-        :idle -> "Type to search the project"
+        :idle -> idle_line(model.root, state)
         # Two different things, and worth telling apart: nothing has started
         # yet, versus something is running. A pane that says "searching…"
         # during the debounce is claiming work it has not begun.
@@ -690,6 +785,44 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
 
     colour = if match?({:error, _}, model.status), do: theme.error_text, else: theme.dim_text
     {text, colour}
+  end
+
+  # An empty pane should say WHAT it is about to search, not describe itself.
+  # "Type to search the project" is true of every project there has ever
+  # been; the name of the one in front of you is the useful half.
+  defp idle_line(nil, _state), do: "Type to search the project"
+
+  defp idle_line(root, %State{theme: theme} = state) do
+    room = status_room(state)
+    "Search " <> clip_left(pretty_path(root), room - 7 * char_width(theme.small_font_size), theme.small_font_size)
+  end
+
+  defp status_room(%State{} = state) do
+    case Enum.find(State.header_widgets(state), &(&1.id == :status)) do
+      %{w: w} -> w
+      nil -> state.frame.size.width
+    end
+  end
+
+  # Home is where most projects are, and "~" is both shorter and how a person
+  # says it.
+  defp pretty_path(path) do
+    case System.user_home() do
+      nil -> path
+      home -> if String.starts_with?(path, home), do: "~" <> String.slice(path, String.length(home)..-1//1), else: path
+    end
+  end
+
+  # Clipped from the FRONT: the end of a path is the part that says which
+  # project this is, and the beginning is the part every project shares.
+  defp clip_left(text, width, font_size) do
+    limit = max_chars(width, font_size)
+
+    if String.length(text) <= limit do
+      text
+    else
+      "…" <> String.slice(text, (String.length(text) - max(limit - 1, 0))..-1//1)
+    end
   end
 
   defp plural(1, word), do: word

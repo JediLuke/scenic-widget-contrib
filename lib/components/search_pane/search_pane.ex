@@ -372,8 +372,19 @@ defmodule ScenicWidgets.SearchPane do
 
   defp click(scene, coords) do
     state = scene.assigns.state
+    hit = State.hit_test(state, coords)
 
-    case State.hit_test(state, coords) do
+    # An open menu closes when you click away from it — including on a result,
+    # which then does its own job as well. Only the cog is exempt, because it
+    # is the toggle and would otherwise close and reopen on one click.
+    scene =
+      if state.domain_open? and dismisses_settings?(hit),
+        do: redraw(scene, %{state | domain_open?: false}),
+        else: scene
+
+    state = scene.assigns.state
+
+    case hit do
       nil ->
         {:noreply, scene}
 
@@ -462,6 +473,11 @@ defmodule ScenicWidgets.SearchPane do
       :domain_header ->
         {:noreply, redraw(scene, %{state | domain_open?: not state.domain_open?})}
 
+      # The panel's own background: clicking the gaps between its options is
+      # not a request to close it.
+      :settings_panel ->
+        {:noreply, scene}
+
       {:domain, option} ->
         send_parent_event(scene, {:search_pane, :toggle_option, option})
         {:noreply, scene}
@@ -482,6 +498,14 @@ defmodule ScenicWidgets.SearchPane do
         act(scene, state, action)
     end
   end
+
+  defp dismisses_settings?(:settings_panel), do: false
+  defp dismisses_settings?(:domain_header), do: false
+  defp dismisses_settings?({:domain, _}), do: false
+  defp dismisses_settings?({:scope_row, _}), do: false
+  defp dismisses_settings?({:scope_expand, _}), do: false
+  defp dismisses_settings?(:edit_excludes), do: false
+  defp dismisses_settings?(_hit), do: true
 
   defp row_click(scene, state, %{kind: :scope_header}),
     do: {:noreply, redraw(scene, State.toggle_scope_open(state))}

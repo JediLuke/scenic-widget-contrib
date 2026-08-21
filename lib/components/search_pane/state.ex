@@ -58,6 +58,9 @@ defmodule ScenicWidgets.SearchPane.State do
   # Wide enough for two labelled halves at the pane's small type.
   @slider_width 74
 
+  # Air inside the settings box, between its rules and its first option.
+  @settings_pad 6
+
   # How many rows either side of the viewport are drawn anyway, so that
   # scrolling a notch does not rebuild the body.
   @overscan 6
@@ -136,6 +139,8 @@ defmodule ScenicWidgets.SearchPane.State do
     %{
       status: Map.get(model, :status, :idle),
       error: Map.get(model, :error),
+      # What is being searched, so the pane can say so while it is empty.
+      root: Map.get(model, :root),
       case_sensitive: Map.get(model, :case_sensitive, false),
       regex: Map.get(model, :regex, false),
       # Where the search is allowed to look. Hidden behind a disclosure,
@@ -239,8 +244,6 @@ defmodule ScenicWidgets.SearchPane.State do
     # pixels above the field and the two read as one crowded block.
     query_y = title_y + theme.row_height + 8
     replace_y = query_y + fh + 4
-    domain_y = replace_y + if(state.replace_open?, do: fh + 10, else: 10)
-
     # The query field, with its option toggles INSIDE its right-hand end —
     # the same arrangement as the find bar, where it reads that they modify
     # the query rather than the search. They used to sit outside it, which
@@ -271,11 +274,20 @@ defmodule ScenicWidgets.SearchPane.State do
         %{id: {:toggle, :regex}, x: regex_x, y: query_y + 3, w: toggle_w, h: fh - 6}
       ] ++
         replace_widgets(state, query_x, replace_y, width, pad, fh, button_w, gap) ++
-        [%{id: :domain_header, x: pad, y: domain_y, w: width - 2 * pad, h: theme.row_height}] ++
-        domain_widgets(state, domain_y + theme.row_height, width, pad, theme)
+        # The settings no longer have a row of their own to be opened from —
+        # the cog on the status bar does that. What is left is the BOX, in the
+        # place it always appeared: above the bar, so it opens upward out of
+        # the button that opened it.
+        domain_widgets(state, settings_top(state) + @settings_pad, width, pad, theme)
 
     status = status_y(state)
     button = 24
+
+    # Right to left along the bar: clear, the tree/list slider, and the cog
+    # that opens the settings above them.
+    clear_x = width - pad - button
+    view_x = clear_x - gap - @slider_width
+    settings_x = view_x - gap - button
 
     header ++
       [
@@ -283,22 +295,26 @@ defmodule ScenicWidgets.SearchPane.State do
           id: :status,
           x: pad,
           y: status,
-          w: max(width - 2 * pad - @slider_width - button - 10, 40),
+          w: max(settings_x - pad - 10, 40),
           h: theme.row_height
         },
+        # The settings, as a cog on the bar rather than a labelled row of its
+        # own above it. A whole row saying "SEARCH SETTINGS" spent a line of a
+        # narrow pane telling you that a thing you could not see was shut.
+        %{id: :domain_header, x: settings_x, y: status, w: button, h: theme.row_height},
         # Tree or list, as ONE control with two positions rather than two
         # buttons: they are not two things you can do, they are two settings
         # of one thing, and a pair of buttons says the first.
         %{
           id: :results_view,
-          x: width - pad - button - 6 - @slider_width,
+          x: view_x,
           y: status + 2,
           w: @slider_width,
           h: theme.row_height - 4
         },
         # And a way to put the pane back to empty without hunting for the
         # query field and selecting what is in it.
-        %{id: :clear, x: width - pad - button, y: status, w: button, h: theme.row_height}
+        %{id: :clear, x: clear_x, y: status, w: button, h: theme.row_height}
       ]
   end
 
@@ -383,6 +399,19 @@ defmodule ScenicWidgets.SearchPane.State do
     row_widgets ++ expanders
   end
 
+  @doc """
+  Which header widgets live inside the floating settings panel.
+
+  They are in `header_widgets/1` like everything else — one list still serves
+  drawing, hit testing and semantics — but they are DRAWN in a different piece
+  of the graph, on top of the results rather than among the controls.
+  """
+  def settings_widget?(%{id: :edit_excludes}), do: true
+  def settings_widget?(%{id: {:domain, _}}), do: true
+  def settings_widget?(%{id: {:scope_row, _}}), do: true
+  def settings_widget?(%{id: {:scope_expand, _}}), do: true
+  def settings_widget?(%{}), do: false
+
   @doc "How many rows the settings section adds when it is open."
   def domain_rows(%__MODULE__{domain_open?: true} = state),
     do: 3 + length(Enum.take(scope_rows(state), @scope_cap))
@@ -397,10 +426,42 @@ defmodule ScenicWidgets.SearchPane.State do
     fh = theme.field_height
 
     pad + theme.row_height + 8 + fh + 4 +
-      if(state.replace_open?, do: fh + 4, else: 0) +
-      10 + theme.row_height +
-      domain_rows(state) * theme.row_height + 10
+      if(state.replace_open?, do: fh + 4, else: 0) + 10
   end
+
+  @doc """
+  How tall the settings box is, including the padding inside it.
+
+  Zero when it is shut — which is most of the time, and a row the pane gets
+  back for results.
+  """
+  def settings_height(%__MODULE__{domain_open?: false}), do: 0
+
+  def settings_height(%__MODULE__{theme: theme} = state),
+    do: domain_rows(state) * theme.row_height + 2 * @settings_pad
+
+  @doc """
+  The settings panel: a rectangle hanging under the cog, over the results.
+
+  It FLOATS. Every inline arrangement of this moved something — above the bar
+  it pushed the bar (and so the cog) down out from under the pointer that had
+  just clicked it; below the bar it shoved the results about; and giving it a
+  labelled row of its own was the row the cog was meant to replace. A panel
+  that is drawn over the content, like a menu dropping out of a menubar,
+  moves nothing at all, which is the only arrangement that has no cost.
+  """
+  def settings_frame(%__MODULE__{frame: frame, theme: theme} = state) do
+    pad = theme.padding
+
+    Widgex.Frame.new(%{
+      pin: {pad, settings_top(state)},
+      size: {max(frame.size.width - 2 * pad, 0), settings_height(state)}
+    })
+  end
+
+  @doc "The top edge of the settings panel: just under the bar the cog is on."
+  def settings_top(%__MODULE__{theme: theme} = state),
+    do: status_y(state) + theme.row_height + 2
 
   @doc "Where the rule above the status line goes."
   def status_rule_y(%__MODULE__{theme: theme} = state), do: status_y(state) - 5 + 0 * theme.padding
@@ -789,7 +850,34 @@ defmodule ScenicWidgets.SearchPane.State do
   What is under `{x, y}` (frame-local): a header widget id, a
   `{:row, row, action_or_nil}`, or `nil`.
   """
-  def hit_test(%__MODULE__{} = state, {x, y}) do
+  def hit_test(%__MODULE__{domain_open?: true} = state, {x, y} = coords) do
+    panel = settings_frame(state)
+    {px, py} = panel.pin.point
+
+    inside_panel? =
+      x >= px and x <= px + panel.size.width and y >= py and y <= py + panel.size.height
+
+    if inside_panel? do
+      # The panel is drawn over the results, so it takes the clicks that land
+      # on it — otherwise they would reach the row underneath, which is not
+      # the thing the person can see there.
+      state
+      |> header_widgets()
+      |> Enum.filter(&settings_widget?/1)
+      |> Enum.reverse()
+      |> Enum.find_value(fn w -> if inside?(w, x, y), do: w.id end)
+      |> case do
+        nil -> :settings_panel
+        id -> id
+      end
+    else
+      unpanelled_hit_test(state, coords)
+    end
+  end
+
+  def hit_test(%__MODULE__{} = state, coords), do: unpanelled_hit_test(state, coords)
+
+  defp unpanelled_hit_test(%__MODULE__{} = state, {x, y}) do
     if y < header_height(state) do
       # REVERSE: the list is in drawing order and the thing drawn last is the
       # thing on top. The option toggles sit inside the query field's
