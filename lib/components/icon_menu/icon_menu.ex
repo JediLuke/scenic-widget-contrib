@@ -93,7 +93,13 @@ defmodule ScenicWidgets.IconMenu do
       |> push_graph(graph)
 
     # Request input for mouse and keyboard interaction
-    request_input(scene, [:cursor_pos, :cursor_button, :key])
+    # :cursor_scroll included, because a dropdown taller than the room under
+    # the bar clamps and scrolls — and nothing was delivering the wheel to it.
+    # The reducer has had scroll_dropdown/2 all along; no primitive here names
+    # :cursor_scroll, so Scenic hit-tested the wheel against nothing and the
+    # menu never heard about it. A menu you cannot scroll is a menu whose last
+    # rows do not exist.
+    request_input(scene, [:cursor_pos, :cursor_button, :key, :cursor_scroll])
 
     # Register semantic elements for MCP automation
     register_semantic_elements(scene, state)
