@@ -180,7 +180,7 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   # whose signature includes model.status, and unticking anything starts a
   # search — so the status changed, and the header redrew for that instead.
   defp settings_signature(%State{model: model} = state) do
-    {state.domain_open?, state.scope_open?, header_hover(state), model.open_buffers_only,
+    {state.domain_open?, state.scope_open?, settings_hover(state), model.open_buffers_only,
      model.use_ignore_files, Enum.map(State.scope_rows(state), &{&1.id, &1.label, Map.get(&1, :expanded?)})}
   end
 
@@ -359,18 +359,17 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
       State.settings_rows(state),
       State.settings_layout(state),
       theme: State.dropdown_theme(state),
-      hovered: settings_hover(state),
+      hovered: elem(settings_hover(state), 0),
+      hovered_node: elem(settings_hover(state), 1),
       show_shortcuts: false,
       id: :search_pane_settings
     )
   end
 
-  # The pane stores hover as its own widget id; the panel wants the id of the
-  # ROW it was built from.
-  defp settings_hover(%State{hovered: {:domain, _} = id}), do: id
-  defp settings_hover(%State{hovered: :edit_excludes}), do: :edit_excludes
-  defp settings_hover(%State{hovered: {:scope_row, _}}), do: :scope
-  defp settings_hover(%State{}), do: nil
+  # What the panel should light: the row under the pointer, and the node
+  # inside it when that row is the scope tree.
+  defp settings_hover(%State{hovered: {:settings, row_id, node_id}}), do: {row_id, node_id}
+  defp settings_hover(%State{}), do: {nil, nil}
 
   @doc """
   The editable fields, as real TextFields.

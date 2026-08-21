@@ -186,6 +186,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
   def render(graph, rows, bounds, opts) do
     theme = Keyword.fetch!(opts, :theme)
     hovered = Keyword.get(opts, :hovered)
+    hovered_node = Keyword.get(opts, :hovered_node)
     show_shortcuts = Keyword.get(opts, :show_shortcuts, true)
     id = Keyword.get(opts, :id, :dropdown_group)
 
@@ -199,7 +200,9 @@ defmodule ScenicWidgets.Menu.Dropdown do
           stroke: {1, theme.dropdown_border}
         )
         |> Primitives.group(
-          fn inner -> render_rows(inner, rows, bounds, theme, hovered, show_shortcuts) end,
+          fn inner ->
+            render_rows(inner, rows, bounds, theme, hovered, hovered_node, show_shortcuts)
+          end,
           id: :dropdown_items_group,
           # A clamped panel scrolls, so its rows have to be clipped to it.
           # Without this the overflow is simply drawn past the bottom edge —
@@ -212,7 +215,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
     )
   end
 
-  defp render_rows(graph, items, dropdown, theme, hovered_item, show_shortcuts) do
+  defp render_rows(graph, items, dropdown, theme, hovered_item, hovered_node, show_shortcuts) do
     padding = theme.dropdown_padding
 
     # Space reserved for checkmark on the left
@@ -233,7 +236,13 @@ defmodule ScenicWidgets.Menu.Dropdown do
       item_y = item_bounds.y - dropdown.y
       row_height = item_bounds.height
 
-      bg_color = if is_hovered, do: theme.item_hover_bg, else: :clear
+      # A Tree is one row holding many, so lighting the row would light the
+      # whole tree when the pointer is on one node of it. Its nodes carry
+      # their own highlight instead.
+      bg_color =
+        if is_hovered and not match?(%Model.Tree{}, item),
+          do: theme.item_hover_bg,
+          else: :clear
       enabled? = Model.item_enabled?(item)
 
       text_color =
@@ -284,7 +293,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
 
             cond do
               match?(%Model.Tree{}, item) ->
-                render_tree(g, item, dropdown.width - 2 * padding, text_color, theme)
+                render_tree(g, item, dropdown.width - 2 * padding, text_color, theme, hovered_node)
 
               match?(%Model.Select{}, item) ->
                 render_select(g, item, dropdown.width - 2 * padding, text_color, theme)
@@ -420,7 +429,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
   # expanded Select, one level per indent. Its triangle and its tick are DRAWN
   # rather than typed: a font that has no ▸ draws an empty box instead, and a
   # box beside every folder is worse than no triangle at all.
-  defp render_tree(graph, tree, row_width, text_color, theme) do
+  defp render_tree(graph, tree, row_width, text_color, theme, hovered_node) do
     row_height = theme.dropdown_item_height
     baseline = row_height / 2 + theme.dropdown_font_size / 3
 
@@ -433,12 +442,12 @@ defmodule ScenicWidgets.Menu.Dropdown do
       translate: {8, baseline}
     )
     |> caret(row_width - 16, row_height / 2, tree.expanded?, text_color)
-    |> render_tree_nodes(tree, row_width, row_height, text_color, theme)
+    |> render_tree_nodes(tree, row_width, row_height, text_color, theme, hovered_node)
   end
 
-  defp render_tree_nodes(graph, %{expanded?: false}, _w, _h, _colour, _theme), do: graph
+  defp render_tree_nodes(graph, %{expanded?: false}, _w, _h, _colour, _theme, _hovered), do: graph
 
-  defp render_tree_nodes(graph, tree, row_width, row_height, text_color, theme) do
+  defp render_tree_nodes(graph, tree, row_width, row_height, text_color, theme, hovered_node) do
     tree
     |> Model.visible_tree_nodes()
     |> Enum.drop(tree.scroll_offset)
@@ -449,6 +458,17 @@ defmodule ScenicWidgets.Menu.Dropdown do
       x = 8 + depth * Model.tree_indent()
 
       g
+      |> then(fn gg ->
+        # The node under the pointer, not the row it is part of.
+        if node.id == hovered_node do
+          Primitives.rrect(gg, {row_width, row_height, 3},
+            fill: theme.item_hover_bg,
+            translate: {0, y}
+          )
+        else
+          gg
+        end
+      end)
       |> then(fn gg ->
         if node.children == [],
           do: gg,

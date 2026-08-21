@@ -490,9 +490,12 @@ defmodule ScenicWidgets.SearchPane.State do
       dropdown_font_size: theme.small_font_size,
       dropdown_divider_height: 13,
       dropdown_column_gap: 24,
-      item_hover_bg: theme.row_hover,
+      # The ACCENT, as IconMenu uses for its rows — not the pane's row_hover,
+      # which is the same colour as this panel's own background and so lit
+      # nothing at all.
+      item_hover_bg: theme.button_active,
       item_text_color: theme.text,
-      item_hover_text_color: theme.text
+      item_hover_text_color: theme.button_text
     }
   end
 

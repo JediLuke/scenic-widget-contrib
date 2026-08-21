@@ -506,6 +506,20 @@ defmodule ScenicWidgets.SearchPane do
   # A row in the settings panel. The two switches and the excludes link mean
   # what they always meant; the scope tree is a Menu.Model.Tree now, so where
   # inside it the click landed is worked out by the same module that drew it.
+  # What the pointer is over inside the panel: the row, and for the scope tree
+  # the node within it — a tree is one menu ROW holding many, so lighting the
+  # row would light the whole tree.
+  defp settings_hover_target(state, :scope, local) do
+    tree = Enum.find(State.settings_rows(state), &match?(%Model.Tree{}, &1))
+
+    case Dropdown.tree_hit(tree, local, State.dropdown_theme(state)) do
+      {_action, node_id} -> {:settings, :scope, node_id}
+      _header_or_nil -> {:settings, :scope, nil}
+    end
+  end
+
+  defp settings_hover_target(_state, row_id, _local), do: {:settings, row_id, nil}
+
   defp settings_click(scene, state, {:domain, option}, _local) do
     send_parent_event(scene, {:search_pane, :toggle_option, option})
     {:noreply, scene}
@@ -598,9 +612,19 @@ defmodule ScenicWidgets.SearchPane do
     # sign it is a button is one people click twice to check.
     hovered =
       case State.hit_test(state, coords) do
-        {:row, row, _action} -> row.id
+        {:row, row, _action} ->
+          row.id
+
+        # A row of the settings panel. Kept as the ROW's id (and, in the scope
+        # tree, the NODE under the pointer) and never the pointer position, or
+        # every pixel of movement would be a different hover and a redraw with
+        # it.
+        {:settings_row, row_id, local} ->
+          settings_hover_target(state, row_id, local)
+
         id when id in [:close, :replace_caret, :replace_all, :replace_one, :clear, :edit_excludes] -> id
         :results_view -> :results_view
+        :domain_header -> :domain_header
         _other -> nil
       end
 
