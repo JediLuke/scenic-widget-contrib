@@ -197,4 +197,111 @@ defmodule ScenicWidgets.Menu.Model do
       if node.id == node_id, do: node
     end)
   end
+
+  # ── Reading a row ───────────────────────────────────────────────────────
+  #
+  # A row's id, its label, how tall it is — what anything drawing menu rows
+  # needs to know. These lived in IconMenu.State, reachable by one component
+  # only, which is why a second thing wanting to draw a menu row had to
+  # reimplement one instead.
+
+  @doc """
+  Extract the ID from a menu item tuple (supports all formats).
+  """
+  def get_item_id({id, _label}), do: id
+  def get_item_id({id, _label, _opts_or_action}), do: id
+  def get_item_id(%{id: id}), do: id
+
+  @doc """
+  Extract the label from a menu item tuple.
+  """
+  def get_item_label({_id, label}), do: label
+  def get_item_label({_id, label, _opts_or_action}), do: label
+  def get_item_label(%{label: label}), do: label
+
+  def display_label(%ScenicWidgets.Menu.Model.Divider{}), do: ""
+  def display_label(%ScenicWidgets.Menu.Model.Select{label: label}), do: label
+
+  def display_label(%ScenicWidgets.Menu.Model.Slider{label: label, value: value}),
+    do: "#{label}: #{value}"
+
+  def display_label(%ScenicWidgets.Menu.Model.Submenu{label: label}), do: label <> "  ›"
+
+  # How much of the tree is unticked, on the row you open it from — the whole
+  # reason to look at it is usually to check whether anything is switched off.
+  def display_label(%ScenicWidgets.Menu.Model.Tree{label: label} = tree) do
+    case unchecked_count(tree.nodes) do
+      0 -> label
+      n -> "#{label}  (#{n} off)"
+    end
+  end
+
+  def display_label(item), do: get_item_label(item)
+
+  # An unticked branch counts ONCE, not once per thing inside it: a folder
+  # with forty files in it is one decision, not forty-one.
+  defp unchecked_count(nodes) do
+    Enum.reduce(nodes, 0, fn node, acc ->
+      if node.checked?, do: acc + unchecked_count(node.children), else: acc + 1
+    end)
+  end
+
+  @doc "Returns a menu item's shortcut as a separate, right-aligned column."
+  def item_shortcut(item), do: item_shortcut(item, true)
+  def item_shortcut(%{shortcut: shortcut}, true) when is_binary(shortcut), do: shortcut
+  def item_shortcut(_item, _show_shortcuts), do: nil
+
+  @doc "Returns the row height for an item; interactive sliders receive extra vertical space."
+  def item_height(%ScenicWidgets.Menu.Model.Slider{}, theme),
+    do: Map.get(theme, :dropdown_slider_height, 52)
+
+  def item_height(%ScenicWidgets.Menu.Model.Divider{}, theme),
+    do: Map.get(theme, :dropdown_divider_height, 13)
+
+  def item_height(%ScenicWidgets.Menu.Model.Select{expanded?: true, options: options}, theme),
+    do: theme.dropdown_item_height * (min(length(options), 4) + 1)
+
+  # A tree takes its header row plus however much of itself is showing, capped
+  # — a row that could grow to a project's worth of directories would be a
+  # menu with no bottom to it. Past the cap it scrolls, like a long Select.
+  def item_height(%ScenicWidgets.Menu.Model.Tree{expanded?: true} = tree, theme) do
+    showing = min(ScenicWidgets.Menu.Model.tree_node_count(tree), tree.max_visible)
+    theme.dropdown_item_height * (showing + 1)
+  end
+
+  def item_height(_item, theme), do: theme.dropdown_item_height
+
+  def get_item_opts({_id, _label}), do: %{}
+  def get_item_opts({_id, _label, opts}) when is_map(opts), do: opts
+  def get_item_opts({_id, _label, _action}), do: %{}
+
+  def get_item_opts(%ScenicWidgets.Menu.Model.Toggle{checked?: checked, enabled?: enabled}),
+    do: %{type: :toggle, checked: checked, enabled: enabled}
+
+  def get_item_opts(%ScenicWidgets.Menu.Model.Radio{selected?: selected, enabled?: enabled}),
+    do: %{type: :radio, checked: selected, enabled: enabled}
+
+  def get_item_opts(%ScenicWidgets.Menu.Model.Slider{enabled?: enabled}),
+    do: %{type: :slider, enabled: enabled}
+
+  def get_item_opts(%{enabled?: enabled}), do: %{enabled: enabled}
+
+  @doc """
+  Check if a menu item is a toggle type.
+  """
+  def is_toggle_item?(item) do
+    opts = get_item_opts(item)
+    Map.get(opts, :type) in [:toggle, :radio]
+  end
+
+  @doc """
+  Check if a toggle item is checked.
+  """
+  def is_item_checked?(item) do
+    opts = get_item_opts(item)
+    Map.get(opts, :checked, false)
+  end
+
+  @doc "Whether a row can be interacted with at all."
+  def item_enabled?(item), do: Map.get(get_item_opts(item), :enabled, true)
 end
