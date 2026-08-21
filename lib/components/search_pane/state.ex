@@ -58,8 +58,9 @@ defmodule ScenicWidgets.SearchPane.State do
   # Wide enough for two labelled halves at the pane's small type.
   @slider_width 74
 
-  # Air inside the settings box, between its edges and its first option.
-  @settings_pad 6
+  # Air inside the settings box. IconMenu's dropdown_padding, because these
+  # are the same kind of object and should not disagree about their margins.
+  @settings_pad 4
 
   # How far in from the pane's left edge the panel starts, and how far past
   # its right edge it runs. Flush with both, it read as part of the pane
@@ -345,18 +346,29 @@ defmodule ScenicWidgets.SearchPane.State do
 
   defp domain_widgets(%__MODULE__{domain_open?: false}, _y, _width, _pad, _theme), do: []
 
-  defp domain_widgets(%__MODULE__{} = state, y, width, pad, theme) do
+  # Laid out inside the PANEL, which starts in from the pane's own left edge
+  # and runs past its right one. Positioned against the pane's padding
+  # instead, every row began a couple of pixels outside the panel it is drawn
+  # in — the scope tree most visibly, because it is the widest thing in there.
+  defp domain_widgets(%__MODULE__{} = state, y, _width, _pad, theme) do
     row = theme.row_height
-    w = width - 2 * pad
+    x = @settings_inset + @settings_pad
+    w = inner_width(state)
 
     [
-      %{id: {:domain, :open_buffers_only}, x: pad, y: y, w: w, h: row},
-      %{id: {:domain, :use_ignore_files}, x: pad, y: y + row, w: w, h: row},
+      %{id: {:domain, :open_buffers_only}, x: x, y: y, w: w, h: row},
+      %{id: {:domain, :use_ignore_files}, x: x, y: y + row, w: w, h: row},
       # The excludes list is a file, and this opens it — right here, beside
       # the switch that says whether it is being honoured, rather than buried
       # in a menu three clicks away from the search it governs.
-      %{id: :edit_excludes, x: pad, y: y + 2 * row, w: w, h: row}
-    ] ++ scope_widgets(state, y + 3 * row, width, pad, theme)
+      %{id: :edit_excludes, x: x, y: y + 2 * row, w: w, h: row}
+    ] ++ scope_widgets(state, y + 3 * row, theme)
+  end
+
+  @doc "The width available to a row inside the settings panel."
+  def inner_width(%__MODULE__{} = state) do
+    panel = settings_frame(state)
+    max(panel.size.width - 2 * @settings_pad, 0)
   end
 
   # The scope tree lives in the settings section, which means the HEADER —
@@ -367,17 +379,19 @@ defmodule ScenicWidgets.SearchPane.State do
   # It is capped: a project's directories can run to hundreds, and a header
   # that grew to that would leave no pane for the results. Past the cap the
   # tree is collapsible — that is what the disclosure triangles are for.
-  defp scope_widgets(%__MODULE__{} = state, y, width, pad, theme) do
+  defp scope_widgets(%__MODULE__{} = state, y, theme) do
     rows = state |> scope_rows() |> Enum.take(@scope_cap) |> Enum.with_index()
+    x = @settings_inset + @settings_pad
+    w = inner_width(state)
 
     row_widgets =
       Enum.map(rows, fn {row, i} ->
         %{
           id: {:scope_row, row.id},
           row: row,
-          x: pad,
+          x: x,
           y: y + i * theme.row_height,
-          w: width - 2 * pad,
+          w: w,
           h: theme.row_height
         }
       end)
@@ -396,7 +410,7 @@ defmodule ScenicWidgets.SearchPane.State do
         %{
           id: {:scope_expand, row.id},
           row: row,
-          x: pad + row.depth * theme.indent,
+          x: x + row.depth * theme.indent,
           y: y + i * theme.row_height,
           w: 16,
           h: theme.row_height

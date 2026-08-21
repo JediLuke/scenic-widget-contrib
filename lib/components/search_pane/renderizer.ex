@@ -34,6 +34,11 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   # Where a match's highlight rectangle sits relative to the text baseline.
   @highlight_top 3
 
+  # IconMenu's dropdown corner, and the slightly tighter one it gives the rows
+  # inside it.
+  @panel_radius 4
+  @panel_row_radius 3
+
   @doc "The whole pane, from nothing. Used on init and nowhere else."
   def render(%State{} = state) do
     Graph.build()
@@ -361,13 +366,11 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
         g
         # A panel needs to sit ON something, or the results read straight
         # through it. Opaque fill, a border, and a lip of shadow under it.
-        # The shadow is what says "in front of", not a coloured outline — an
-        # accent border made it look like a focused input rather than a menu.
-        |> Primitives.rect({w + 4, h + 4},
-          fill: {0, 0, 0, 90},
-          translate: {px + 4, py + 4}
-        )
-        |> Primitives.rect({w, h},
+        # Cribbed from IconMenu's dropdown, shape for shape: a rounded
+        # rectangle with a one-pixel border and no shadow under it. The two
+        # are the same kind of object — a panel hanging off a button — and
+        # ought to look it, whatever else differs inside them.
+        |> Primitives.rrect({w, h, @panel_radius},
           fill: theme.header_background,
           stroke: {1, theme.border},
           translate: {px, py}
@@ -599,8 +602,12 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     # the row and pinned to x = 0, so that the settings read as a full-width
     # band of the header — which is what they were. In a floating panel that
     # band runs straight out through the border on both sides.
-    |> Primitives.rect({w.w, w.h},
-      fill: if(hovered?, do: theme.row_hover, else: theme.header_background),
+    #
+    # Rounded and CLEAR until hovered, the way IconMenu draws its rows: a row
+    # painted in the panel's own colour is a rectangle you can see the edges
+    # of, tiling the panel with seams.
+    |> Primitives.rrect({w.w, w.h, @panel_row_radius},
+      fill: if(hovered?, do: theme.row_hover, else: :clear),
       translate: {w.x, w.y}
     )
     |> then(fn g ->
@@ -690,9 +697,19 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
       # Lit for as long as the panel is open, not just while the pointer is on
       # it. A menubar does this, and it is what stops an open dropdown looking
       # orphaned from the button that opened it.
-      if state.domain_open?,
-        do: Primitives.rect(g, {w.w, w.h}, fill: theme.row_hover, translate: {w.x, w.y}),
-        else: hover_row(g, w, state)
+      # Active and hovered are DIFFERENT, as they are in IconMenu: the button
+      # of an open menu is lit more strongly than one merely under the
+      # pointer, so you can tell which of the two is happening.
+      cond do
+        state.domain_open? ->
+          Primitives.rrect(g, {w.w, w.h, @panel_row_radius},
+            fill: theme.button_background,
+            translate: {w.x, w.y}
+          )
+
+        true ->
+          hover_row(g, w, state)
+      end
     end)
     |> Primitives.circle(5, stroke: {1.6, colour}, translate: {cx, cy})
     |> cog_teeth(cx, cy, colour)
@@ -760,7 +777,10 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
 
   # Header controls light up under the pointer, like the rows do.
   defp hover_row(graph, %{id: id} = w, %State{hovered: id, theme: theme}) do
-    Primitives.rect(graph, {w.w, w.h}, fill: theme.row_hover, translate: {w.x, w.y})
+    Primitives.rrect(graph, {w.w, w.h, @panel_row_radius},
+      fill: theme.row_hover,
+      translate: {w.x, w.y}
+    )
   end
 
   defp hover_row(graph, _w, _state), do: graph
