@@ -31,6 +31,87 @@ defmodule ScenicWidgets.Menu.Dropdown do
   alias ScenicWidgets.MenuBar.TextHelper
 
   @doc """
+  Where the panel goes, and where each row sits inside it.
+
+  The caller supplies the ANCHOR — `x`, `y` and `width` — because where a
+  panel can appear depends on what it hangs off, and that is the one part of
+  this that genuinely differs between a menubar and anything else. Everything
+  below the anchor is the same arithmetic wherever the panel is, so it is
+  here rather than copied.
+
+  `:max_height` clamps a panel taller than the room under it; `:scroll` is
+  then how far down it has been wound, clamped to the overflow. Both drawing
+  and hit testing read the SAME map, which is what stops them disagreeing
+  about where a row is.
+  """
+  def layout(rows, theme, opts) do
+    x = Keyword.fetch!(opts, :x)
+    y = Keyword.fetch!(opts, :y)
+    width = Keyword.fetch!(opts, :width)
+    padding = theme.dropdown_padding
+
+    content_height =
+      Enum.sum(Enum.map(rows, &Model.item_height(&1, theme))) + 2 * padding
+
+    height =
+      case Keyword.get(opts, :max_height) do
+        max when is_number(max) and max > 0 -> min(content_height, max)
+        _ -> content_height
+      end
+
+    scroll = min(Keyword.get(opts, :scroll, 0), max(content_height - height, 0))
+
+    items =
+      rows
+      |> Enum.map_reduce(0, fn row, offset ->
+        row_height = Model.item_height(row, theme)
+
+        {{Model.get_item_id(row),
+          %{
+            x: x + padding,
+            y: y + padding + offset - scroll,
+            width: width - 2 * padding,
+            height: row_height
+          }}, offset + row_height}
+      end)
+      |> elem(0)
+      |> Enum.into(%{})
+
+    %{
+      x: x,
+      y: y,
+      width: width,
+      height: height,
+      content_height: content_height,
+      scroll: scroll,
+      items: items
+    }
+  end
+
+  @doc """
+  Which row is under a point, and where inside that row it landed.
+
+  Returns `{row_id, {local_x, local_y}}` — local to the ROW, which is what
+  every row type's behaviour is written in terms of — or `:panel` for a click
+  that hit the panel but no row, or `nil` for one that missed entirely.
+  """
+  def row_at(bounds, {x, y}) do
+    inside? =
+      x >= bounds.x and x <= bounds.x + bounds.width and
+        y >= bounds.y and y <= bounds.y + bounds.height
+
+    cond do
+      not inside? ->
+        nil
+
+      true ->
+        Enum.find_value(bounds.items, :panel, fn {id, b} ->
+          if y >= b.y and y < b.y + b.height, do: {id, {x - b.x, y - b.y}}
+        end)
+    end
+  end
+
+  @doc """
   Draw a panel of rows.
 
   The panel is translated to `bounds.x/y`, so rows inside it are positioned

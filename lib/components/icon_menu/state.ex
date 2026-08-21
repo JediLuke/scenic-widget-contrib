@@ -205,7 +205,6 @@ defmodule ScenicWidgets.IconMenu.State do
   """
   def calculate_dropdown_bounds(%__MODULE__{menus: menus, theme: theme, align: align} = state) do
     button_size = theme.icon_button_size
-    padding = theme.dropdown_padding
     x_offset = alignment_offset(state)
 
     menus
@@ -224,48 +223,22 @@ defmodule ScenicWidgets.IconMenu.State do
           :left -> button_x
         end
 
-      content_height = Enum.sum(Enum.map(menu.items, &item_height(&1, theme))) + 2 * padding
-      dropdown_height = min(content_height, max_dropdown_height(theme, content_height))
+      # Everything below the anchor is Menu.Dropdown's arithmetic, not this
+      # component's: the bar decides WHERE a panel hangs, and the panel
+      # decides what is inside it. Two copies of that sum is how a menu and a
+      # pane end up disagreeing about how tall a row is.
+      scroll = if menu.id == state.active_menu, do: state.dropdown_scroll, else: 0
 
-      # Only the menu that is actually open can be scrolled, and only as far as
-      # its overflow. Baking the offset into the bounds is what keeps drawing
-      # and hit testing from ever disagreeing about where a row is: both read
-      # this map and nothing else.
-      scroll =
-        if menu.id == state.active_menu,
-          do: min(state.dropdown_scroll, max(content_height - dropdown_height, 0)),
-          else: 0
+      bounds =
+        ScenicWidgets.Menu.Dropdown.layout(menu.items, theme,
+          x: dropdown_x,
+          y: y,
+          width: dropdown_width,
+          max_height: Map.get(theme, :max_dropdown_height),
+          scroll: scroll
+        )
 
-      item_bounds =
-        menu.items
-        |> Enum.map_reduce(0, fn item, y_offset ->
-          item_id = get_item_id(item)
-          height = item_height(item, theme)
-
-          entry =
-            {item_id,
-             %{
-               x: dropdown_x + padding,
-               y: y + padding + y_offset - scroll,
-               width: dropdown_width - 2 * padding,
-               height: height
-             }}
-
-          {entry, y_offset + height}
-        end)
-        |> elem(0)
-        |> Enum.into(%{})
-
-      {menu.id,
-       %{
-         x: dropdown_x,
-         y: y,
-         width: dropdown_width,
-         height: dropdown_height,
-         content_height: content_height,
-         scroll: scroll,
-         items: item_bounds
-       }}
+      {menu.id, bounds}
     end)
     |> Enum.into(%{})
   end
