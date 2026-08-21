@@ -55,8 +55,24 @@ defmodule ScenicWidgets.SearchPane.State do
   # header that grew to that would leave no pane for the results.
   @scope_cap 12
 
-  # Wide enough for two labelled halves at the pane's small type.
-  @slider_width 74
+  # ── Sizes that follow the type ───────────────────────────────────────────
+  #
+  # These were pixel constants chosen against an 11pt label. The pane is sized
+  # off the file navigator now, so its type moves with the chrome and a fixed
+  # 74px slider is one that stops holding the word "tree" the moment anybody
+  # zooms. Each is derived from what it has to contain.
+
+  @doc "Wide enough for two four-letter labels at the pane's small type."
+  def slider_width(theme), do: round(2 * (4 * theme.small_font_size * 0.6) + 16)
+
+  @doc "A square control on the status bar: the cog, and the clear button."
+  def button_size(theme), do: round(theme.row_height * 0.9)
+
+  @doc "The disclosure column down the left of the query and replace rows."
+  def caret_width(theme), do: round(theme.row_height * 0.67)
+
+  @doc "One of the `Aa` / `.*` toggles inside the query field."
+  def toggle_width(theme), do: round(theme.small_font_size * 1.6)
 
   # Air inside the settings box. IconMenu's dropdown_padding, because these
   # are the same kind of object and should not disagree about their margins.
@@ -242,9 +258,9 @@ defmodule ScenicWidgets.SearchPane.State do
     pad = theme.padding
     width = frame.size.width
     fh = theme.field_height
-    caret_w = 18
-    toggle_w = 22
-    button_w = 26
+    caret_w = caret_width(theme)
+    toggle_w = toggle_width(theme)
+    button_w = button_size(theme) + 2
     gap = 6
 
     title_y = pad
@@ -266,7 +282,13 @@ defmodule ScenicWidgets.SearchPane.State do
         # A close button the size of the ones on the tabs, with room around it.
         # It was 18px square and unhighlighted — smaller than every other close
         # in the application and easy to miss entirely.
-        %{id: :close, x: width - pad - 26, y: title_y - 4, w: 26, h: 26},
+        %{
+          id: :close,
+          x: width - pad - button_w,
+          y: title_y - 4,
+          w: button_w,
+          h: button_w
+        },
         # The disclosure for the replacement row, on the left where a control
         # that opens another row belongs. It spans both rows when open, so its
         # highlight covers what it opened.
@@ -289,12 +311,13 @@ defmodule ScenicWidgets.SearchPane.State do
         domain_widgets(state, settings_top(state) + @settings_pad, width, pad, theme)
 
     status = status_y(state)
-    button = 24
+    button = button_size(theme)
+    slider = slider_width(theme)
 
     # Right to left along the bar: clear, the tree/list slider, and the cog
     # that opens the settings above them.
     clear_x = width - pad - button
-    view_x = clear_x - gap - @slider_width
+    view_x = clear_x - gap - slider
     settings_x = view_x - gap - button
 
     header ++
@@ -317,7 +340,7 @@ defmodule ScenicWidgets.SearchPane.State do
           id: :results_view,
           x: view_x,
           y: status + 2,
-          w: @slider_width,
+          w: slider,
           h: theme.row_height - 4
         },
         # And a way to put the pane back to empty without hunting for the
