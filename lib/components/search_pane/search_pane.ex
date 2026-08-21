@@ -416,22 +416,6 @@ defmodule ScenicWidgets.SearchPane do
         send_parent_event(scene, {:search_pane, :toggle_option, option})
         {:noreply, scene}
 
-      # It is ONE control with two positions, so a click FLIPS it — the way a
-      # switch works, and the way its own comment in State says it should.
-      #
-      # It used to resolve the click to a half and select that half, which
-      # left a dead zone down the middle of a 74px control: clicking the
-      # middle resolved to the position it was already in and sent nothing at
-      # all, so the commonest way to click a small slider was the one way that
-      # did nothing. Aiming is not a thing a two-position control should ask
-      # for.
-      #
-      # The setting lives with the host — it is saved with the rest of them —
-      # so the pane asks rather than deciding for itself.
-      :results_view ->
-        which = if state.results_view == :list, do: :tree, else: :list
-        send_parent_event(scene, {:search_pane, :set_results_view, which})
-        {:noreply, scene}
 
       # Clearing is the START of a search, not the end of one, so the keyboard
       # belongs back in the query field afterwards. Without this the × emptied
@@ -520,7 +504,18 @@ defmodule ScenicWidgets.SearchPane do
 
   defp settings_hover_target(_state, row_id, _local), do: {:settings, row_id, nil}
 
-  defp settings_click(scene, state, {:domain, option}, _local) do
+  defp settings_click(scene, state, :results_view, local) do
+    seg = Enum.find(State.settings_rows(state), &match?(%Model.Segmented{id: :results_view}, &1))
+    width = Map.fetch!(State.settings_row_bounds(state), :results_view).width
+
+    case Dropdown.segmented_hit(seg, local, width, State.dropdown_theme(state)) do
+      nil -> {:noreply, scene}
+      value when value == seg.value -> {:noreply, scene}
+      value -> send_parent_event(scene, {:search_pane, :set_results_view, value}); {:noreply, scene}
+    end
+  end
+
+  defp settings_click(scene, _state, {:domain, option}, _local) do
     send_parent_event(scene, {:search_pane, :toggle_option, option})
     {:noreply, scene}
   end
@@ -707,6 +702,14 @@ defmodule ScenicWidgets.SearchPane do
                     ]
                   end
               ]
+            end)
+
+        %Model.Segmented{} = seg ->
+          # Each position by name, so "show me a list" is one instruction
+          # rather than arithmetic on which third of a control to aim at.
+          [{semantic_id(seg.id), b.x, b.y, b.width, b.height, Model.display_label(seg)}] ++
+            Enum.map(Dropdown.segment_bounds(seg, b, theme), fn {value, label, sb} ->
+              {:"#{semantic_id(seg.id)}_#{value}", sb.x, sb.y, sb.width, sb.height, label}
             end)
 
         _ ->

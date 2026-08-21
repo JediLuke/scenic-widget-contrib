@@ -210,7 +210,6 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
 
   defp header_hover(%State{hovered: hovered}) when hovered in @header_ids, do: hovered
   defp header_hover(%State{hovered: {:domain, _} = hovered}), do: hovered
-  defp header_hover(%State{hovered: {:results_view, _} = hovered}), do: hovered
   defp header_hover(%State{hovered: {:scope_row, _} = hovered}), do: hovered
   defp header_hover(%State{hovered: {:scope_expand, _} = hovered}), do: hovered
   defp header_hover(%State{hovered: {:toggle, _} = hovered}), do: hovered
@@ -613,44 +612,6 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     )
   end
 
-  # A two-position slider: one track, and a thumb that sits over the half in
-  # force. Two buttons would say "here are two things you can do"; this says
-  # "here is one setting, and it is currently that" — which is what it is.
-  defp render_header_widget(graph, %{id: :results_view} = w, %State{theme: theme} = state) do
-    half = w.w / 2
-    list? = state.results_view == :list
-    thumb_x = if list?, do: w.x + half, else: w.x
-
-    graph
-    |> Primitives.rounded_rectangle({w.w, w.h, w.h / 2},
-      fill: theme.button_background,
-      stroke: {1, theme.field_border},
-      translate: {w.x, w.y}
-    )
-    |> Primitives.rounded_rectangle({half, w.h, w.h / 2},
-      fill: theme.button_active,
-      translate: {thumb_x, w.y}
-    )
-    |> Primitives.text("tree",
-      translate: {w.x + half / 2, w.y + w.h - 5},
-      text_align: :center,
-      fill: if(list?, do: theme.dim_text, else: theme.text),
-      font: theme.font,
-      font_size: theme.small_font_size
-    )
-    |> Primitives.text("list",
-      translate: {w.x + half + half / 2, w.y + w.h - 5},
-      text_align: :center,
-      fill: if(list?, do: theme.text, else: theme.dim_text),
-      font: theme.font,
-      font_size: theme.small_font_size
-    )
-  end
-
-  # Clear: put the pane back to empty. The CANCEL sign — a ring with a bar
-  # struck through it — rather than a bare cross, which in this pane already
-  # means "dismiss this one result" on every row and "close the pane" in the
-  # corner. Three crosses meaning three things is two too many.
   defp render_header_widget(graph, %{id: :clear} = w, %State{theme: theme} = state) do
     cx = w.x + w.w / 2
     cy = w.y + w.h / 2

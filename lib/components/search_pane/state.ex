@@ -150,6 +150,13 @@ defmodule ScenicWidgets.SearchPane.State do
       scroll: ScrollState.new(data.frame, content_height: 0, direction: :vertical)
     }
 
+    # The project row of the scope tree starts open here too, not only when a
+    # later snapshot changes the root. The pane is now BORN with the right
+    # project — it reads the store rather than a cache that cannot have caught
+    # up — so "the root changed" never fires, and without this the tree opened
+    # to a single row naming the directory you are already searching.
+    state = %{state | expanded_scope: with_root_expanded(state.expanded_scope, state.model)}
+
     resync_scroll(state)
   end
 
@@ -202,10 +209,11 @@ defmodule ScenicWidgets.SearchPane.State do
        ),
        do: expanded
 
-  defp seed_root_expansion(%__MODULE__{expanded_scope: expanded}, %{scope: [%{id: root} | _]}),
-    do: MapSet.put(expanded, root)
+  defp seed_root_expansion(%__MODULE__{expanded_scope: expanded}, model),
+    do: with_root_expanded(expanded, model)
 
-  defp seed_root_expansion(%__MODULE__{expanded_scope: expanded}, _model), do: expanded
+  defp with_root_expanded(expanded, %{scope: [%{id: root} | _]}), do: MapSet.put(expanded, root)
+  defp with_root_expanded(expanded, _model), do: expanded
 
   def put_frame(%__MODULE__{} = state, frame) do
     scroll = ScrollState.update_viewport_size(state.scroll, body_frame(frame, state.theme))
@@ -312,13 +320,11 @@ defmodule ScenicWidgets.SearchPane.State do
 
     status = status_y(state)
     button = button_size(theme)
-    slider = slider_width(theme)
 
     # Right to left along the bar: clear, the tree/list slider, and the cog
     # that opens the settings above them.
     clear_x = width - pad - button
-    view_x = clear_x - gap - slider
-    settings_x = view_x - gap - button
+    settings_x = clear_x - gap - button
 
     header ++
       [
@@ -333,16 +339,6 @@ defmodule ScenicWidgets.SearchPane.State do
         # own above it. A whole row saying "SEARCH SETTINGS" spent a line of a
         # narrow pane telling you that a thing you could not see was shut.
         %{id: :domain_header, x: settings_x, y: status, w: button, h: theme.row_height},
-        # Tree or list, as ONE control with two positions rather than two
-        # buttons: they are not two things you can do, they are two settings
-        # of one thing, and a pair of buttons says the first.
-        %{
-          id: :results_view,
-          x: view_x,
-          y: status + 2,
-          w: slider,
-          h: theme.row_height - 4
-        },
         # And a way to put the pane back to empty without hunting for the
         # query field and selecting what is in it.
         %{id: :clear, x: clear_x, y: status, w: button, h: theme.row_height}
@@ -467,7 +463,18 @@ defmodule ScenicWidgets.SearchPane.State do
         label: "Use exclude settings & ignore files",
         checked?: model.use_ignore_files
       },
-      %Model.Item{id: :edit_excludes, label: "Edit the exclude list…"}
+      %Model.Item{id: :edit_excludes, label: "Edit the exclude list…"},
+      # Tree or list: an either/or with both choices on show. It used to be a
+      # slider on the status bar, taking a third of a narrow bar to say
+      # something you change rarely — it is the same control, in the drawer
+      # where settings live, and it is a menu row now so anything else can
+      # have one.
+      %Model.Segmented{
+        id: :results_view,
+        label: "Results as",
+        value: state.results_view,
+        options: [:tree, :list]
+      }
     ] ++ scope_row(state)
   end
 

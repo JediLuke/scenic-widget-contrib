@@ -295,6 +295,9 @@ defmodule ScenicWidgets.Menu.Dropdown do
               match?(%Model.Tree{}, item) ->
                 render_tree(g, item, dropdown.width - 2 * padding, text_color, theme, hovered_node)
 
+              match?(%Model.Segmented{}, item) ->
+                render_segmented(g, item, dropdown.width - 2 * padding, text_color, theme)
+
               match?(%Model.Select{}, item) ->
                 render_select(g, item, dropdown.width - 2 * padding, text_color, theme)
 
@@ -528,6 +531,109 @@ defmodule ScenicWidgets.Menu.Dropdown do
         g
       end
     end)
+  end
+
+  # An either/or: one track with a position per choice, and the one in force
+  # filled. The same control the search pane had on its status bar, which is
+  # where this came from — it was a good control in the wrong place, and the
+  # only reason it was not a menu row is that a menu row could not be one.
+  defp render_segmented(graph, seg, row_width, text_color, theme) do
+    row_height = theme.dropdown_item_height
+    baseline = row_height / 2 + theme.dropdown_font_size / 3
+    segments = Model.segments(seg)
+    count = length(segments)
+
+    track_width = segmented_track_width(count, theme)
+    track_x = row_width - track_width - 8
+    track_height = row_height - 8
+    seg_width = track_width / count
+
+    graph
+    |> Primitives.text(seg.label,
+      id: {:segmented_label, seg.id},
+      fill: text_color,
+      font: theme.font,
+      font_size: theme.dropdown_font_size,
+      translate: {8, baseline}
+    )
+    |> Primitives.rrect({track_width, track_height, 4},
+      id: {:segmented_track, seg.id},
+      fill: :clear,
+      stroke: {1, theme.dropdown_border},
+      translate: {track_x, 4}
+    )
+    |> then(fn g ->
+      index = Enum.find_index(segments, fn {value, _} -> value == seg.value end) || 0
+
+      Primitives.rrect(g, {seg_width, track_height, 4},
+        id: {:segmented_thumb, seg.id},
+        fill: theme.item_hover_bg,
+        translate: {track_x + index * seg_width, 4}
+      )
+    end)
+    |> then(fn g ->
+      segments
+      |> Enum.with_index()
+      |> Enum.reduce(g, fn {{value, label}, i}, acc ->
+        Primitives.text(acc, label,
+          id: {:segmented_option, seg.id, value},
+          fill: if(value == seg.value, do: theme.item_hover_text_color, else: text_color),
+          font: theme.font,
+          font_size: theme.dropdown_font_size,
+          text_align: :center,
+          translate: {track_x + i * seg_width + seg_width / 2, baseline}
+        )
+      end)
+    end)
+  end
+
+  @doc """
+  Every choice of a `Segmented` row, with the rectangle it is drawn in.
+
+  So the individual positions can be addressed from outside — by a semantic
+  layer, or by anything driving the control by name rather than by working out
+  which third of it to aim at.
+  """
+  def segment_bounds(%Model.Segmented{} = seg, row_bounds, theme) do
+    segments = Model.segments(seg)
+    count = length(segments)
+    track_width = segmented_track_width(count, theme)
+    track_x = row_bounds.x + row_bounds.width - track_width - 8
+    seg_width = track_width / count
+    row_height = theme.dropdown_item_height
+
+    segments
+    |> Enum.with_index()
+    |> Enum.map(fn {{value, label}, i} ->
+      {value, label,
+       %{
+         x: round(track_x + i * seg_width),
+         y: row_bounds.y + 4,
+         width: round(seg_width),
+         height: row_height - 8
+       }}
+    end)
+  end
+
+  defp segmented_track_width(count, theme),
+    do: round(count * 5 * theme.dropdown_font_size * 0.6 + count * 12)
+
+  @doc """
+  Which choice a click on a `Segmented` row landed on.
+
+  `local` is measured from the row's own left edge, the way every row type's
+  behaviour is written here.
+  """
+  def segmented_hit(%Model.Segmented{} = seg, {x, _y}, row_width, theme) do
+    segments = Model.segments(seg)
+    count = length(segments)
+    track_width = segmented_track_width(count, theme)
+    track_x = row_width - track_width - 8
+
+    cond do
+      x < track_x -> nil
+      true -> Model.segment_at(seg, x - track_x, track_width)
+    end
   end
 
   defp render_select(graph, select, row_width, text_color, theme) do

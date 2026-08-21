@@ -48,6 +48,22 @@ defmodule ScenicWidgets.Menu.Model do
     defstruct [:id, :label, :value, :min, :max, :tooltip, step: 1, enabled?: true]
   end
 
+  defmodule Segmented do
+    @moduledoc """
+    An either/or, as one control with a position per choice.
+
+    Two or three things you are picking BETWEEN, where the choices are worth
+    showing at once — tree or list, on or off-or-auto. A row of buttons would
+    say "here are three things you can do"; this says "here is one setting,
+    and it is currently that", which is what it is.
+
+    `Select` is the other shape: a value out of a list too long to show, behind
+    a box you open. Past three or four choices, use that one.
+    """
+    @enforce_keys [:id, :label, :value, :options]
+    defstruct [:id, :label, :value, :options, :tooltip, enabled?: true]
+  end
+
   defmodule TreeNode do
     @moduledoc """
     One thing in a `Tree`: tickable, and possibly holding more of them.
@@ -143,6 +159,31 @@ defmodule ScenicWidgets.Menu.Model do
   # place and handed out.
 
   @doc """
+  A `Segmented` row's choices, as `{value, label}` pairs.
+
+  Written either as bare values (`[:tree, :list]`, labelled by their own
+  names) or as pairs when the label should differ from the value.
+  """
+  def segments(%Segmented{options: options}) do
+    Enum.map(options, fn
+      {value, label} -> {value, label}
+      value -> {value, to_string(value)}
+    end)
+  end
+
+  @doc "Which segment a point along the control's width falls in."
+  def segment_at(%Segmented{} = seg, x, width) do
+    all = segments(seg)
+    count = length(all)
+    index = min(trunc(x / max(width / count, 1)), count - 1)
+
+    case Enum.at(all, max(index, 0)) do
+      {value, _label} -> value
+      nil -> nil
+    end
+  end
+
+  @doc """
   How far one level of a tree is indented, in pixels.
 
   Defined ONCE and read by both the renderer and the reducer: it is what
@@ -221,6 +262,7 @@ defmodule ScenicWidgets.Menu.Model do
 
   def display_label(%ScenicWidgets.Menu.Model.Divider{}), do: ""
   def display_label(%ScenicWidgets.Menu.Model.Select{label: label}), do: label
+  def display_label(%ScenicWidgets.Menu.Model.Segmented{label: label}), do: label
 
   def display_label(%ScenicWidgets.Menu.Model.Slider{label: label, value: value}),
     do: "#{label}: #{value}"
