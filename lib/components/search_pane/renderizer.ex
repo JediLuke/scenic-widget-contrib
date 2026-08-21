@@ -143,6 +143,8 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   def update_render(graph, %State{} = old_state, %State{} = new_state) do
     moved? = geometry_changed?(old_state, new_state)
 
+    body_replaced? = moved? or body_changed?(old_state, new_state)
+
     graph
     |> then(fn g -> if moved?, do: update_backdrop(g, new_state), else: g end)
     |> maybe_replace(
@@ -150,19 +152,30 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
       moved? or widgets_changed?(old_state, new_state),
       &render_widgets(&1, new_state)
     )
-    |> maybe_replace(
-      :search_pane_body,
-      moved? or body_changed?(old_state, new_state),
-      &render_body(&1, new_state)
-    )
+    |> maybe_replace(:search_pane_body, body_replaced?, &render_body(&1, new_state))
     |> update_hover(old_state, new_state)
-    # Last, and whole: it is the one piece that overlaps another, so it has to
-    # land on top of whatever else was just replaced.
+    # LAST, and re-rendered whenever anything under it was.
+    #
+    # A replaced piece lands at the END of the graph, which is what puts it on
+    # top. Every other piece is disjoint, so that never mattered; this one
+    # deliberately overlaps the results, so a body rebuilt after it is drawn
+    # OVER it. That is what happened when a settings option was toggled: the
+    # panel redrew for the option, and then the search it started came back a
+    # moment later, rebuilt the body, and buried the panel under its own
+    # results.
     |> maybe_replace(
       :search_pane_settings,
-      moved? or settings_changed?(old_state, new_state),
+      new_state.domain_open? and
+        (moved? or body_replaced? or settings_changed?(old_state, new_state)),
       &render_settings(&1, new_state)
     )
+    |> then(fn g ->
+      # And when it is not open there is nothing to draw, but there may still
+      # be a panel in the graph from a moment ago.
+      if not new_state.domain_open? and old_state.domain_open?,
+        do: Graph.delete(g, :search_pane_settings),
+        else: g
+    end)
     |> then(fn g -> if moved?, do: move_fields(g, new_state), else: g end)
   end
 

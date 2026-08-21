@@ -248,8 +248,11 @@ defmodule ScenicWidgets.IconMenu.Reducer do
             {:noop, scroll_dropdown(state, dy)}
         end
 
+      # The wheel somewhere else: the person has finished with the menu and
+      # started reading what is behind it. A dropdown left hanging over that
+      # is in the way.
       _ ->
-        {:noop, state}
+        {:noop, %{state | active_menu: nil, hovered_item: nil}}
     end
   end
 

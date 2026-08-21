@@ -240,6 +240,18 @@ defmodule ScenicWidgets.SearchPane do
     {:noreply, redraw(scene, Drag.page(state, State.body_frame(state), axis, pointer))}
   end
 
+  # Escape puts away one thing: the settings if they are open, the pane if they
+  # are not. Shutting the whole pane because a menu happened to be open throws
+  # away the search as well as the menu.
+  defp route_input({:key, {:key_esc, 1, _mods}}, _context, %{assigns: %{state: state}} = scene) do
+    if state.domain_open? do
+      {:noreply, redraw(scene, %{state | domain_open?: false})}
+    else
+      send_parent_event(scene, {:search_pane, :close})
+      {:noreply, scene}
+    end
+  end
+
   defp route_input({:cursor_button, {:btn_left, 1, _mods, coords}}, _context, scene) do
     click(scene, coords)
   end
@@ -282,10 +294,12 @@ defmodule ScenicWidgets.SearchPane do
     {:noreply, scene}
   end
 
-  def handle_event({:escape_pressed, _id}, _from, scene) do
-    send_parent_event(scene, {:search_pane, :close})
-    {:noreply, scene}
-  end
+  # Escape is handled ONCE, in route_input/3 below, because the pane asks
+  # Scenic for :key itself and so hears about it whatever has focus. A field
+  # reports it too — but only while it has the keyboard, and by the time you
+  # have been clicking around a menu it does not. Acting on both would close
+  # the menu and then the pane, on one press.
+  def handle_event({:escape_pressed, _id}, _from, scene), do: {:noreply, scene}
 
   # Tab cycles between the fields — when there are two. With the replacement
   # row shut there is only the query, and moving focus to a field that has not
@@ -349,6 +363,12 @@ defmodule ScenicWidgets.SearchPane do
       # show scrolls, rather than the results sliding about behind it.
       state.domain_open? and over_settings?(state, {x, y}) ->
         {:noreply, redraw(scene, State.scroll_scope(state, if(dy > 0, do: -1, else: 1)))}
+
+      # And scrolling ANYWHERE ELSE puts it away. Scrolling the thing behind a
+      # menu is a person having finished with the menu; leaving it open means
+      # it hangs over what they are now reading.
+      state.domain_open? ->
+        {:noreply, redraw(scene, %{state | domain_open?: false})}
 
       true ->
         wheel_body(scene, state, dy, {x, y})
