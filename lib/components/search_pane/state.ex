@@ -58,8 +58,15 @@ defmodule ScenicWidgets.SearchPane.State do
   # Wide enough for two labelled halves at the pane's small type.
   @slider_width 74
 
-  # Air inside the settings box, between its rules and its first option.
+  # Air inside the settings box, between its edges and its first option.
   @settings_pad 6
+
+  # How far in from the pane's left edge the panel starts, and how far past
+  # its right edge it runs. Flush with both, it read as part of the pane
+  # rather than as something floating in front of it — hanging over the
+  # buffer on one side is most of what sells a popup as a popup.
+  @settings_inset 10
+  @settings_overhang 26
 
   # How many rows either side of the viewport are drawn anyway, so that
   # scrolling a notch does not rebuild the body.
@@ -450,12 +457,13 @@ defmodule ScenicWidgets.SearchPane.State do
   that is drawn over the content, like a menu dropping out of a menubar,
   moves nothing at all, which is the only arrangement that has no cost.
   """
-  def settings_frame(%__MODULE__{frame: frame, theme: theme} = state) do
-    pad = theme.padding
-
+  def settings_frame(%__MODULE__{frame: frame} = state) do
     Widgex.Frame.new(%{
-      pin: {pad, settings_top(state)},
-      size: {max(frame.size.width - 2 * pad, 0), settings_height(state)}
+      pin: {@settings_inset, settings_top(state)},
+      size: {
+        max(frame.size.width - @settings_inset + @settings_overhang, 0),
+        settings_height(state)
+      }
     })
   end
 

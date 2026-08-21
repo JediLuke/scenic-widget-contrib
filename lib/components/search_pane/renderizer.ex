@@ -361,13 +361,15 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
         g
         # A panel needs to sit ON something, or the results read straight
         # through it. Opaque fill, a border, and a lip of shadow under it.
-        |> Primitives.rect({w + 3, h + 3},
-          fill: {0, 0, 0, 70},
-          translate: {px + 3, py + 3}
+        # The shadow is what says "in front of", not a coloured outline — an
+        # accent border made it look like a focused input rather than a menu.
+        |> Primitives.rect({w + 4, h + 4},
+          fill: {0, 0, 0, 90},
+          translate: {px + 4, py + 4}
         )
         |> Primitives.rect({w, h},
           fill: theme.header_background,
-          stroke: {1, theme.field_focus_border},
+          stroke: {1, theme.border},
           translate: {px, py}
         )
         |> then(&Enum.reduce(widgets, &1, fn wid, acc -> render_header_widget(acc, wid, state) end))
@@ -593,9 +595,13 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     text_x = if disclosing?(row), do: x + 12, else: x
 
     graph
-    |> Primitives.rect({w.w + 2 * theme.padding, w.h},
+    # Inside the panel, and only inside it. This used to be drawn wider than
+    # the row and pinned to x = 0, so that the settings read as a full-width
+    # band of the header — which is what they were. In a floating panel that
+    # band runs straight out through the border on both sides.
+    |> Primitives.rect({w.w, w.h},
       fill: if(hovered?, do: theme.row_hover, else: theme.header_background),
-      translate: {0, w.y}
+      translate: {w.x, w.y}
     )
     |> then(fn g ->
       if disclosing?(row),
@@ -680,7 +686,14 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     colour = if state.domain_open?, do: theme.text, else: theme.dim_text
 
     graph
-    |> hover_row(w, state)
+    |> then(fn g ->
+      # Lit for as long as the panel is open, not just while the pointer is on
+      # it. A menubar does this, and it is what stops an open dropdown looking
+      # orphaned from the button that opened it.
+      if state.domain_open?,
+        do: Primitives.rect(g, {w.w, w.h}, fill: theme.row_hover, translate: {w.x, w.y}),
+        else: hover_row(g, w, state)
+    end)
     |> Primitives.circle(5, stroke: {1.6, colour}, translate: {cx, cy})
     |> cog_teeth(cx, cy, colour)
     |> Primitives.circle(1.6, fill: colour, translate: {cx, cy})
