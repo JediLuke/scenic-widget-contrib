@@ -166,6 +166,42 @@ defmodule ScenicWidgets.IconMenu.Reducer do
     update_slider(state, item_id, {x, 0}, true)
   end
 
+  # A tree row: the header opens and shuts it, and inside it the TRIANGLE
+  # expands a branch while the rest of the row ticks it. Two intentions, two
+  # targets — one rectangle carrying both means the commonest thing you want
+  # from a tree ("not that one") cannot be done to anything with children.
+  defp activate_item(state, %ScenicWidgets.Menu.Model.Tree{} = tree, item_id, {x, y}) do
+    bounds = state.dropdown_bounds[state.active_menu].items[item_id]
+    row_height = state.theme.dropdown_item_height
+
+    if tree.expanded? and y >= bounds.y + row_height do
+      index = tree.scroll_offset + floor((y - bounds.y - row_height) / row_height)
+
+      case Enum.at(ScenicWidgets.Menu.Model.visible_tree_nodes(tree), index) do
+        nil ->
+          {:noop, state}
+
+        {node, depth} ->
+          gutter = 8 + depth * ScenicWidgets.Menu.Model.tree_indent()
+
+          cond do
+            node.children != [] and x >= gutter and x < gutter + ScenicWidgets.Menu.Model.tree_indent() ->
+              {:noop, replace_and_recalculate(state, item_id,
+                ScenicWidgets.Menu.Model.toggle_tree_expanded(tree, node.id))}
+
+            true ->
+              updated = ScenicWidgets.Menu.Model.toggle_tree_node(tree, node.id)
+
+              {:menu_tree_changed, item_id, {node.id, not node.checked?},
+               replace_and_recalculate(state, item_id, updated)}
+          end
+      end
+    else
+      {:noop,
+       replace_and_recalculate(state, item_id, %{tree | expanded?: not tree.expanded?})}
+    end
+  end
+
   defp activate_item(state, %ScenicWidgets.Menu.Model.Select{} = select, item_id, {_x, y}) do
     bounds = state.dropdown_bounds[state.active_menu].items[item_id]
     row_height = state.theme.dropdown_item_height
@@ -193,6 +229,14 @@ defmodule ScenicWidgets.IconMenu.Reducer do
     case State.point_in_dropdown?(state, coords) do
       {true, item_id} ->
         case State.find_item(state, item_id) do
+          %ScenicWidgets.Menu.Model.Tree{expanded?: true} = tree ->
+            max_offset =
+              max(0, ScenicWidgets.Menu.Model.tree_node_count(tree) - tree.max_visible)
+
+            direction = if dy > 0, do: 1, else: -1
+            offset = min(max_offset, max(0, tree.scroll_offset + direction))
+            {:noop, replace_and_recalculate(state, item_id, %{tree | scroll_offset: offset})}
+
           %ScenicWidgets.Menu.Model.Select{expanded?: true} = select ->
             max_offset = max(0, length(select.options) - 4)
             direction = if dy > 0, do: 1, else: -1

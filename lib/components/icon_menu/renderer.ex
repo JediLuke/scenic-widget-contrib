@@ -13,6 +13,7 @@ defmodule ScenicWidgets.IconMenu.Renderer do
   alias ScenicWidgets.IconMenu.State
   alias ScenicWidgets.MenuBar.TextHelper
 
+
   @doc """
   Initial render - create all UI elements.
   """
@@ -409,6 +410,9 @@ defmodule ScenicWidgets.IconMenu.Renderer do
               end
 
             cond do
+              match?(%ScenicWidgets.Menu.Model.Tree{}, item) ->
+                render_tree(g, item, dropdown.width - 2 * padding, text_color, theme)
+
               match?(%ScenicWidgets.Menu.Model.Select{}, item) ->
                 render_select(g, item, dropdown.width - 2 * padding, text_color, theme)
 
@@ -537,6 +541,100 @@ defmodule ScenicWidgets.IconMenu.Renderer do
       text_base: :middle,
       translate: {controls_x + 102, center_y}
     )
+  end
+
+  # A tree of tickable things, opening in place — the same arrangement as an
+  # expanded Select, one level per indent. Its triangle and its tick are DRAWN
+  # rather than typed: a font that has no ▸ draws an empty box instead, and a
+  # box beside every folder is worse than no triangle at all.
+  defp render_tree(graph, tree, row_width, text_color, theme) do
+    row_height = theme.dropdown_item_height
+    baseline = row_height / 2 + theme.dropdown_font_size / 3
+
+    graph
+    |> Primitives.text(ScenicWidgets.IconMenu.State.display_label(tree),
+      id: {:tree_label, tree.id},
+      fill: text_color,
+      font: theme.font,
+      font_size: theme.dropdown_font_size,
+      translate: {8, baseline}
+    )
+    |> caret(row_width - 16, row_height / 2, tree.expanded?, text_color)
+    |> render_tree_nodes(tree, row_width, row_height, text_color, theme)
+  end
+
+  defp render_tree_nodes(graph, %{expanded?: false}, _w, _h, _colour, _theme), do: graph
+
+  defp render_tree_nodes(graph, tree, row_width, row_height, text_color, theme) do
+    tree
+    |> ScenicWidgets.Menu.Model.visible_tree_nodes()
+    |> Enum.drop(tree.scroll_offset)
+    |> Enum.take(tree.max_visible)
+    |> Enum.with_index()
+    |> Enum.reduce(graph, fn {{node, depth}, i}, g ->
+      y = (i + 1) * row_height
+      x = 8 + depth * ScenicWidgets.Menu.Model.tree_indent()
+
+      g
+      |> then(fn gg ->
+        if node.children == [],
+          do: gg,
+          else: caret(gg, x + 4, y + row_height / 2, node.expanded?, text_color)
+      end)
+      |> tick_box(x + ScenicWidgets.Menu.Model.tree_indent(), y + row_height / 2, node.checked?, text_color, theme)
+      |> Primitives.text(node.label,
+        id: {:tree_node, tree.id, node.id},
+        fill: text_color,
+        font: theme.font,
+        font_size: theme.dropdown_font_size,
+        translate: {x + ScenicWidgets.Menu.Model.tree_indent() + 16, y + row_height / 2 + theme.dropdown_font_size / 3}
+      )
+    end)
+    |> then(fn g ->
+      # Say so when there is more of it than fits, rather than simply ending.
+      total = ScenicWidgets.Menu.Model.tree_node_count(tree)
+      shown = min(total - tree.scroll_offset, tree.max_visible)
+
+      if total > tree.max_visible do
+        Primitives.text(g, "#{total - shown - tree.scroll_offset} more…",
+          fill: text_color,
+          font: theme.font,
+          font_size: theme.dropdown_font_size - 1,
+          translate: {row_width - 70, (tree.max_visible + 1) * row_height - 6}
+        )
+      else
+        g
+      end
+    end)
+  end
+
+  # A disclosure triangle, drawn: right when shut, down when open.
+  defp caret(graph, x, y, open?, colour) do
+    points =
+      if open?,
+        do: [{x - 4, y - 2}, {x + 4, y - 2}, {x, y + 3}],
+        else: [{x - 2, y - 4}, {x + 3, y}, {x - 2, y + 4}]
+
+    Primitives.triangle(graph, List.to_tuple(points), fill: colour)
+  end
+
+  # A tick box, drawn for the same reason.
+  defp tick_box(graph, x, y, checked?, colour, _theme) do
+    graph
+    |> Primitives.rrect({11, 11, 2},
+      fill: :clear,
+      stroke: {1, colour},
+      translate: {x, y - 5.5}
+    )
+    |> then(fn g ->
+      if checked? do
+        g
+        |> Primitives.line({{x + 2.5, y}, {x + 4.5, y + 3}}, stroke: {1.6, colour}, cap: :round)
+        |> Primitives.line({{x + 4.5, y + 3}, {x + 8.5, y - 3.5}}, stroke: {1.6, colour}, cap: :round)
+      else
+        g
+      end
+    end)
   end
 
   defp render_select(graph, select, row_width, text_color, theme) do

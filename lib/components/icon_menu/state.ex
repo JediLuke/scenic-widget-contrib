@@ -436,7 +436,24 @@ defmodule ScenicWidgets.IconMenu.State do
 
   def display_label(%ScenicWidgets.Menu.Model.Submenu{label: label}), do: label <> "  ›"
 
+  # How much of the tree is unticked, on the row you open it from — the whole
+  # reason to look at it is usually to check whether anything is switched off.
+  def display_label(%ScenicWidgets.Menu.Model.Tree{label: label} = tree) do
+    case unchecked_count(tree.nodes) do
+      0 -> label
+      n -> "#{label}  (#{n} off)"
+    end
+  end
+
   def display_label(item), do: get_item_label(item)
+
+  # An unticked branch counts ONCE, not once per thing inside it: a folder
+  # with forty files in it is one decision, not forty-one.
+  defp unchecked_count(nodes) do
+    Enum.reduce(nodes, 0, fn node, acc ->
+      if node.checked?, do: acc + unchecked_count(node.children), else: acc + 1
+    end)
+  end
 
   @doc "Returns a menu item's shortcut as a separate, right-aligned column."
   def item_shortcut(item), do: item_shortcut(item, true)
@@ -452,6 +469,14 @@ defmodule ScenicWidgets.IconMenu.State do
 
   def item_height(%ScenicWidgets.Menu.Model.Select{expanded?: true, options: options}, theme),
     do: theme.dropdown_item_height * (min(length(options), 4) + 1)
+
+  # A tree takes its header row plus however much of itself is showing, capped
+  # — a row that could grow to a project's worth of directories would be a
+  # menu with no bottom to it. Past the cap it scrolls, like a long Select.
+  def item_height(%ScenicWidgets.Menu.Model.Tree{expanded?: true} = tree, theme) do
+    showing = min(ScenicWidgets.Menu.Model.tree_node_count(tree), tree.max_visible)
+    theme.dropdown_item_height * (showing + 1)
+  end
 
   def item_height(_item, theme), do: theme.dropdown_item_height
 

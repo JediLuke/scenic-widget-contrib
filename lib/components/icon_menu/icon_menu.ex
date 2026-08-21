@@ -123,6 +123,13 @@ defmodule ScenicWidgets.IconMenu do
       {:menu_value_changed, item_id, value, new_state} ->
         send_parent_event(scene, {:menu_value_changed, item_id, value})
         update_scene(scene, state, new_state)
+
+      # A node in a Tree row was ticked or unticked. The menu keeps its own
+      # copy so the dropdown redraws immediately, and the host is told so it
+      # can act on what the tick MEANS — which is not the menu's business.
+      {:menu_tree_changed, item_id, {node_id, checked?}, new_state} ->
+        send_parent_event(scene, {:menu_tree_changed, item_id, node_id, checked?})
+        update_scene(scene, state, new_state)
     end
   end
 
@@ -365,6 +372,7 @@ defmodule ScenicWidgets.IconMenu do
   defp result_state({:noop, state}), do: state
   defp result_state({:menu_item_clicked, _id, state}), do: state
   defp result_state({:menu_value_changed, _id, _value, state}), do: state
+  defp result_state({:menu_tree_changed, _id, _change, state}), do: state
 
   defp replace_result_state({:noop, _}, state), do: {:noop, state}
 
@@ -373,6 +381,9 @@ defmodule ScenicWidgets.IconMenu do
 
   defp replace_result_state({:menu_value_changed, id, value, _}, state),
     do: {:menu_value_changed, id, value, state}
+
+  defp replace_result_state({:menu_tree_changed, id, change, _}, state),
+    do: {:menu_tree_changed, id, change, state}
 
   # ===========================================================================
   # Semantic Registration (for MCP automation/testing)

@@ -48,6 +48,47 @@ defmodule ScenicWidgets.Menu.Model do
     defstruct [:id, :label, :value, :min, :max, :tooltip, step: 1, enabled?: true]
   end
 
+  defmodule TreeNode do
+    @moduledoc """
+    One thing in a `Tree`: tickable, and possibly holding more of them.
+
+    `children` being empty is what makes a node a leaf — there is no separate
+    kind for it, because a directory with nothing in it and a file are the
+    same thing as far as picking them goes.
+    """
+    @enforce_keys [:id, :label]
+    defstruct [:id, :label, checked?: true, expanded?: false, children: []]
+  end
+
+  defmodule Tree do
+    @moduledoc """
+    A tree of things you can tick, inside a menu row.
+
+    The same shape as `Select` — a row that expands in place rather than
+    flying out sideways — but with more than one level and a tick on every
+    node instead of one value out of a list. Anything a person needs to
+    pick a SET out of, where the set has structure, fits here: which
+    directories a search may look in, which buffers to act on, which of a
+    project's targets to build.
+
+    `max_visible` caps how many rows it takes up when open; past that it
+    scrolls, exactly as an over-long `Select` does. A menu row that could
+    grow to a project's worth of directories would otherwise be a menu with
+    no bottom to it.
+    """
+    @enforce_keys [:id, :label, :nodes]
+    defstruct [
+      :id,
+      :label,
+      :nodes,
+      :tooltip,
+      expanded?: false,
+      scroll_offset: 0,
+      max_visible: 8,
+      enabled?: true
+    ]
+  end
+
   defmodule Submenu do
     @enforce_keys [:id, :label, :rows]
     defstruct [:id, :label, :rows, :tooltip, enabled?: true]
@@ -93,4 +134,67 @@ defmodule ScenicWidgets.Menu.Model do
 
   defp valid_row?(row) when row in [:divider, :space], do: true
   defp valid_row?(_), do: false
+
+  # ── Working with a Tree ─────────────────────────────────────────────────
+  #
+  # Every part of a menu that deals with a tree — how tall the row is, what to
+  # draw, what was clicked — needs the same thing: the nodes that are actually
+  # showing, in order, each with how deep it is. So it is computed in one
+  # place and handed out.
+
+  @doc """
+  How far one level of a tree is indented, in pixels.
+
+  Defined ONCE and read by both the renderer and the reducer: it is what
+  decides where a triangle is drawn AND what counts as a click on it, and the
+  two disagreeing means a triangle you cannot hit.
+  """
+  def tree_indent, do: 12
+
+  @doc "The nodes on screen, top to bottom, as `{node, depth}`."
+  def visible_tree_nodes(%Tree{nodes: nodes}), do: visible_tree_nodes(nodes, 0)
+
+  def visible_tree_nodes(nodes, depth) when is_list(nodes) do
+    Enum.flat_map(nodes, fn %TreeNode{} = node ->
+      if node.expanded? and node.children != [] do
+        [{node, depth} | visible_tree_nodes(node.children, depth + 1)]
+      else
+        [{node, depth}]
+      end
+    end)
+  end
+
+  @doc "How many rows the tree shows, before `max_visible` is applied."
+  def tree_node_count(%Tree{} = tree), do: length(visible_tree_nodes(tree))
+
+  @doc """
+  Replace a node anywhere in the tree, by id.
+
+  `fun` receives the node and returns the new one. Nodes it does not match
+  come back untouched, so a caller never has to walk the tree itself.
+  """
+  def update_tree_node(%Tree{nodes: nodes} = tree, node_id, fun) when is_function(fun, 1),
+    do: %{tree | nodes: update_nodes(nodes, node_id, fun)}
+
+  defp update_nodes(nodes, node_id, fun) do
+    Enum.map(nodes, fn
+      %TreeNode{id: ^node_id} = node -> fun.(node)
+      %TreeNode{} = node -> %{node | children: update_nodes(node.children, node_id, fun)}
+    end)
+  end
+
+  @doc "Tick or untick a node. Ticking is the caller's business below that."
+  def toggle_tree_node(%Tree{} = tree, node_id),
+    do: update_tree_node(tree, node_id, &%{&1 | checked?: not &1.checked?})
+
+  @doc "Open or shut a node, which only means anything if it has children."
+  def toggle_tree_expanded(%Tree{} = tree, node_id),
+    do: update_tree_node(tree, node_id, &%{&1 | expanded?: not &1.expanded?})
+
+  @doc "Find a node by id, or nil."
+  def find_tree_node(%Tree{} = tree, node_id) do
+    Enum.find_value(visible_tree_nodes(tree), fn {node, _depth} ->
+      if node.id == node_id, do: node
+    end)
+  end
 end
