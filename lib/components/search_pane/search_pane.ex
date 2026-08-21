@@ -343,6 +343,26 @@ defmodule ScenicWidgets.SearchPane do
   defp wheel(scene, dy, {x, y}) do
     state = scene.assigns.state
 
+    cond do
+      # The wheel belongs to whatever is under it, and the settings panel is
+      # drawn over the results — so a tree with more directories than it can
+      # show scrolls, rather than the results sliding about behind it.
+      state.domain_open? and over_settings?(state, {x, y}) ->
+        {:noreply, redraw(scene, State.scroll_scope(state, if(dy > 0, do: -1, else: 1)))}
+
+      true ->
+        wheel_body(scene, state, dy, {x, y})
+    end
+  end
+
+  defp over_settings?(state, {x, y}) do
+    panel = State.settings_frame(state)
+    {px, py} = panel.pin.point
+
+    x >= px and x <= px + panel.size.width and y >= py and y <= py + panel.size.height
+  end
+
+  defp wheel_body(scene, state, dy, {x, y}) do
     if inside_frame?(state, {x, y}) do
       # NEGATED, the way SideNav negates it: a wheel turned down means the
       # content moves up. Unnegated, the pane in the sidebar scrolled the

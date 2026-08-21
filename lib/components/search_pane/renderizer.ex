@@ -180,7 +180,8 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   # whose signature includes model.status, and unticking anything starts a
   # search — so the status changed, and the header redrew for that instead.
   defp settings_signature(%State{model: model} = state) do
-    {state.domain_open?, state.scope_open?, settings_hover(state), model.open_buffers_only,
+    {state.domain_open?, state.scope_open?, state.scope_scroll, state.results_view,
+     settings_hover(state), model.open_buffers_only,
      model.use_ignore_files, Enum.map(State.scope_rows(state), &{&1.id, &1.label, Map.get(&1, :expanded?)})}
   end
 
@@ -361,6 +362,10 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
       hovered: elem(settings_hover(state), 0),
       hovered_node: elem(settings_hover(state), 1),
       show_shortcuts: false,
+      # This pane takes its pointer input from its own primitives, and the
+      # panel hangs out past the pane's edge — so the panel has to claim the
+      # pointer over itself, or everything it overhangs is unclickable.
+      input: true,
       id: :search_pane_settings
     )
   end

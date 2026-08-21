@@ -30,6 +30,21 @@ defmodule ScenicWidgets.Menu.Dropdown do
   alias ScenicWidgets.Menu.Model
   alias ScenicWidgets.MenuBar.TextHelper
 
+  # A floating panel hangs off its button and may well overhang whatever is
+  # behind it. A host that asks Scenic for pointer input GLOBALLY (IconMenu
+  # does) already hears about that; one that receives it through its own
+  # primitives (SearchPane does) hears nothing at all where the panel is not
+  # over the host — the rows drawn over the document simply do not answer.
+  #
+  # So it is asked for, by the hosts that need it. Not by default: adding it
+  # where input is already requested globally is precisely the double-delivery
+  # this codebase has been bitten by before.
+  defp panel_input(opts) do
+    if Keyword.get(opts, :input, false),
+      do: [input: [:cursor_button, :cursor_pos]],
+      else: []
+  end
+
   @doc """
   Where the panel goes, and where each row sits inside it.
 
@@ -194,10 +209,10 @@ defmodule ScenicWidgets.Menu.Dropdown do
       graph,
       fn g ->
         g
-        |> Primitives.rrect({bounds.width, bounds.height, 4},
-          id: :dropdown_bg,
-          fill: theme.dropdown_bg,
-          stroke: {1, theme.dropdown_border}
+        |> Primitives.rrect(
+          {bounds.width, bounds.height, 4},
+          [id: :dropdown_bg, fill: theme.dropdown_bg, stroke: {1, theme.dropdown_border}] ++
+            panel_input(opts)
         )
         |> Primitives.group(
           fn inner ->
@@ -487,16 +502,29 @@ defmodule ScenicWidgets.Menu.Dropdown do
       )
     end)
     |> then(fn g ->
-      # Say so when there is more of it than fits, rather than simply ending.
+      # Where you are in it, rather than how much you cannot see. "11 more…"
+      # tells you something is hidden and nothing about reaching it; a
+      # position tells you there is a length to move through, and the arrows
+      # say the wheel does it.
       total = Model.tree_node_count(tree)
-      shown = min(total - tree.scroll_offset, tree.max_visible)
 
       if total > tree.max_visible do
-        Primitives.text(g, "#{total - shown - tree.scroll_offset} more…",
+        shown = min(total - tree.scroll_offset, tree.max_visible)
+        first = tree.scroll_offset + 1
+        above? = tree.scroll_offset > 0
+        below? = tree.scroll_offset + shown < total
+
+        note =
+          [if(above?, do: "▲", else: " "), "#{first}–#{first + shown - 1} of #{total}",
+           if(below?, do: "▼", else: " ")]
+          |> Enum.join(" ")
+
+        Primitives.text(g, note,
           fill: text_color,
           font: theme.font,
           font_size: theme.dropdown_font_size - 1,
-          translate: {row_width - 70, (tree.max_visible + 1) * row_height - 6}
+          text_align: :right,
+          translate: {row_width - 8, (tree.max_visible + 1) * row_height - 6}
         )
       else
         g
@@ -585,6 +613,18 @@ defmodule ScenicWidgets.Menu.Dropdown do
         )
       end)
     end)
+  end
+
+  @doc """
+  Scroll a `Tree` row by `lines`, clamped to what there is.
+
+  A tree of a project's directories is longer than any menu should be, so it
+  shows `max_visible` of itself and moves through the rest. Without this the
+  rows past the cap could be counted and not reached.
+  """
+  def scroll_tree(%Model.Tree{} = tree, lines) do
+    max_offset = max(Model.tree_node_count(tree) - tree.max_visible, 0)
+    %{tree | scroll_offset: tree.scroll_offset + lines |> max(0) |> min(max_offset)}
   end
 
   @doc """
