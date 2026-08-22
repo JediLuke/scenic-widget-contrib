@@ -194,7 +194,12 @@ defmodule ScenicWidgets.SearchBar do
   # :meta, so it is rewritten to :ctrl once, at the door — the clauses below
   # then say what they mean on both platforms.
   def handle_input({:key, {key, action, mods}}, context, scene),
-    do: route_input({:key, {key, action, ScenicWidgets.PrimaryModifier.normalize(mods)}}, context, scene)
+    do:
+      route_input(
+        {:key, {key, action, ScenicWidgets.PrimaryModifier.normalize(mods)}},
+        context,
+        scene
+      )
 
   def handle_input(input, context, scene), do: route_input(input, context, scene)
 
@@ -225,7 +230,7 @@ defmodule ScenicWidgets.SearchBar do
   # open and the query still in it. Nothing here handled the chord at all, so
   # it simply vanished.
   defp route_input({:key, {:key_z, @key_pressed, mods}}, _context, scene)
-      when is_list(mods) do
+       when is_list(mods) do
     cond do
       :ctrl not in mods ->
         :ok
@@ -313,6 +318,10 @@ defmodule ScenicWidgets.SearchBar do
   # the other one, and to remember which is current for Tab.
   def handle_event({:focus_taken, id}, _from, scene)
       when id in [:search_bar_query_field, :search_bar_replace_field] do
+    # The field can focus itself after a direct click, but the host owns the
+    # competing editor pane. Tell it synchronously through the normal parent
+    # event path so it can revoke that pane before the next codepoint arrives.
+    cast_parent(scene, {:search_bar_focus_taken, scene.assigns.state.id})
     {:noreply, focus_field(scene, field_of(id))}
   end
 
@@ -421,10 +430,12 @@ defmodule ScenicWidgets.SearchBar do
         {:noreply, scene}
 
       %{id: :search_field} ->
-        {:noreply, redraw(scene, %{state | focused_field: :search})}
+        cast_parent(scene, {:search_bar_focus_taken, state.id})
+        {:noreply, focus_field(scene, :search)}
 
       %{id: :replace_field} ->
-        {:noreply, redraw(scene, %{state | focused_field: :replace})}
+        cast_parent(scene, {:search_bar_focus_taken, state.id})
+        {:noreply, focus_field(scene, :replace)}
 
       %{id: :count} ->
         {:noreply, scene}
