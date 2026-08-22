@@ -35,6 +35,8 @@ defmodule ScenicWidgets.SearchPane.State do
     match_highlight: {96, 78, 30},
     match_text: {255, 214, 120},
     row_hover: {48, 48, 58},
+    menu_row_hover: {60, 80, 120},
+    menu_border: {70, 70, 82},
     button_background: {52, 52, 64},
     button_active: {70, 110, 180},
     button_text: {215, 220, 232},
@@ -313,7 +315,7 @@ defmodule ScenicWidgets.SearchPane.State do
         %{id: {:toggle, :case_sensitive}, x: case_x, y: query_y + 3, w: toggle_w, h: fh - 6},
         %{id: {:toggle, :regex}, x: regex_x, y: query_y + 3, w: toggle_w, h: fh - 6}
       ] ++
-        replace_widgets(state, query_x, replace_y, width, pad, fh, button_w, gap) ++
+        replace_widgets(state, query_x, replace_y, width, pad, fh, gap) ++
         # The settings no longer have a row of their own to be opened from —
         # the cog on the status bar does that. What is left is the BOX, in the
         # place it always appeared: above the bar, so it opens upward out of
@@ -322,6 +324,12 @@ defmodule ScenicWidgets.SearchPane.State do
 
     status = status_y(state)
     button = button_size(theme)
+
+    # `button_size/1` says "a square control on the status bar" and these were
+    # drawn `button` wide by `row_height` tall — 18 by 20, which the cog shows
+    # up plainly, because an OPEN cog fills its rectangle rather than merely
+    # outlining a glyph inside it. Square, and centred in the row it sits on.
+    button_y = status + round((theme.row_height - button) / 2)
 
     # Right to left along the bar: clear, the tree/list slider, and the cog
     # that opens the settings above them.
@@ -340,19 +348,25 @@ defmodule ScenicWidgets.SearchPane.State do
         # The settings, as a cog on the bar rather than a labelled row of its
         # own above it. A whole row saying "SEARCH SETTINGS" spent a line of a
         # narrow pane telling you that a thing you could not see was shut.
-        %{id: :domain_header, x: settings_x, y: status, w: button, h: theme.row_height},
+        %{id: :domain_header, x: settings_x, y: button_y, w: button, h: button},
         # And a way to put the pane back to empty without hunting for the
         # query field and selecting what is in it.
-        %{id: :clear, x: clear_x, y: status, w: button, h: theme.row_height}
+        %{id: :clear, x: clear_x, y: button_y, w: button, h: button}
       ]
   end
 
-  defp replace_widgets(%__MODULE__{replace_open?: false}, _x, _y, _w, _pad, _fh, _bw, _gap),
+  defp replace_widgets(%__MODULE__{replace_open?: false}, _x, _y, _w, _pad, _fh, _gap),
     do: []
 
-  defp replace_widgets(%__MODULE__{}, query_x, y, width, pad, fh, button_w, gap) do
-    all_x = width - pad - button_w
-    one_x = all_x - 2 - button_w
+  # SQUARE, and the height of the field they sit beside — which is what the
+  # find bar's are, and why they look right there and looked wrong here. They
+  # were `button_size + 2` wide by `field_height` tall: 20 by 24, a rectangle
+  # standing on end, holding a glyph drawn round its centre with more air
+  # above and below it than either side. Two of them side by side made a pair
+  # of tall thin slabs at the end of the row.
+  defp replace_widgets(%__MODULE__{}, query_x, y, width, pad, fh, gap) do
+    all_x = width - pad - fh
+    one_x = all_x - gap - fh
     field_w = max(one_x - gap - query_x, 60)
 
     [
@@ -360,8 +374,11 @@ defmodule ScenicWidgets.SearchPane.State do
       # Replace this one, and replace all of them — the same pair the find bar
       # offers, because a project replace is the one that most wants doing an
       # occurrence at a time.
-      %{id: :replace_one, x: one_x, y: y, w: button_w, h: fh},
-      %{id: :replace_all, x: all_x, y: y, w: button_w, h: fh}
+      #
+      # A full gap between them, not the two pixels they had. Filled buttons
+      # touching each other read as one control with a seam down it.
+      %{id: :replace_one, x: one_x, y: y, w: fh, h: fh},
+      %{id: :replace_all, x: all_x, y: y, w: fh, h: fh}
     ]
   end
 
@@ -520,16 +537,19 @@ defmodule ScenicWidgets.SearchPane.State do
     %{
       font: theme.font,
       dropdown_bg: theme.header_background,
-      dropdown_border: theme.border,
+      dropdown_border: Map.get(theme, :menu_border, theme.border),
       dropdown_padding: @settings_pad,
       dropdown_item_height: theme.row_height,
       dropdown_font_size: theme.small_font_size,
       dropdown_divider_height: 13,
       dropdown_column_gap: 24,
-      # The ACCENT, as IconMenu uses for its rows — not the pane's row_hover,
-      # which is the same colour as this panel's own background and so lit
-      # nothing at all.
-      item_hover_bg: theme.button_active,
+      # What IconMenu lights ITS rows with, which is a damped accent rather
+      # than the accent itself. Two dead ends are worth recording: the pane's
+      # `row_hover` is the same colour as this panel's own background and lit
+      # nothing at all, and the accent at full strength was the loudest thing
+      # in a pane whose match highlight and focus ring have a better claim to
+      # be. The host supplies it, so the two panels cannot drift apart.
+      item_hover_bg: Map.get(theme, :menu_row_hover, theme.button_active),
       item_text_color: theme.text,
       item_hover_text_color: theme.button_text
     }

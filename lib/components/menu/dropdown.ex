@@ -480,18 +480,14 @@ defmodule ScenicWidgets.Menu.Dropdown do
                 fill: bg_color
               )
 
-            # Checkmark for toggle items (only if checked)
+            # The tick on a checked toggle — DRAWN, like the tree's tick and
+            # the disclosure triangles beside it. It was typed as "✓", and a
+            # mono font that has no U+2713 substitutes: in the search pane's
+            # panel it came out as a lower-case v, which is not a tick and is
+            # not nothing either, so it reads as part of the label.
             g =
               if is_toggle and is_checked do
-                g
-                |> Primitives.text(
-                  "✓",
-                  id: {:item_check, item_id},
-                  fill: text_color,
-                  font: theme.font,
-                  font_size: theme.dropdown_font_size,
-                  translate: {6, theme.dropdown_item_height / 2 + theme.dropdown_font_size / 3}
-                )
+                check_mark(g, 8, row_height / 2, text_color)
               else
                 g
               end
@@ -598,15 +594,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
       stroke: {1, theme.dropdown_border},
       translate: {controls_x, center_y - 11}
     )
-    |> Primitives.text("−",
-      id: {:stepper_minus, stepper.id},
-      fill: text_color,
-      font: theme.font,
-      font_size: theme.dropdown_font_size,
-      text_align: :center,
-      text_base: :middle,
-      translate: {controls_x + 14, center_y}
-    )
+    |> minus_sign(controls_x + 14, center_y, text_color)
     |> Primitives.text("#{stepper.value}%",
       id: {:stepper_value, stepper.id},
       fill: text_color,
@@ -622,15 +610,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
       stroke: {1, theme.dropdown_border},
       translate: {controls_x + 88, center_y - 11}
     )
-    |> Primitives.text("+",
-      id: {:stepper_plus, stepper.id},
-      fill: text_color,
-      font: theme.font,
-      font_size: theme.dropdown_font_size,
-      text_align: :center,
-      text_base: :middle,
-      translate: {controls_x + 102, center_y}
-    )
+    |> plus_sign(controls_x + 102, center_y, text_color)
   end
 
   # A tree of tickable things, opening in place — the same arrangement as an
@@ -691,6 +671,21 @@ defmodule ScenicWidgets.Menu.Dropdown do
     end)
   end
 
+  # A stepper's minus and plus, drawn. The minus was typed as U+2212 and the
+  # Select's arrow as U+25BE, and IBM Plex Mono has neither — the arrow came
+  # out as an empty box on the View menu's "Set Fold Level" row, which is the
+  # same trap that gave the menus "Cmd" instead of "⌘" and the settings panel
+  # a lower-case v for its tick. Nothing in a menu is typed if it is a shape.
+  defp minus_sign(graph, x, y, colour) do
+    Primitives.line(graph, {{x - 5, y}, {x + 5, y}}, stroke: {1.6, colour}, cap: :round)
+  end
+
+  defp plus_sign(graph, x, y, colour) do
+    graph
+    |> minus_sign(x, y, colour)
+    |> Primitives.line({{x, y - 5}, {x, y + 5}}, stroke: {1.6, colour}, cap: :round)
+  end
+
   # A disclosure triangle, drawn: right when shut, down when open.
   defp caret(graph, x, y, open?, colour) do
     points =
@@ -701,6 +696,14 @@ defmodule ScenicWidgets.Menu.Dropdown do
     Primitives.triangle(graph, List.to_tuple(points), fill: colour)
   end
 
+  # A tick, drawn for the same reason. `x, y` is its top-left-ish anchor, the
+  # same place the box below puts one.
+  defp check_mark(graph, x, y, colour) do
+    graph
+    |> Primitives.line({{x + 2.5, y}, {x + 4.5, y + 3}}, stroke: {1.6, colour}, cap: :round)
+    |> Primitives.line({{x + 4.5, y + 3}, {x + 8.5, y - 3.5}}, stroke: {1.6, colour}, cap: :round)
+  end
+
   # A tick box, drawn for the same reason.
   defp tick_box(graph, x, y, checked?, colour, _theme) do
     graph
@@ -709,15 +712,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
       stroke: {1, colour},
       translate: {x, y - 5.5}
     )
-    |> then(fn g ->
-      if checked? do
-        g
-        |> Primitives.line({{x + 2.5, y}, {x + 4.5, y + 3}}, stroke: {1.6, colour}, cap: :round)
-        |> Primitives.line({{x + 4.5, y + 3}, {x + 8.5, y - 3.5}}, stroke: {1.6, colour}, cap: :round)
-      else
-        g
-      end
-    end)
+    |> then(fn g -> if checked?, do: check_mark(g, x, y, colour), else: g end)
   end
 
   # An either/or: one track with a position per choice, and the one in force
@@ -851,14 +846,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
       text_align: :center,
       translate: {box_x + box_width / 2 - 7, baseline}
     )
-    |> Primitives.text("▾",
-      id: {:select_arrow, select.id},
-      fill: text_color,
-      font: theme.font,
-      font_size: theme.dropdown_font_size,
-      text_align: :center,
-      translate: {box_x + box_width - 13, baseline}
-    )
+    |> caret(box_x + box_width - 13, row_height / 2, true, text_color)
     |> render_select_options(select, row_width, row_height, text_color, theme)
   end
 
