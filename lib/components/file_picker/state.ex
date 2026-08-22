@@ -10,7 +10,7 @@ defmodule ScenicWidgets.FilePicker.State do
 
   alias Widgex.Frame
 
-  @item_height 28
+  @item_height 30
   # (default start path is resolved at runtime in new/1 — a module attribute
   # would bake in the directory `mix compile` happened to run in)
 
@@ -23,6 +23,10 @@ defmodule ScenicWidgets.FilePicker.State do
     :show_hidden,
     :filter,
     :font,
+    :theme,
+    :project_root,
+    :home_path,
+    :disk_root,
     # Save mode fields
     # :open or :save
     mode: :open,
@@ -48,6 +52,10 @@ defmodule ScenicWidgets.FilePicker.State do
           show_hidden: boolean(),
           filter: String.t() | nil,
           font: map() | nil,
+          theme: map(),
+          project_root: String.t(),
+          home_path: String.t(),
+          disk_root: String.t(),
           mode: :open | :save,
           filename: String.t(),
           filename_cursor: non_neg_integer()
@@ -57,7 +65,9 @@ defmodule ScenicWidgets.FilePicker.State do
   Create new FilePicker state.
 
   ## Options
-    * `:start_path` - Initial directory (default: user home)
+    * `:start_path` - Initial directory (default: current working directory)
+    * `:project_root` - Directory used by the Project root shortcut (default: start path)
+    * `:home_path` - Directory used by the home shortcut (default: user home)
     * `:show_hidden` - Show hidden files (default: false)
     * `:filter` - File extension filter, e.g. ".txt" (default: nil = all files)
     * `:mode` - :open or :save (default: :open)
@@ -70,6 +80,9 @@ defmodule ScenicWidgets.FilePicker.State do
     mode = Map.get(opts, :mode, :open)
     filename = Map.get(opts, :filename, "")
     filename_cursor = String.length(filename)
+    project_root = Map.get(opts, :project_root, start_path) |> Path.expand()
+    home_path = Map.get(opts, :home_path, System.user_home!()) |> Path.expand()
+    disk_root = home_path |> Path.split() |> List.first()
 
     entries = list_directory(start_path, show_hidden, filter)
     content_height = length(entries) * @item_height
@@ -86,6 +99,10 @@ defmodule ScenicWidgets.FilePicker.State do
       show_hidden: show_hidden,
       filter: filter,
       font: Map.get(opts, :font),
+      theme: Map.get(opts, :theme, %{}),
+      project_root: project_root,
+      home_path: home_path,
+      disk_root: disk_root,
       mode: mode,
       filename: filename,
       filename_cursor: filename_cursor
@@ -273,10 +290,9 @@ defmodule ScenicWidgets.FilePicker.State do
     modal_width = frame.size.width * 0.7
     modal_height = frame.size.height * 0.7
 
-    # List area: modal minus header (60px) and footer
-    # Save mode has larger footer (110px) for filename input
-    footer_height = if mode == :save, do: 110, else: 70
-    list_height = modal_height - 60 - footer_height
+    # List area: modal minus the two-row header and footer.
+    footer_height = if mode == :save, do: 128, else: 76
+    list_height = modal_height - 92 - footer_height
 
     Frame.new(
       pin: {0, 0},

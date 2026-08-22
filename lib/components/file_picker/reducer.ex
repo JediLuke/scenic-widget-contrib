@@ -124,6 +124,15 @@ defmodule ScenicWidgets.FilePicker.Reducer do
     {:state, State.navigate_up(state)}
   end
 
+  def process_event(:project_root_button, %State{} = state),
+    do: {:state, State.navigate_to(state, state.project_root)}
+
+  def process_event(:home_button, %State{} = state),
+    do: {:state, State.navigate_to(state, state.home_path)}
+
+  def process_event(:disk_root_button, %State{} = state),
+    do: {:state, State.navigate_to(state, state.disk_root)}
+
   # Save/Open button in save mode
   def process_event(:save_button, %State{mode: :save} = state) do
     if State.valid_filename?(state) do

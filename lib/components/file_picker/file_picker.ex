@@ -247,8 +247,8 @@ defmodule ScenicWidgets.FilePicker do
     modal_y = (frame_height - modal_height) / 2
 
     # Footer height depends on mode
-    footer_height = if mode == :save, do: 110, else: 70
-    header_height = 60
+    footer_height = if mode == :save, do: 128, else: 76
+    header_height = 92
 
     # List area dimensions (inside modal)
     list_x = modal_x + 20
@@ -298,10 +298,10 @@ defmodule ScenicWidgets.FilePicker do
     modal_y = (frame_height - modal_height) / 2
 
     # Footer height depends on mode (must match renderer)
-    footer_height = if mode == :save, do: 110, else: 70
+    footer_height = if mode == :save, do: 128, else: 76
 
     # Button y position in footer (save mode has buttons lower due to filename input)
-    button_y_offset = if mode == :save, do: 72, else: 15
+    button_y_offset = if mode == :save, do: 80, else: 20
 
     # Button definitions: {id, x, y, width, height}
     # The action button is either :open_button or :save_button based on mode
@@ -309,13 +309,16 @@ defmodule ScenicWidgets.FilePicker do
 
     buttons = [
       # Up button in header
-      {:up_button, modal_x + 15, modal_y + 12, 60, 36},
+      {:up_button, modal_x + 16, modal_y + 12, 64, 32},
+      {:project_root_button, modal_x + 88, modal_y + 12, 108, 32},
+      {:home_button, modal_x + 204, modal_y + 12, 44, 32},
+      {:disk_root_button, modal_x + 256, modal_y + 12, 44, 32},
       # Cancel button in footer
-      {:cancel_button, modal_x + modal_width - 200,
-       modal_y + modal_height - footer_height + button_y_offset, 85, 36},
+      {:cancel_button, modal_x + modal_width - 208,
+       modal_y + modal_height - footer_height + button_y_offset, 88, 36},
       # Open/Save button in footer
-      {action_button_id, modal_x + modal_width - 100,
-       modal_y + modal_height - footer_height + button_y_offset, 85, 36}
+      {action_button_id, modal_x + modal_width - 108,
+       modal_y + modal_height - footer_height + button_y_offset, 88, 36}
     ]
 
     # Find which button (if any) was clicked

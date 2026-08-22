@@ -47,7 +47,7 @@ defmodule ScenicWidgets.ConfirmDialog do
   # ─────────────────────────────────────────────────
 
   @dialog_width 420
-  @dialog_height 200
+  @dialog_height 220
   @button_min_width 100
   @button_max_width 160
   @button_height 32
@@ -157,6 +157,18 @@ defmodule ScenicWidgets.ConfirmDialog do
     |> elem(0)
   end
 
+  defp button_bounds(buttons, dialog_width, y) do
+    widths = Enum.map(buttons, fn {_action, label} -> button_width(label) end)
+    row_width = Enum.sum(widths) + max(length(buttons) - 1, 0) * @button_spacing
+
+    buttons
+    |> Enum.zip(widths)
+    |> Enum.map_reduce((dialog_width - row_width) / 2, fn {{action, _label}, width}, x ->
+      {{action, x, y, width, @button_height}, x + width + @button_spacing}
+    end)
+    |> elem(0)
+  end
+
   defp button_width(label) do
     label
     |> String.length()
@@ -216,19 +228,13 @@ defmodule ScenicWidgets.ConfirmDialog do
 
   def handle_input({:cursor_button, {:btn_left, 1, _mods, coords}}, _ctx, scene) do
     data = scene.assigns.data
-    {vw, vh} = viewport_size(data.frame)
-    # Dialog is rendered at the centre of the viewport
-    dlg_x = (vw - @dialog_width) / 2
-    dlg_y = (vh - @dialog_height) / 2
-
-    # Check if click lands on a button
-    bounds = button_bounds(data.buttons)
+    layout = layout(data)
 
     clicked =
-      Enum.find(bounds, fn {_action, bx, by, bw, bh} ->
+      Enum.find(layout.buttons, fn {_action, bx, by, bw, bh} ->
         {cx, cy} = coords
-        abs_x = dlg_x + bx
-        abs_y = dlg_y + by
+        abs_x = layout.x + bx
+        abs_y = layout.y + by
         cx >= abs_x and cx <= abs_x + bw and cy >= abs_y and cy <= abs_y + bh
       end)
 
@@ -245,40 +251,46 @@ defmodule ScenicWidgets.ConfirmDialog do
   # ─────────────────────────────────────────────────
 
   defp render_graph(data, id) do
-    {vw, vh} = viewport_size(data.frame)
-    dlg_x = (vw - @dialog_width) / 2
-    dlg_y = (vh - @dialog_height) / 2
-
-    bounds = button_bounds(data.buttons)
-
-    shell_bounds = ScenicWidgets.ModalShell.bounds(data.frame, {@dialog_width, @dialog_height})
+    layout = layout(data)
+    theme = Map.get(data, :theme, %{})
 
     Graph.build()
-    |> ScenicWidgets.ModalShell.overlay(data.frame, :"#{id}_overlay")
-    |> ScenicWidgets.ModalShell.panel(shell_bounds, :"#{id}_bg")
+    |> ScenicWidgets.ModalShell.overlay(data.frame, :"#{id}_overlay",
+      fill: Map.get(theme, :overlay, {0, 0, 0, 160})
+    )
+    |> ScenicWidgets.ModalShell.panel(layout, :"#{id}_bg",
+      fill: Map.get(theme, :panel, {45, 48, 55}),
+      stroke: {1, Map.get(theme, :panel_border, {80, 85, 95})}
+    )
     # Title
     |> text(data.title,
-      translate: {dlg_x + 20, dlg_y + 36},
-      fill: :white,
-      font_size: 18,
+      translate: {layout.x + 24, layout.y + 38},
+      fill: Map.get(theme, :text, :white),
+      font_size: 19,
       font_weight: :bold,
       id: :"#{id}_title"
     )
-    # Message
-    |> text(data.message,
-      translate: {dlg_x + 20, dlg_y + 76},
-      fill: {200, 200, 205},
-      font_size: 14,
-      id: :"#{id}_msg"
-    )
-    # Buttons
-    |> render_buttons(data.buttons, bounds, dlg_x, dlg_y, id)
+    |> render_message(layout.lines, layout.x, layout.y, theme, id)
+    |> render_buttons(data.buttons, layout.buttons, layout.x, layout.y, id, theme)
   end
 
-  defp render_buttons(graph, buttons, bounds, dlg_x, dlg_y, id) do
+  defp render_message(graph, lines, x, y, theme, id) do
+    lines
+    |> Enum.with_index()
+    |> Enum.reduce(graph, fn {line, index}, g ->
+      text(g, line,
+        translate: {x + 24, y + 78 + index * 20},
+        fill: Map.get(theme, :dim_text, {200, 200, 205}),
+        font_size: 14,
+        id: if(index == 0, do: :"#{id}_msg", else: :"#{id}_msg_#{index}")
+      )
+    end)
+  end
+
+  defp render_buttons(graph, buttons, bounds, dlg_x, dlg_y, id, theme) do
     Enum.zip(buttons, bounds)
     |> Enum.reduce(graph, fn {{_action, label}, {action, bx, by, bw, bh}}, g ->
-      color = button_color(action)
+      color = themed_button_color(action, theme)
       btn_id = :"#{id}_btn_#{action}"
 
       g
@@ -290,12 +302,52 @@ defmodule ScenicWidgets.ConfirmDialog do
       )
       |> text(label,
         translate: {dlg_x + bx + bw / 2, dlg_y + by + bh - 8},
-        fill: :white,
+        fill: Map.get(theme, :accent_text, :white),
         font_size: 13,
         text_align: :center,
         id: :"#{btn_id}_lbl"
       )
     end)
+  end
+
+  defp themed_button_color(:save, theme), do: Map.get(theme, :success, button_color(:save))
+  defp themed_button_color(:discard, theme), do: Map.get(theme, :danger, button_color(:discard))
+  defp themed_button_color(_action, theme), do: Map.get(theme, :button, button_color(:cancel))
+
+  defp layout(data) do
+    {vw, vh} = viewport_size(data.frame)
+    width = min(max(@dialog_width, min(vw - 40, 560)), vw - 24)
+    lines = wrap_message(data.message, max(trunc((width - 48) / 7.5), 20))
+    height = min(max(@dialog_height, 142 + length(lines) * 20), vh - 24)
+    button_y = height - @button_height - 22
+    shell = ScenicWidgets.ModalShell.bounds(data.frame, {width, height})
+    Map.merge(shell, %{lines: lines, buttons: button_bounds(data.buttons, width, button_y)})
+  end
+
+  defp wrap_message(message, width) do
+    message
+    |> String.split("\n", trim: false)
+    |> Enum.flat_map(fn
+      "" -> [""]
+      paragraph -> wrap_words(String.split(paragraph), width, "", [])
+    end)
+  end
+
+  defp wrap_words([], _width, "", acc), do: Enum.reverse(acc)
+  defp wrap_words([], _width, line, acc), do: Enum.reverse([line | acc])
+
+  defp wrap_words([word | rest], width, line, acc) do
+    candidate = if line == "", do: word, else: line <> " " <> word
+
+    if String.length(candidate) <= width do
+      wrap_words(rest, width, candidate, acc)
+    else
+      if line == "" do
+        wrap_words(rest, width, word, acc)
+      else
+        wrap_words(rest, width, word, [line | acc])
+      end
+    end
   end
 
   defp emit_response(scene, action) do
