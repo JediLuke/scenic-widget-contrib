@@ -35,7 +35,7 @@ defmodule ScenicWidgets.SearchPane.State do
     match_highlight: {96, 78, 30},
     match_text: {255, 214, 120},
     row_hover: {48, 48, 58},
-    menu_row_hover: {60, 80, 120},
+    menu_row_hover: {0, 150, 255},
     menu_border: {70, 70, 82},
     button_background: {52, 52, 64},
     button_active: {70, 110, 180},
@@ -543,12 +543,12 @@ defmodule ScenicWidgets.SearchPane.State do
       dropdown_font_size: theme.small_font_size,
       dropdown_divider_height: 13,
       dropdown_column_gap: 24,
-      # What IconMenu lights ITS rows with, which is a damped accent rather
-      # than the accent itself. Two dead ends are worth recording: the pane's
-      # `row_hover` is the same colour as this panel's own background and lit
-      # nothing at all, and the accent at full strength was the loudest thing
-      # in a pane whose match highlight and focus ring have a better claim to
-      # be. The host supplies it, so the two panels cannot drift apart.
+      # What IconMenu lights ITS rows with — the accent — supplied by the host
+      # so the two panels cannot drift apart. Two dead ends worth recording:
+      # the pane's `row_hover` is the same colour as this panel's own
+      # background and lit nothing at all, and a DAMPED accent was tried across
+      # every palette and rejected on sight. The row under the pointer is the
+      # one thing in an open menu you are addressing; quieter is not better.
       item_hover_bg: Map.get(theme, :menu_row_hover, theme.button_active),
       item_text_color: theme.text,
       item_hover_text_color: theme.button_text
