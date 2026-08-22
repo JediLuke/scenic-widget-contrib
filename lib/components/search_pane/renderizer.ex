@@ -193,7 +193,7 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   # whose signature includes model.status, and unticking anything starts a
   # search — so the status changed, and the header redrew for that instead.
   defp settings_signature(%State{model: model} = state) do
-    {state.domain_open?, state.scope_open?, state.scope_scroll, state.results_view,
+    {state.domain_open?, state.scope_open?, state.settings_scroll, state.results_view,
      settings_hover(state), model.open_buffers_only,
      model.use_ignore_files, Enum.map(State.scope_rows(state), &{&1.id, &1.label, Map.get(&1, :expanded?)})}
   end

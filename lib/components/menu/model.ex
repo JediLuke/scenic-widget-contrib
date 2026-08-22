@@ -37,7 +37,6 @@ defmodule ScenicWidgets.Menu.Model do
       :options,
       :tooltip,
       expanded?: false,
-      scroll_offset: 0,
       enabled?: true
     ]
   end
@@ -87,10 +86,12 @@ defmodule ScenicWidgets.Menu.Model do
     directories a search may look in, which buffers to act on, which of a
     project's targets to build.
 
-    `max_visible` caps how many rows it takes up when open; past that it
-    scrolls, exactly as an over-long `Select` does. A menu row that could
-    grow to a project's worth of directories would otherwise be a menu with
-    no bottom to it.
+    An open tree is as tall as it has nodes. It used to cap itself at
+    `max_visible` and scroll inside its own row, which meant a panel holding
+    one had two scrolling mechanisms in it — the row's, in units of nodes, and
+    the panel's, in pixels — and a person turning the wheel could not tell
+    which of them they had. The panel scrolls; a row is just a row, however
+    tall it is.
     """
     @enforce_keys [:id, :label, :nodes]
     defstruct [
@@ -99,8 +100,6 @@ defmodule ScenicWidgets.Menu.Model do
       :nodes,
       :tooltip,
       expanded?: false,
-      scroll_offset: 0,
-      max_visible: 8,
       enabled?: true
     ]
   end
@@ -205,7 +204,7 @@ defmodule ScenicWidgets.Menu.Model do
     end)
   end
 
-  @doc "How many rows the tree shows, before `max_visible` is applied."
+  @doc "How many rows the tree shows, with its shut branches shut."
   def tree_node_count(%Tree{} = tree), do: length(visible_tree_nodes(tree))
 
   @doc """
@@ -300,16 +299,15 @@ defmodule ScenicWidgets.Menu.Model do
   def item_height(%ScenicWidgets.Menu.Model.Divider{}, theme),
     do: Map.get(theme, :dropdown_divider_height, 13)
 
+  # An open Select or Tree is its header row plus everything under it. Neither
+  # caps itself any more: a row that hid its own tail behind its own scroll
+  # offset put a second scrolling mechanism inside a panel that already had
+  # one, and the panel is the one with a scrollbar on it.
   def item_height(%ScenicWidgets.Menu.Model.Select{expanded?: true, options: options}, theme),
-    do: theme.dropdown_item_height * (min(length(options), 4) + 1)
+    do: theme.dropdown_item_height * (length(options) + 1)
 
-  # A tree takes its header row plus however much of itself is showing, capped
-  # — a row that could grow to a project's worth of directories would be a
-  # menu with no bottom to it. Past the cap it scrolls, like a long Select.
-  def item_height(%ScenicWidgets.Menu.Model.Tree{expanded?: true} = tree, theme) do
-    showing = min(ScenicWidgets.Menu.Model.tree_node_count(tree), tree.max_visible)
-    theme.dropdown_item_height * (showing + 1)
-  end
+  def item_height(%ScenicWidgets.Menu.Model.Tree{expanded?: true} = tree, theme),
+    do: theme.dropdown_item_height * (ScenicWidgets.Menu.Model.tree_node_count(tree) + 1)
 
   def item_height(_item, theme), do: theme.dropdown_item_height
 

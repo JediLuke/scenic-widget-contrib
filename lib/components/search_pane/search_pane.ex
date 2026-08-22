@@ -193,25 +193,40 @@ defmodule ScenicWidgets.SearchPane do
   # SideNav routes its own — these clauses were simply absent, so every press
   # on the pane's bar fell through to `route_input/3`, found no row under it
   # and was dropped. The bar could be looked at and not moved.
-  def handle_input({:cursor_button, {:btn_left, 1, _mods, at}}, {:scrollbar_y_thumb, _}, scene),
+  #
+  # By the BODY's group id, not by the shape of the tuple: the settings panel
+  # draws a bar of its own, through the same renderer and so under the same
+  # kind of id, and it moves a different number. Matched loosely, pressing the
+  # panel's bar dragged the results out from under it.
+  def handle_input({:cursor_button, {:btn_left, 1, _mods, at}}, {:scrollbar_y_thumb, :search_pane}, scene),
     do: grab_scrollbar(scene, :y, at)
 
-  def handle_input({:cursor_button, {:btn_left, 1, _mods, at}}, {:scrollbar_x_thumb, _}, scene),
+  def handle_input({:cursor_button, {:btn_left, 1, _mods, at}}, {:scrollbar_x_thumb, :search_pane}, scene),
     do: grab_scrollbar(scene, :x, at)
 
-  def handle_input({:cursor_button, {:btn_left, 1, _mods, {_x, y}}}, {:scrollbar_y_track, _}, scene),
+  def handle_input({:cursor_button, {:btn_left, 1, _mods, {_x, y}}}, {:scrollbar_y_track, :search_pane}, scene),
     do: page_scrollbar(scene, :y, y)
 
-  def handle_input({:cursor_button, {:btn_left, 1, _mods, {x, _y}}}, {:scrollbar_x_track, _}, scene),
+  def handle_input({:cursor_button, {:btn_left, 1, _mods, {x, _y}}}, {:scrollbar_x_track, :search_pane}, scene),
     do: page_scrollbar(scene, :x, x)
 
   # While a drag is on, the pointer belongs to the bar and nothing else — the
   # input is captured, so this sees moves from anywhere on the screen.
-  def handle_input({:cursor_pos, at}, _context, %{assigns: %{state: state}} = scene) do
-    if Drag.dragging?(state) do
-      {:noreply, redraw(scene, Drag.move(state, State.body_frame(state), at))}
-    else
-      route_input({:cursor_pos, at}, nil, scene)
+  def handle_input({:cursor_pos, {_x, y} = at}, _context, %{assigns: %{state: state}} = scene) do
+    cond do
+      Drag.dragging?(state) ->
+        {:noreply, redraw(scene, Drag.move(state, State.body_frame(state), at))}
+
+      # The settings panel's bar has its own drag: it moves a different number
+      # (the panel's offset, not the results'), and `Widgex.Scroll.Drag` moves
+      # whatever is in `state.scroll`, which is the results.
+      state.settings_drag ->
+        {start_y, start_offset} = state.settings_drag
+        scrolled = Dropdown.drag(State.settings_layout(state), start_offset, y - start_y)
+        {:noreply, redraw(scene, %{state | settings_scroll: scrolled})}
+
+      true ->
+        route_input({:cursor_pos, at}, nil, scene)
     end
   end
 
@@ -220,11 +235,17 @@ defmodule ScenicWidgets.SearchPane do
         _context,
         %{assigns: %{state: state}} = scene
       ) do
-    if Drag.dragging?(state) do
-      :ok = release_input(scene, [:cursor_pos, :cursor_button])
-      {:noreply, assign(scene, state: Drag.stop(state))}
-    else
-      {:noreply, scene}
+    cond do
+      Drag.dragging?(state) ->
+        :ok = release_input(scene, [:cursor_pos, :cursor_button])
+        {:noreply, assign(scene, state: Drag.stop(state))}
+
+      state.settings_drag ->
+        :ok = release_input(scene, [:cursor_pos, :cursor_button])
+        {:noreply, assign(scene, state: %{state | settings_drag: nil})}
+
+      true ->
+        {:noreply, scene}
     end
   end
 
@@ -359,10 +380,10 @@ defmodule ScenicWidgets.SearchPane do
 
     cond do
       # The wheel belongs to whatever is under it, and the settings panel is
-      # drawn over the results — so a tree with more directories than it can
-      # show scrolls, rather than the results sliding about behind it.
+      # drawn over the results — so a panel with more in it than it can show
+      # scrolls, rather than the results sliding about behind it.
       state.domain_open? and over_settings?(state, {x, y}) ->
-        {:noreply, redraw(scene, State.scroll_scope(state, if(dy > 0, do: -1, else: 1)))}
+        {:noreply, redraw(scene, State.scroll_settings(state, dy))}
 
       # And scrolling ANYWHERE ELSE puts it away. Scrolling the thing behind a
       # menu is a person having finished with the menu; leaving it open means
@@ -495,13 +516,34 @@ defmodule ScenicWidgets.SearchPane do
       :replace_caret ->
         {:noreply, redraw(scene, %{state | replace_open?: not state.replace_open?})}
 
+      # The cog. A panel always opens at its top: reopening one where the last
+      # visit left it would hide the first settings behind an offset nobody
+      # asked for.
       :domain_header ->
-        {:noreply, redraw(scene, %{state | domain_open?: not state.domain_open?})}
+        {:noreply,
+         redraw(scene, %{
+           state
+           | domain_open?: not state.domain_open?,
+             settings_scroll: 0,
+             settings_drag: nil
+         })}
 
       # The panel's own background: clicking the gaps between its options is
       # not a request to close it.
       :settings_panel ->
         {:noreply, scene}
+
+      # The panel's bar. Pressing the thumb starts a drag and CAPTURES the
+      # pointer, so the rest of it arrives here however far off the panel the
+      # hand wanders; pressing the empty track pages, once, with no drag.
+      {:settings_scrollbar, :thumb} ->
+        :ok = capture_input(scene, [:cursor_pos, :cursor_button])
+        {_x, y} = coords
+        {:noreply, assign(scene, state: %{state | settings_drag: {y, state.settings_scroll}})}
+
+      {:settings_scrollbar, {:track, along}} ->
+        scrolled = Dropdown.page(State.settings_layout(state), along)
+        {:noreply, redraw(scene, %{state | settings_scroll: scrolled})}
 
       {:settings_row, row_id, local} ->
         settings_click(scene, state, row_id, local)
@@ -587,6 +629,7 @@ defmodule ScenicWidgets.SearchPane do
   defp settings_click(scene, _state, _row_id, _local), do: {:noreply, scene}
 
   defp dismisses_settings?({:settings_row, _, _}), do: false
+  defp dismisses_settings?({:settings_scrollbar, _}), do: false
   defp dismisses_settings?(:settings_panel), do: false
   defp dismisses_settings?(:domain_header), do: false
   defp dismisses_settings?({:domain, _}), do: false
@@ -717,16 +760,30 @@ defmodule ScenicWidgets.SearchPane do
 
   defp settings_semantics(%State{} = state) do
     rows = State.settings_rows(state)
-    bounds = State.settings_row_bounds(state)
+    layout = State.settings_layout(state)
+    bounds = layout.items
     theme = State.dropdown_theme(state)
+
+    # Only what is on show. The panel clamps to the room under the cog and
+    # scrolls, so it lays out rows above and below its own edges — publishing
+    # those offers a name for something that is not there, and a click by that
+    # name lands on the document behind the pane.
+    visible? = &Dropdown.visible?(layout, &1)
 
     Enum.flat_map(rows, fn row ->
       b = Map.fetch!(bounds, Model.get_item_id(row))
 
       case row do
         %Model.Tree{} = tree ->
-          [{:search_pane_scope, b.x, b.y, b.width, theme.dropdown_item_height, "Search scope"}] ++
-            Enum.flat_map(Dropdown.tree_node_bounds(tree, b, theme), fn {node, nb} ->
+          header = %{b | height: theme.dropdown_item_height}
+
+          if(visible?.(header),
+            do: [{:search_pane_scope, b.x, b.y, b.width, theme.dropdown_item_height, "Search scope"}],
+            else: []
+          ) ++
+            (Dropdown.tree_node_bounds(tree, b, theme)
+             |> Enum.filter(fn {_node, nb} -> visible?.(nb) end)
+             |> Enum.flat_map(fn {node, nb} ->
               mark = if node.checked?, do: "[x] ", else: "[ ] "
 
               [
@@ -742,19 +799,27 @@ defmodule ScenicWidgets.SearchPane do
                     ]
                   end
               ]
-            end)
+             end))
 
         %Model.Segmented{} = seg ->
           # Each position by name, so "show me a list" is one instruction
           # rather than arithmetic on which third of a control to aim at.
-          [{semantic_id(seg.id), b.x, b.y, b.width, b.height, Model.display_label(seg)}] ++
-            Enum.map(Dropdown.segment_bounds(seg, b, theme), fn {value, label, sb} ->
-              {:"#{semantic_id(seg.id)}_#{value}", sb.x, sb.y, sb.width, sb.height, label}
-            end)
+          if visible?.(b) do
+            [{semantic_id(seg.id), b.x, b.y, b.width, b.height, Model.display_label(seg)}] ++
+              Enum.map(Dropdown.segment_bounds(seg, b, theme), fn {value, label, sb} ->
+                {:"#{semantic_id(seg.id)}_#{value}", sb.x, sb.y, sb.width, sb.height, label}
+              end)
+          else
+            []
+          end
 
         _ ->
-          [{semantic_id(Model.get_item_id(row)), b.x, b.y, b.width, b.height,
-            Model.display_label(row)}]
+          if visible?.(b) do
+            [{semantic_id(Model.get_item_id(row)), b.x, b.y, b.width, b.height,
+              Model.display_label(row)}]
+          else
+            []
+          end
       end
     end)
   end

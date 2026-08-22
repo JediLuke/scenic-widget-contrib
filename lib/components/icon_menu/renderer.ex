@@ -410,6 +410,21 @@ defmodule ScenicWidgets.IconMenu.Renderer do
           graph
         end
 
+      # The panel was WOUND: every row moved, and so did the scrollbar thumb.
+      # Nothing else in the state changes when the wheel turns — not the menus,
+      # not the hovered row — so without this the menu scrolled in
+      # `dropdown_bounds` and stayed put on the screen, until the next pixel of
+      # pointer movement happened to change `hovered_item` and rebuild it. With
+      # a mouse that is instant and invisible; from a trackpad gesture that
+      # does not move the pointer, the menu simply does not scroll.
+      #
+      # Comparing the BOUNDS rather than the scroll offset, because a resize
+      # moves the rows too and arrives the same way.
+      new_state.active_menu && old_state.dropdown_bounds != new_state.dropdown_bounds ->
+        graph
+        |> Graph.delete(:dropdown_group)
+        |> render_dropdown(new_state)
+
       # Interactive controls (notably sliders) update their model while the
       # dropdown remains open. Rebuild that small overlay so thumb and value
       # feedback track the pointer in real time.

@@ -51,10 +51,6 @@ defmodule ScenicWidgets.SearchPane.State do
 
   @fields [:query, :replace]
 
-  # The scope tree is capped: a project's directories run to hundreds, and a
-  # header that grew to that would leave no pane for the results.
-  @scope_cap 12
-
   # ── Sizes that follow the type ───────────────────────────────────────────
   #
   # These were pixel constants chosen against an 11pt label. The pane is sized
@@ -110,9 +106,14 @@ defmodule ScenicWidgets.SearchPane.State do
     # :tree groups matches under their file, :list gives one row per match.
     # Owned by the host, which saves it with its other settings.
     results_view: :tree,
-    # How far down the scope tree is wound. On the pane, not on the row: rows
-    # are rebuilt from the model every time results land.
-    scope_scroll: 0,
+    # How far down the settings panel is wound, in pixels. On the pane, not
+    # inside the panel or one of its rows: the rows are rebuilt from the model
+    # every time results land, so an offset kept in one of them would be
+    # thrown away by the next search. `Menu.Dropdown` does all the arithmetic
+    # on this number; the pane's only job is to still have it afterwards.
+    settings_scroll: 0,
+    # A drag of that panel's bar, as `{pointer_y, offset}`.
+    settings_drag: nil,
     scrollbar_drag: nil,
     scrollbar_drag_start: nil,
     scrollbar_drag_offset: nil
@@ -401,11 +402,11 @@ defmodule ScenicWidgets.SearchPane.State do
   # results. In the body it sat below that line, among the results it is
   # meant to narrow.
   #
-  # It is capped: a project's directories can run to hundreds, and a header
-  # that grew to that would leave no pane for the results. Past the cap the
-  # tree is collapsible — that is what the disclosure triangles are for.
+  # A project's directories can run to hundreds. The panel they are drawn in
+  # clamps to the room under the cog and scrolls; the tree itself is as long as
+  # it is, and collapsible — that is what the disclosure triangles are for.
   defp scope_widgets(%__MODULE__{} = state, y, theme) do
-    rows = state |> scope_rows() |> Enum.take(@scope_cap) |> Enum.with_index()
+    rows = state |> scope_rows() |> Enum.with_index()
     x = settings_x(state)
     w = inner_width(state)
 
@@ -492,8 +493,6 @@ defmodule ScenicWidgets.SearchPane.State do
         id: :scope,
         label: "SCOPE",
         expanded?: state.scope_open?,
-        max_visible: @scope_cap,
-        scroll_offset: state.scope_scroll,
         nodes: Enum.map(scope, &scope_node(&1, state))
       }
     ]
@@ -536,15 +535,37 @@ defmodule ScenicWidgets.SearchPane.State do
     }
   end
 
-  @doc "Where the settings panel goes, and where each row sits inside it."
+  @doc """
+  Where the settings panel goes, and where each row sits inside it.
+
+  The pane supplies the ANCHOR and how much room there is under it; everything
+  else — how tall the panel ends up, which rows are where, whether it needs a
+  scrollbar — is `Menu.Dropdown`'s, and is where the menubar's dropdowns get it
+  from too. The pane used to add its own rows up in `settings_height/1` and got
+  a different answer, which is how a panel and the rows in it disagree.
+  """
   def settings_layout(%__MODULE__{} = state) do
-    panel = settings_frame(state)
-    {px, py} = panel.pin.point
+    {x, y, width} = settings_anchor(state)
 
     ScenicWidgets.Menu.Dropdown.layout(settings_rows(state), dropdown_theme(state),
-      x: px,
-      y: py,
-      width: panel.size.width
+      x: x,
+      y: y,
+      width: width,
+      max_height: settings_max_height(state),
+      scroll: state.settings_scroll
+    )
+  end
+
+  # The room between the top of the panel and the bottom of the pane. A scope
+  # tree of a project's directories is taller than any panel should be, and it
+  # is no longer capped in NODES — so the panel clamps in pixels, and scrolls,
+  # and says so with a bar. Below this the panel would have nothing left to
+  # show a row in.
+  @settings_min_height 3
+  defp settings_max_height(%__MODULE__{frame: frame, theme: theme} = state) do
+    max(
+      frame.size.height - settings_top(state) - theme.padding,
+      @settings_min_height * theme.row_height
     )
   end
 
@@ -562,31 +583,20 @@ defmodule ScenicWidgets.SearchPane.State do
   def settings_widget?(%{}), do: false
 
   @doc """
-  How far the scope tree has been wound down, and by how much to wind it.
+  The wheel over the settings panel: wind it, by whatever a notch is worth.
 
-  Kept on the PANE rather than inside the row, because the rows are rebuilt
-  from the model on every draw — a scroll offset living in one of them would
-  be thrown away the next time results landed.
+  It used to wind the scope TREE, by nodes, through a cap the row kept on
+  itself — so the same gesture over the same panel moved a different thing
+  depending on which row it was over, and the panel's own overflow (the
+  toggles above the tree, say) could not be reached at all.
   """
-  def scroll_scope(%__MODULE__{} = state, lines) do
-    tree = Enum.find(settings_rows(state), &match?(%ScenicWidgets.Menu.Model.Tree{}, &1))
-
-    if tree do
-      max_offset = max(ScenicWidgets.Menu.Model.tree_node_count(tree) - tree.max_visible, 0)
-      %{state | scope_scroll: min(max(state.scope_scroll + lines, 0), max_offset)}
-    else
-      state
-    end
+  def scroll_settings(%__MODULE__{} = state, dy) do
+    layout = settings_layout(state)
+    %{state | settings_scroll: ScenicWidgets.Menu.Dropdown.wheel(layout, state.settings_scroll, dy)}
   end
 
   @doc "The rows inside the settings panel, with where each one is drawn."
   def settings_row_bounds(%__MODULE__{} = state), do: settings_layout(state).items
-
-  @doc "How many rows the settings section adds when it is open."
-  def domain_rows(%__MODULE__{domain_open?: true} = state),
-    do: 3 + length(Enum.take(scope_rows(state), @scope_cap))
-
-  def domain_rows(%__MODULE__{}), do: 0
 
   # The status line is the boundary between the controls and the results, so
   # it gets room above it and a rule to sit under — crowded up against the
@@ -603,12 +613,12 @@ defmodule ScenicWidgets.SearchPane.State do
   How tall the settings box is, including the padding inside it.
 
   Zero when it is shut — which is most of the time, and a row the pane gets
-  back for results.
+  back for results. Asked of the LAYOUT rather than added up here: this used
+  to count rows itself, against a scope tree capped at a number this module
+  also owned, and two sums of the same panel are two panels.
   """
   def settings_height(%__MODULE__{domain_open?: false}), do: 0
-
-  def settings_height(%__MODULE__{theme: theme} = state),
-    do: domain_rows(state) * theme.row_height + 2 * @settings_pad
+  def settings_height(%__MODULE__{} = state), do: settings_layout(state).height
 
   @doc """
   The settings panel: a rectangle hanging under the cog, over the results.
@@ -620,21 +630,37 @@ defmodule ScenicWidgets.SearchPane.State do
   that is drawn over the content, like a menu dropping out of a menubar,
   moves nothing at all, which is the only arrangement that has no cost.
   """
-  def settings_frame(%__MODULE__{frame: frame, theme: theme} = state) do
-    width = round(frame.size.width * @settings_width_ratio)
+  def settings_frame(%__MODULE__{} = state) do
+    {x, y, width} = settings_anchor(state)
 
-    # Hung off the cog rather than off the pane: a third of it to the left of
-    # the button, two thirds to the right. Flush with the pane's own edges it
-    # read as part of the pane; offset like this it reads as something in
-    # front of, and hanging from, the control that opened it — and it leaves
-    # the search box above it and the results below it visible at the edges,
-    # which is most of what tells you the pane is still there underneath.
+    Widgex.Frame.new(%{pin: {x, y}, size: {width, settings_height(state)}})
+  end
+
+  # Where the panel hangs, and how wide — the one part of a dropdown that is
+  # genuinely the host's business.
+  #
+  # Hung off the cog rather than off the pane: a third of it to the left of
+  # the button, two thirds to the right. Flush with the pane's own edges it
+  # read as part of the pane; offset like this it reads as something in front
+  # of, and hanging from, the control that opened it — and it leaves the search
+  # box above it and the results below it visible at the edges, which is most
+  # of what tells you the pane is still there underneath.
+  defp settings_anchor(%__MODULE__{frame: frame, theme: theme} = state) do
+    # Plus room for a scrollbar if this panel is going to have one. The ratio
+    # is chosen against the LABELS; a bar drawn inside it takes 16px back out
+    # of every row, and "Use exclude settings & ignore files" is not a label
+    # with 16px to spare.
+    bar =
+      ScenicWidgets.Menu.Dropdown.bar_lane(
+        settings_rows(state),
+        dropdown_theme(state),
+        settings_max_height(state)
+      )
+
+    width = round(frame.size.width * @settings_width_ratio) + bar
     centre = settings_button_x(state) + button_size(theme) / 2
 
-    Widgex.Frame.new(%{
-      pin: {round(centre - width / 3), settings_top(state)},
-      size: {width, settings_height(state)}
-    })
+    {round(centre - width / 3), settings_top(state), width}
   end
 
   @doc "Where the cog sits on the status bar."
@@ -1042,10 +1068,20 @@ defmodule ScenicWidgets.SearchPane.State do
   # one map says where every row is, so drawing and hit testing cannot come
   # to different answers about it.
   def hit_test(%__MODULE__{domain_open?: true} = state, coords) do
-    case ScenicWidgets.Menu.Dropdown.row_at(settings_layout(state), coords) do
-      nil -> unpanelled_hit_test(state, coords)
-      :panel -> :settings_panel
-      {row_id, local} -> {:settings_row, row_id, local}
+    layout = settings_layout(state)
+
+    # And the panel's own scrollbar before the panel's rows: it is drawn over
+    # their right-hand end, so every point on the bar is also a point on a row.
+    case ScenicWidgets.Menu.Dropdown.scrollbar_hit(layout, coords) do
+      nil ->
+        case ScenicWidgets.Menu.Dropdown.row_at(layout, coords) do
+          nil -> unpanelled_hit_test(state, coords)
+          :panel -> :settings_panel
+          {row_id, local} -> {:settings_row, row_id, local}
+        end
+
+      bar ->
+        {:settings_scrollbar, bar}
     end
   end
 

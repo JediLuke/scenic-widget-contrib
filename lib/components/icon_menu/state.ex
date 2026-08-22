@@ -82,6 +82,11 @@ defmodule ScenicWidgets.IconMenu.State do
     # window cannot be clicked, so a feature that is in the menu would still be
     # unreachable.
     dropdown_scroll: 0,
+    # A drag of the dropdown's scrollbar in progress, as `{pointer_y, offset}`
+    # — where the button went down and how far the panel was wound at that
+    # moment. Both, because a drag measured as a running total of pointer
+    # samples drifts away from the thumb under the finger.
+    dropdown_drag: nil,
     # Default to right alignment (flush with right edge of frame)
     align: :right
   ]
@@ -256,8 +261,8 @@ defmodule ScenicWidgets.IconMenu.State do
 
   def max_dropdown_scroll(%__MODULE__{active_menu: menu_id, dropdown_bounds: bounds}) do
     case Map.get(bounds, menu_id) do
-      %{content_height: content, height: height} -> max(content - height, 0)
-      _ -> 0
+      nil -> 0
+      dropdown -> ScenicWidgets.Menu.Dropdown.max_scroll(dropdown)
     end
   end
 
@@ -405,7 +410,14 @@ defmodule ScenicWidgets.IconMenu.State do
 
     leading_space = if Enum.any?(items, &is_toggle_item?/1), do: 20, else: 8
     shortcut_space = if shortcut_width > 0, do: gap + shortcut_width, else: 0
-    chrome = 2 * theme.dropdown_padding + leading_space + 8
+
+    # And room for the scrollbar, on a menu long enough to need one. Without
+    # this the bar is drawn INTO the width that was measured for the labels, so
+    # a menu truncates its own text at exactly the size that makes it scroll —
+    # and only then, which makes it look like the window is at fault.
+    bar = ScenicWidgets.Menu.Dropdown.bar_lane(items, theme, Map.get(theme, :max_dropdown_height))
+
+    chrome = 2 * theme.dropdown_padding + leading_space + 8 + bar
 
     min(max(minimum, ceil(label_width + shortcut_space + chrome)), max(minimum, maximum))
   end

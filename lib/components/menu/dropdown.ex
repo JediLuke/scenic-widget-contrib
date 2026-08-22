@@ -29,6 +29,16 @@ defmodule ScenicWidgets.Menu.Dropdown do
   alias Scenic.Primitives
   alias ScenicWidgets.Menu.Model
   alias ScenicWidgets.MenuBar.TextHelper
+  alias Widgex.Scroll.{Drag, ScrollController, ScrollRenderer, ScrollState}
+
+  # The lane a vertical scrollbar occupies, taken from the module that draws
+  # one rather than guessed at again here.
+  @bar_lane ScrollRenderer.inset()
+  @bar_pad ScrollRenderer.padding()
+
+  # One wheel notch. Pixels, not rows: a panel holds rows of several heights
+  # (a slider is four times a divider), so "one row" is not a distance.
+  @scroll_step 40
 
   # A floating panel hangs off its button and may well overhang whatever is
   # behind it. A host that asks Scenic for pointer input GLOBALLY (IconMenu
@@ -65,8 +75,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
     width = Keyword.fetch!(opts, :width)
     padding = theme.dropdown_padding
 
-    content_height =
-      Enum.sum(Enum.map(rows, &Model.item_height(&1, theme))) + 2 * padding
+    content_height = content_height(rows, theme)
 
     height =
       case Keyword.get(opts, :max_height) do
@@ -75,6 +84,19 @@ defmodule ScenicWidgets.Menu.Dropdown do
       end
 
     scroll = min(Keyword.get(opts, :scroll, 0), max(content_height - height, 0))
+
+    # A panel with a bar on it is that much narrower for its rows. Taken off
+    # here rather than at drawing time so that the row a click lands on, the
+    # row that is drawn, and the width a row lays its own controls out in are
+    # one number — a segmented control that reached under the bar would be
+    # missing the third of itself you could see.
+    #
+    # The caller is expected to have ASKED for that width (see `bar_lane/3`).
+    # Where it has not, the rows simply get less room and their labels
+    # truncate — which is what a menu wide enough for its longest label did
+    # the moment it became a menu that also scrolls.
+    row_width =
+      width - 2 * padding - if(content_height > height, do: @bar_lane, else: 0)
 
     items =
       rows
@@ -85,7 +107,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
           %{
             x: x + padding,
             y: y + padding + offset - scroll,
-            width: width - 2 * padding,
+            width: row_width,
             height: row_height
           }}, offset + row_height}
       end)
@@ -101,6 +123,148 @@ defmodule ScenicWidgets.Menu.Dropdown do
       scroll: scroll,
       items: items
     }
+  end
+
+  # ── Scrolling ─────────────────────────────────────────────────────────────
+  #
+  # A panel clamped by `:max_height` has rows below its bottom edge, and until
+  # this section existed each host reached them its own way: `IconMenu` wound
+  # the whole panel in pixels, the search pane wound the scope tree in NODES
+  # from a field on the pane, and neither of them said on screen that it could
+  # be done at all. One mechanism, in the module that already knows where every
+  # row is — the hosts keep the number, because they are the ones with somewhere
+  # durable to keep it, and do none of the arithmetic on it.
+
+  @doc "How tall these rows come to, the panel's own padding included."
+  def content_height(rows, theme),
+    do: Enum.sum(Enum.map(rows, &Model.item_height(&1, theme))) + 2 * theme.dropdown_padding
+
+  @doc """
+  How much extra width a panel of these rows needs for its scrollbar: 16, or 0.
+
+  For a caller deciding how WIDE to make a panel, before there is a layout to
+  ask. A menu is sized to its longest label; the bar then takes that much room
+  back out of every row, and every label in a menu long enough to scroll is
+  truncated by exactly the width of the bar that made it scroll. The height
+  does not depend on the width, so this can be answered first.
+  """
+  def bar_lane(rows, theme, max_height) when is_number(max_height) and max_height > 0,
+    do: if(content_height(rows, theme) > max_height, do: @bar_lane, else: 0)
+
+  def bar_lane(_rows, _theme, _max_height), do: 0
+
+  @doc "How far this panel can be wound down; 0 when it all fits."
+  def max_scroll(bounds), do: max(bounds.content_height - bounds.height, 0)
+
+  @doc "Is there more panel than there is room for it?"
+  def scrollable?(bounds), do: max_scroll(bounds) > 0
+
+  @doc """
+  Where one turn of the wheel leaves the panel.
+
+  `dy` is Scenic's, unnegated: turning the wheel away from you (`dy > 0`) moves
+  the content back towards the first row.
+  """
+  def wheel(bounds, scroll, dy) do
+    step = if dy > 0, do: -@scroll_step, else: @scroll_step
+    clamp(scroll + step, bounds)
+  end
+
+  @doc """
+  Where a drag of the thumb leaves the panel.
+
+  `start` is the offset the button went down at and `delta` how far the pointer
+  has come since — the whole drag measured from one place, because accumulating
+  it sample by sample drifts.
+  """
+  def drag(bounds, start, delta) do
+    {_thumb_y, thumb_height} = thumb_span(bounds)
+    ScrollController.drag_offset(start, delta, track_length(bounds), thumb_height, max_scroll(bounds))
+  end
+
+  @doc """
+  Where a click on the empty track leaves the panel: one panelful that way.
+
+  `y` is measured along the track, as `scrollbar_hit/2` reports it.
+  """
+  def page(bounds, y) do
+    {thumb_y, thumb_height} = thumb_span(bounds)
+
+    ScrollController.page_offset(
+      bounds.scroll,
+      y,
+      thumb_y,
+      thumb_height,
+      bounds.height,
+      max_scroll(bounds)
+    )
+  end
+
+  @doc """
+  What a point hit on the scrollbar: `:thumb`, `{:track, y}`, or `nil`.
+
+  Asked BEFORE `row_at/2`, because the bar is drawn over the right-hand end of
+  the panel and a click there means the bar, not the row behind it. The rows
+  are laid out narrower when there is a bar (see `layout/3`), so the two can
+  never both claim the same pixel.
+  """
+  def scrollbar_hit(bounds, {x, y}) do
+    on_bar? =
+      scrollable?(bounds) and
+        x >= bounds.x + bounds.width - @bar_lane and x <= bounds.x + bounds.width and
+        y >= bounds.y and y <= bounds.y + bounds.height
+
+    if on_bar? do
+      along = y - bounds.y - @bar_pad
+      {thumb_y, thumb_height} = thumb_span(bounds)
+
+      if along >= thumb_y and along <= thumb_y + thumb_height,
+        do: :thumb,
+        else: {:track, along}
+    end
+  end
+
+  @doc """
+  Is this rectangle actually on show, or has it been wound off the edge?
+
+  A clamped panel lays out every row it has, including the ones above and
+  below what it can show — the scissor stops them being DRAWN. Anything
+  publishing rows by name (a semantic layer, a test driving the menu) has to
+  ask, or it offers to click rows that are not there.
+  """
+  def visible?(bounds, %{y: y, height: height}),
+    do: y + height > bounds.y and y < bounds.y + bounds.height
+
+  defp clamp(scroll, bounds), do: scroll |> max(0) |> min(max_scroll(bounds))
+
+  # The panel said in the words `Widgex.Scroll` uses, so that the bar this
+  # module draws, the bar `ScrollRenderer` draws for everything else, and the
+  # arithmetic `ScrollController` does for both are the same three things.
+  defp scroll_state(bounds) do
+    %ScrollState{
+      offset_y: bounds.scroll,
+      content_height: bounds.content_height,
+      viewport_height: bounds.height,
+      content_width: bounds.width,
+      viewport_width: bounds.width,
+      direction: :vertical,
+      scrollbar_visible: true,
+      scrollbar_opacity: 255
+    }
+  end
+
+  defp panel_frame(bounds),
+    do: Widgex.Frame.new(%{pin: {0, 0}, size: {bounds.width, bounds.height}})
+
+  defp track_length(bounds),
+    do: Drag.track_length(panel_frame(bounds), scroll_state(bounds), :y)
+
+  # Where the thumb is DRAWN — the same sum `ScrollRenderer` does, so what you
+  # grab and what moves cannot disagree.
+  defp thumb_span(bounds) do
+    {thumb_y, thumb_height} = ScrollState.scrollbar_thumb(scroll_state(bounds), :y)
+    scale = track_length(bounds) / bounds.height
+    {thumb_y * scale, thumb_height * scale}
   end
 
   @doc """
@@ -139,8 +303,6 @@ defmodule ScenicWidgets.Menu.Dropdown do
 
       tree
       |> Model.visible_tree_nodes()
-      |> Enum.drop(tree.scroll_offset)
-      |> Enum.take(tree.max_visible)
       |> Enum.with_index()
       |> Enum.map(fn {{node, depth}, i} ->
         {node,
@@ -176,7 +338,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
     if not tree.expanded? or y < row_height do
       :header
     else
-      index = tree.scroll_offset + floor((y - row_height) / row_height)
+      index = floor((y - row_height) / row_height)
 
       case Enum.at(Model.visible_tree_nodes(tree), index) do
         nil ->
@@ -224,10 +386,34 @@ defmodule ScenicWidgets.Menu.Dropdown do
           # over the document, and over nothing at all below the window.
           scissor: {bounds.width, bounds.height}
         )
+        |> render_scrollbar(bounds, id)
       end,
       id: id,
       translate: {bounds.x, bounds.y}
     )
+  end
+
+  # The bar, when and only when there is something to scroll. Outside the
+  # scissored group, so it does not scroll along with what it is scrolling,
+  # and after it, so it is drawn on top of the rows it overhangs.
+  #
+  # A menu that clamps itself and then says nothing about it is a menu whose
+  # last rows can be counted and not found. Both hosts had one; neither drew
+  # anything at all.
+  defp render_scrollbar(graph, bounds, id) do
+    if scrollable?(bounds) do
+      # No `input:` on the bar's own primitives. Both hosts find it through
+      # `scrollbar_hit/2` on the way in — IconMenu because it has asked Scenic
+      # for the pointer globally and would hear every press twice, the search
+      # pane because its panel already claims the pointer over itself and the
+      # bar is inside the panel.
+      ScrollRenderer.render_scrollbars(graph, scroll_state(bounds), panel_frame(bounds),
+        group_id: id,
+        input: false
+      )
+    else
+      graph
+    end
   end
 
   defp render_rows(graph, items, dropdown, theme, hovered_item, hovered_node, show_shortcuts) do
@@ -246,10 +432,14 @@ defmodule ScenicWidgets.Menu.Dropdown do
 
       is_hovered = hovered_item == item_id
 
-      # Position relative to dropdown origin
+      # Position relative to dropdown origin. The WIDTH is the laid-out row's,
+      # not the panel's less its padding: those differ by a scrollbar lane on
+      # a panel that has one, and a row that draws itself the panel's width
+      # puts its right-hand controls under the bar.
       item_x = padding
       item_y = item_bounds.y - dropdown.y
       row_height = item_bounds.height
+      row_width = item_bounds.width
 
       # A Tree is one row holding many, so lighting the row would light the
       # whole tree when the pointer is on one node of it. Its nodes carry
@@ -272,7 +462,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
 
         acc
         |> Primitives.line(
-          {{8, divider_y}, {dropdown.width - 2 * padding - 8, divider_y}},
+          {{8, divider_y}, {row_width - 8, divider_y}},
           id: {:menu_divider, item_id},
           stroke: {1, Map.get(theme, :dropdown_border, {70, 70, 70})},
           translate: {item_x, item_y}
@@ -285,7 +475,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
               g
               # Item background (for hover)
               |> Primitives.rrect(
-                {dropdown.width - 2 * padding, row_height, 3},
+                {row_width, row_height, 3},
                 id: {:item_bg, item_id},
                 fill: bg_color
               )
@@ -308,22 +498,22 @@ defmodule ScenicWidgets.Menu.Dropdown do
 
             cond do
               match?(%Model.Tree{}, item) ->
-                render_tree(g, item, dropdown.width - 2 * padding, text_color, theme, hovered_node)
+                render_tree(g, item, row_width, text_color, theme, hovered_node)
 
               match?(%Model.Segmented{}, item) ->
-                render_segmented(g, item, dropdown.width - 2 * padding, text_color, theme)
+                render_segmented(g, item, row_width, text_color, theme)
 
               match?(%Model.Select{}, item) ->
-                render_select(g, item, dropdown.width - 2 * padding, text_color, theme)
+                render_select(g, item, row_width, text_color, theme)
 
               match?(%Model.Stepper{}, item) ->
-                render_stepper(g, item, dropdown.width - 2 * padding, text_color, theme)
+                render_stepper(g, item, row_width, text_color, theme)
 
               match?(%Model.Slider{}, item) ->
                 render_slider(
                   g,
                   item,
-                  dropdown.width - 2 * padding,
+                  row_width,
                   text_color,
                   is_hovered,
                   theme
@@ -331,7 +521,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
 
               true ->
                 text_x = if has_any_toggle_items?(items), do: checkmark_width, else: 8
-                shortcut_right = dropdown.width - 2 * padding - 8
+                shortcut_right = row_width - 8
                 column_gap = Map.get(theme, :dropdown_column_gap, 24)
                 available_width = shortcut_right - text_x
                 measured_shortcut_width = measure_width(shortcut || "", theme)
@@ -468,8 +658,6 @@ defmodule ScenicWidgets.Menu.Dropdown do
   defp render_tree_nodes(graph, tree, row_width, row_height, text_color, theme, hovered_node) do
     tree
     |> Model.visible_tree_nodes()
-    |> Enum.drop(tree.scroll_offset)
-    |> Enum.take(tree.max_visible)
     |> Enum.with_index()
     |> Enum.reduce(graph, fn {{node, depth}, i}, g ->
       y = (i + 1) * row_height
@@ -500,35 +688,6 @@ defmodule ScenicWidgets.Menu.Dropdown do
         font_size: theme.dropdown_font_size,
         translate: {x + Model.tree_indent() + 16, y + row_height / 2 + theme.dropdown_font_size / 3}
       )
-    end)
-    |> then(fn g ->
-      # Where you are in it, rather than how much you cannot see. "11 more…"
-      # tells you something is hidden and nothing about reaching it; a
-      # position tells you there is a length to move through, and the arrows
-      # say the wheel does it.
-      total = Model.tree_node_count(tree)
-
-      if total > tree.max_visible do
-        shown = min(total - tree.scroll_offset, tree.max_visible)
-        first = tree.scroll_offset + 1
-        above? = tree.scroll_offset > 0
-        below? = tree.scroll_offset + shown < total
-
-        note =
-          [if(above?, do: "▲", else: " "), "#{first}–#{first + shown - 1} of #{total}",
-           if(below?, do: "▼", else: " ")]
-          |> Enum.join(" ")
-
-        Primitives.text(g, note,
-          fill: text_color,
-          font: theme.font,
-          font_size: theme.dropdown_font_size - 1,
-          text_align: :right,
-          translate: {row_width - 8, (tree.max_visible + 1) * row_height - 6}
-        )
-      else
-        g
-      end
     end)
   end
 
@@ -613,18 +772,6 @@ defmodule ScenicWidgets.Menu.Dropdown do
         )
       end)
     end)
-  end
-
-  @doc """
-  Scroll a `Tree` row by `lines`, clamped to what there is.
-
-  A tree of a project's directories is longer than any menu should be, so it
-  shows `max_visible` of itself and moves through the rest. Without this the
-  rows past the cap could be counted and not reached.
-  """
-  def scroll_tree(%Model.Tree{} = tree, lines) do
-    max_offset = max(Model.tree_node_count(tree) - tree.max_visible, 0)
-    %{tree | scroll_offset: tree.scroll_offset + lines |> max(0) |> min(max_offset)}
   end
 
   @doc """
@@ -720,8 +867,6 @@ defmodule ScenicWidgets.Menu.Dropdown do
 
   defp render_select_options(graph, select, row_width, row_height, text_color, theme) do
     select.options
-    |> Enum.drop(select.scroll_offset)
-    |> Enum.take(4)
     |> Enum.with_index()
     |> Enum.reduce(graph, fn {value, index}, acc ->
       y = row_height * (index + 1)

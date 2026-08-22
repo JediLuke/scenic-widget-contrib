@@ -6,6 +6,7 @@ defmodule ScenicWidgets.IconMenu.Reducer do
   """
 
   alias ScenicWidgets.IconMenu.State
+  alias ScenicWidgets.Menu.Dropdown
 
   @doc """
   Process user input and return state transitions.
@@ -41,6 +42,16 @@ defmodule ScenicWidgets.IconMenu.Reducer do
     {:noop, %{state | dragging_slider: nil}}
   end
 
+  # The button came up: whichever drag was on is over. The scrollbar is checked
+  # after the slider only because a slider drag cannot start on the bar.
+  def process_input(
+        %State{dropdown_drag: drag} = state,
+        {:cursor_button, {:btn_left, 0, _mods, _coords}}
+      )
+      when not is_nil(drag) do
+    {:noop, %{state | dropdown_drag: nil}}
+  end
+
   def process_input(%State{} = state, {:key, {:key_esc, key_state, _mods}})
       when key_state > 0 do
     handle_escape(state)
@@ -54,11 +65,24 @@ defmodule ScenicWidgets.IconMenu.Reducer do
   Handle cursor position for hover effects.
   """
   def handle_cursor_pos(%State{} = state, coords) do
-    if state.dragging_slider do
-      update_slider(state, state.dragging_slider, coords, true)
-    else
-      do_handle_cursor_pos(state, coords)
+    cond do
+      state.dragging_slider ->
+        update_slider(state, state.dragging_slider, coords, true)
+
+      state.dropdown_drag ->
+        {:noop, drag_dropdown(state, coords)}
+
+      true ->
+        do_handle_cursor_pos(state, coords)
     end
+  end
+
+  # Mid-drag the pointer belongs to the bar and to nothing else: no hover, no
+  # row under it, however far it has wandered from the panel.
+  defp drag_dropdown(%State{dropdown_drag: {start_y, start_offset}} = state, {_x, y}) do
+    bounds = active_dropdown(state)
+    scrolled = Dropdown.drag(bounds, start_offset, y - start_y)
+    recalculate(%{state | dropdown_scroll: scrolled})
   end
 
   defp do_handle_cursor_pos(%State{} = state, coords) do
@@ -107,7 +131,36 @@ defmodule ScenicWidgets.IconMenu.Reducer do
   @doc """
   Handle click events.
   """
-  def handle_click(%State{} = state, coords) do
+  # The scrollbar first. It is drawn over the right-hand end of the panel, so
+  # every point on it is also a point on a row — and a press there means the
+  # bar. `Dropdown.scrollbar_hit/2` answers nil for a panel with no bar on it,
+  # which is most of them.
+  def handle_click(%State{} = state, {_x, y} = coords) do
+    case scrollbar_hit(state, coords) do
+      :thumb ->
+        {:noop, %{state | dropdown_drag: {y, state.dropdown_scroll}}}
+
+      {:track, along} ->
+        {:noop, recalculate(%{state | dropdown_scroll: Dropdown.page(active_dropdown(state), along)})}
+
+      nil ->
+        click_rows(state, coords)
+    end
+  end
+
+  defp scrollbar_hit(%State{active_menu: nil}, _coords), do: nil
+
+  defp scrollbar_hit(%State{} = state, coords) do
+    case active_dropdown(state) do
+      nil -> nil
+      bounds -> Dropdown.scrollbar_hit(bounds, coords)
+    end
+  end
+
+  defp active_dropdown(%State{active_menu: menu_id, dropdown_bounds: bounds}),
+    do: Map.get(bounds, menu_id)
+
+  defp click_rows(%State{} = state, coords) do
     cond do
       # Click on icon button
       State.point_in_icon_bar?(state, coords) ->
@@ -124,13 +177,20 @@ defmodule ScenicWidgets.IconMenu.Reducer do
                  | active_menu: nil,
                    hovered_menu: nil,
                    hovered_item: nil,
-                   dropdown_scroll: 0
+                   dropdown_scroll: 0,
+                   dropdown_drag: nil
                })}
             else
               # Open this menu. A dropdown always opens at its top: reopening
               # one where the last visit left it would hide the first rows.
               {:noop,
-               recalculate(%{state | active_menu: menu_id, hovered_item: nil, dropdown_scroll: 0})}
+               recalculate(%{
+                 state
+                 | active_menu: menu_id,
+                   hovered_item: nil,
+                   dropdown_scroll: 0,
+                   dropdown_drag: nil
+               })}
             end
         end
 
@@ -175,7 +235,7 @@ defmodule ScenicWidgets.IconMenu.Reducer do
     row_height = state.theme.dropdown_item_height
 
     if tree.expanded? and y >= bounds.y + row_height do
-      index = tree.scroll_offset + floor((y - bounds.y - row_height) / row_height)
+      index = floor((y - bounds.y - row_height) / row_height)
 
       case Enum.at(ScenicWidgets.Menu.Model.visible_tree_nodes(tree), index) do
         nil ->
@@ -207,8 +267,7 @@ defmodule ScenicWidgets.IconMenu.Reducer do
     row_height = state.theme.dropdown_item_height
 
     if select.expanded? and y >= bounds.y + row_height do
-      visible_index = floor((y - bounds.y - row_height) / row_height)
-      option = Enum.at(select.options, select.scroll_offset + visible_index)
+      option = Enum.at(select.options, floor((y - bounds.y - row_height) / row_height))
 
       if is_nil(option) do
         {:noop, state}
@@ -222,31 +281,16 @@ defmodule ScenicWidgets.IconMenu.Reducer do
     end
   end
 
-  # A wheel inside an open dropdown belongs to whichever thing is scrollable
-  # there: an expanded Select if the pointer is on one, otherwise the dropdown
-  # itself when it is taller than the room beneath the menu bar.
+  # The wheel inside an open dropdown scrolls the DROPDOWN, whatever it is
+  # over. It used to ask first whether the pointer was on an expanded Tree or
+  # Select and wind that row's own offset instead — which meant the same
+  # gesture did two different things depending on which row you happened to be
+  # over, and only one of them moved the bar now drawn down the side. Rows do
+  # not scroll any more; panels do.
   defp scroll_open_select(state, dy, coords) do
     case State.point_in_dropdown?(state, coords) do
-      {true, item_id} ->
-        case State.find_item(state, item_id) do
-          %ScenicWidgets.Menu.Model.Tree{expanded?: true} = tree ->
-            max_offset =
-              max(0, ScenicWidgets.Menu.Model.tree_node_count(tree) - tree.max_visible)
-
-            direction = if dy > 0, do: 1, else: -1
-            offset = min(max_offset, max(0, tree.scroll_offset + direction))
-            {:noop, replace_and_recalculate(state, item_id, %{tree | scroll_offset: offset})}
-
-          %ScenicWidgets.Menu.Model.Select{expanded?: true} = select ->
-            max_offset = max(0, length(select.options) - 4)
-            direction = if dy > 0, do: 1, else: -1
-            offset = min(max_offset, max(0, select.scroll_offset + direction))
-            updated = %{select | scroll_offset: offset}
-            {:noop, replace_and_recalculate(state, item_id, updated)}
-
-          _ ->
-            {:noop, scroll_dropdown(state, dy)}
-        end
+      {true, _item_id} ->
+        {:noop, scroll_dropdown(state, dy)}
 
       # The wheel somewhere else: the person has finished with the menu and
       # started reading what is behind it. A dropdown left hanging over that
@@ -256,17 +300,13 @@ defmodule ScenicWidgets.IconMenu.Reducer do
     end
   end
 
-  @dropdown_scroll_step 40
-
   defp scroll_dropdown(state, dy) do
-    max_scroll = State.max_dropdown_scroll(state)
+    bounds = active_dropdown(state)
 
-    if max_scroll == 0 do
-      state
+    if bounds && Dropdown.scrollable?(bounds) do
+      recalculate(%{state | dropdown_scroll: Dropdown.wheel(bounds, state.dropdown_scroll, dy)})
     else
-      step = if dy > 0, do: -@dropdown_scroll_step, else: @dropdown_scroll_step
-      scrolled = min(max(state.dropdown_scroll + step, 0), max_scroll)
-      recalculate(%{state | dropdown_scroll: scrolled})
+      state
     end
   end
 
@@ -371,6 +411,13 @@ defmodule ScenicWidgets.IconMenu.Reducer do
 
   def handle_escape(%State{} = state) do
     {:noop,
-     %{state | active_menu: nil, hovered_menu: nil, hovered_item: nil, dragging_slider: nil}}
+     %{
+       state
+       | active_menu: nil,
+         hovered_menu: nil,
+         hovered_item: nil,
+         dragging_slider: nil,
+         dropdown_drag: nil
+     }}
   end
 end

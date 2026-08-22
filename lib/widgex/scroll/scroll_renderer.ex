@@ -37,6 +37,18 @@ defmodule Widgex.Scroll.ScrollRenderer do
   @scrollbar_inset @scrollbar_width + @scrollbar_padding * 2
 
   @doc """
+  How much width a vertical bar takes out of the content beside it.
+
+  Published because anything laying content out next to these bars needs the
+  same number, and a second copy of it is how content ends up drawn under a
+  scrollbar or short of one.
+  """
+  def inset, do: @scrollbar_inset
+
+  @doc "The gap between a bar and the edges of the box it is drawn in."
+  def padding, do: @scrollbar_padding
+
+  @doc """
   Create a scrollable group with scissor clipping.
 
   The group is clipped to the frame bounds and translated by the scroll offset.
@@ -140,9 +152,16 @@ defmodule Widgex.Scroll.ScrollRenderer do
 
     group_id = Keyword.get(opts, :group_id, :default)
 
+    # `input: false` for a host that hit-tests these bars by coordinate rather
+    # than by Scenic's routing. A host which has already asked for pointer
+    # input globally gets every press on them TWICE otherwise — the double
+    # delivery this codebase has been bitten by before — and a track click
+    # that pages twice moves two screens for one press.
+    input = if Keyword.get(opts, :input, true), do: [input: [:cursor_button, :cursor_pos]], else: []
+
     graph
-    |> maybe_render_scrollbar_y(scroll, width, height, {r, g, b}, opacity, group_id)
-    |> maybe_render_scrollbar_x(scroll, width, height, {r, g, b}, opacity, group_id)
+    |> maybe_render_scrollbar_y(scroll, width, height, {r, g, b}, opacity, group_id, input)
+    |> maybe_render_scrollbar_x(scroll, width, height, {r, g, b}, opacity, group_id, input)
   end
 
   @doc """
@@ -193,7 +212,8 @@ defmodule Widgex.Scroll.ScrollRenderer do
          height,
          color,
          opacity,
-         group_id
+         group_id,
+         input
        ) do
     if ScrollState.scrollable_y?(scroll) do
       # Calculate actual track height (accounting for padding)
@@ -216,17 +236,13 @@ defmodule Widgex.Scroll.ScrollRenderer do
           # Track background
           |> Primitives.rrect(
             {@scrollbar_width, track_height, 4},
-            id: {:scrollbar_y_track, group_id},
-            fill: {r, g, b, track_opacity},
-            input: [:cursor_button, :cursor_pos]
+            [id: {:scrollbar_y_track, group_id}, fill: {r, g, b, track_opacity}] ++ input
           )
           # Thumb
           |> Primitives.rrect(
             {@scrollbar_width, thumb_height, 4},
-            id: {:scrollbar_y_thumb, group_id},
-            fill: {r, g, b, opacity},
-            translate: {0, thumb_y},
-            input: [:cursor_button, :cursor_pos]
+            [id: {:scrollbar_y_thumb, group_id}, fill: {r, g, b, opacity}, translate: {0, thumb_y}] ++
+              input
           )
         end,
         id: {:scrollbar_y_group, group_id},
@@ -245,7 +261,8 @@ defmodule Widgex.Scroll.ScrollRenderer do
          height,
          color,
          opacity,
-         group_id
+         group_id,
+         input
        ) do
     if ScrollState.scrollable_x?(scroll) do
       # Account for vertical scrollbar if present
@@ -273,17 +290,13 @@ defmodule Widgex.Scroll.ScrollRenderer do
           # Track background
           |> Primitives.rrect(
             {track_width, @scrollbar_width, 4},
-            id: {:scrollbar_x_track, group_id},
-            fill: {r, g, b, track_opacity},
-            input: [:cursor_button, :cursor_pos]
+            [id: {:scrollbar_x_track, group_id}, fill: {r, g, b, track_opacity}] ++ input
           )
           # Thumb
           |> Primitives.rrect(
             {thumb_width, @scrollbar_width, 4},
-            id: {:scrollbar_x_thumb, group_id},
-            fill: {r, g, b, opacity},
-            translate: {thumb_x, 0},
-            input: [:cursor_button, :cursor_pos]
+            [id: {:scrollbar_x_thumb, group_id}, fill: {r, g, b, opacity}, translate: {thumb_x, 0}] ++
+              input
           )
         end,
         id: {:scrollbar_x_group, group_id},

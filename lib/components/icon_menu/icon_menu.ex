@@ -442,7 +442,14 @@ defmodule ScenicWidgets.IconMenu do
             :ok
 
           dropdown ->
-            Enum.each(dropdown.items, fn {item_id, item_bounds} ->
+            # Only the rows you can actually see. A clamped dropdown lays out
+            # every row it has, including the ones wound off the top and bottom
+            # — publishing those says a row can be clicked by name when
+            # clicking where it claims to be would hit the document behind the
+            # menu.
+            dropdown.items
+            |> Enum.filter(fn {_id, b} -> ScenicWidgets.Menu.Dropdown.visible?(dropdown, b) end)
+            |> Enum.each(fn {item_id, item_bounds} ->
               # Get the label from the menu items
               item_label = find_item_label(menu.items, item_id)
 
