@@ -343,7 +343,7 @@ defmodule ScenicWidgets.TextField do
       # so without this bound-check two components on screen (e.g. an editor
       # beside a sidebar) would BOTH scroll on a single wheel event.
       {:cursor_scroll, {{_dx, _dy}, {x, y}}} ->
-        if point_in_frame?(state.frame, x, y) do
+        if point_in_frame?(state.frame, x, y) and not point_in_overlay?(state, {x, y}) do
           input = coalesce_scroll_input(input, state.frame)
           do_handle_input(input, scene)
         else
@@ -351,7 +351,7 @@ defmodule ScenicWidgets.TextField do
         end
 
       {:cursor_scroll, {_dx, _dy, x, y}} ->
-        if point_in_frame?(state.frame, x, y) do
+        if point_in_frame?(state.frame, x, y) and not point_in_overlay?(state, {x, y}) do
           do_handle_input(input, scene)
         else
           {:noreply, scene}
@@ -363,6 +363,13 @@ defmodule ScenicWidgets.TextField do
         do_handle_input(input, scene)
     end
   end
+
+  defp point_in_overlay?(%State{overlay_open: %{x: x0, y: y0, width: w, height: h}}, {x, y}) do
+    x >= x0 and x <= x0 + w and y >= y0 and y <= y0 + h
+  end
+
+  defp point_in_overlay?(%State{overlay_open: true}, _coords), do: true
+  defp point_in_overlay?(_state, _coords), do: false
 
   # Scenic's requested positional input is transformed into this child scene's
   # local coordinate space. frame.pin belongs to the parent layout and must not

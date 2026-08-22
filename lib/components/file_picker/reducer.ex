@@ -105,7 +105,9 @@ defmodule ScenicWidgets.FilePicker.Reducer do
   def process_input(%State{scroll: scroll} = state, {:cursor_scroll, scroll_data}) do
     case normalize_scroll_input(scroll_data) do
       {_dx, dy} when dy != 0 ->
-        new_scroll = handle_scroll(scroll, dy)
+        # GLFW's picker gesture arrives with the opposite sign to the visual
+        # list direction used by the rest of the chrome.
+        new_scroll = handle_scroll(scroll, -dy)
         {:state, %{state | scroll: new_scroll}}
 
       _ ->
