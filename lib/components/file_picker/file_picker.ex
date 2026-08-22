@@ -87,7 +87,7 @@ defmodule ScenicWidgets.FilePicker do
 
     request_input(scene, input_types)
 
-    if state.mode == :save, do: send(self(), :focus_filename)
+    if state.mode == :save, do: Process.send_after(self(), {:focus_filename, 0}, 30)
 
     {:ok, scene}
   end
@@ -183,9 +183,21 @@ defmodule ScenicWidgets.FilePicker do
     {:noreply, scene}
   end
 
-  def handle_info(:focus_filename, scene) do
-    Scenic.Scene.put_child(scene, :filename_input, :focus)
-    {:noreply, scene}
+  def handle_info({:focus_filename, attempt}, scene) do
+    case Scenic.Scene.child(scene, :filename_input) do
+      {:ok, [_pid | _]} ->
+        Scenic.Scene.put_child(scene, :filename_input, :focus)
+        cast_parent(scene, {:file_picker, :filename_focused})
+        {:noreply, scene}
+
+      _ when attempt < 10 ->
+        Process.send_after(self(), {:focus_filename, attempt + 1}, 30)
+        {:noreply, scene}
+
+      _ ->
+        Logger.warning("FilePicker filename field did not mount in time")
+        {:noreply, scene}
+    end
   end
 
   # ===== PRIVATE HELPERS =====

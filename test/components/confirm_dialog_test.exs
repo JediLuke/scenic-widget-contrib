@@ -24,13 +24,24 @@ defmodule ScenicWidgets.ConfirmDialogTest do
     end
 
     test "returns correct tuples for three buttons laid out in a row" do
-      bounds = ConfirmDialog.button_bounds([{:save, "Save"}, {:discard, "Discard"}, {:cancel, "Cancel"}])
+      bounds =
+        ConfirmDialog.button_bounds([{:save, "Save"}, {:discard, "Discard"}, {:cancel, "Cancel"}])
+
       assert length(bounds) == 3
       [{:save, sx, _, _, _}, {:discard, dx, _, _, _}, {:cancel, cx, _, _, _}] = bounds
+
       # Each button is 100 wide + 16 spacing. Row width = 3*100 + 2*16 = 332. start_x = (420-332)/2 = 44.
       assert sx == 44.0
       assert dx == 44.0 + 100 + 16
       assert cx == 44.0 + 2 * (100 + 16)
+    end
+
+    test "widens a button for a long label" do
+      [{:save, _x, _y, width, _height}] =
+        ConfirmDialog.button_bounds([{:save, "Save as Default"}])
+
+      assert width > 100
+      assert width <= 160
     end
   end
 
@@ -43,9 +54,10 @@ defmodule ScenicWidgets.ConfirmDialogTest do
     # Scenic.Scene.send_parent_event/2, which pattern-matches a %Scene{} and
     # sends to the parent pid.
     test "source file calls send_parent_event, not send_event" do
-      path = Application.app_dir(:scenic_widget_contrib, "ebin")
-              |> Path.join("../lib/components/confirm_dialog/confirm_dialog.ex")
-              |> Path.expand()
+      path =
+        Application.app_dir(:scenic_widget_contrib, "ebin")
+        |> Path.join("../lib/components/confirm_dialog/confirm_dialog.ex")
+        |> Path.expand()
 
       path =
         if File.exists?(path) do
@@ -56,6 +68,7 @@ defmodule ScenicWidgets.ConfirmDialogTest do
         end
 
       source = File.read!(path)
+
       refute source =~ "Scenic.Scene.send_event(scene,",
              "ConfirmDialog.emit_response/2 must not call Scenic.Scene.send_event/2 " <>
                "with a scene struct — Process.send raises 'invalid destination'. " <>

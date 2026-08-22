@@ -48,7 +48,8 @@ defmodule ScenicWidgets.ConfirmDialog do
 
   @dialog_width 420
   @dialog_height 200
-  @button_width 100
+  @button_min_width 100
+  @button_max_width 160
   @button_height 32
   @button_spacing 16
   # y inside the dialog box where the button row starts
@@ -144,16 +145,25 @@ defmodule ScenicWidgets.ConfirmDialog do
   full viewport).
   """
   def button_bounds(buttons) do
-    n = length(buttons)
-    row_width = n * @button_width + (n - 1) * @button_spacing
+    widths = Enum.map(buttons, fn {_action, label} -> button_width(label) end)
+    row_width = Enum.sum(widths) + max(length(buttons) - 1, 0) * @button_spacing
     start_x = (@dialog_width - row_width) / 2
 
     buttons
-    |> Enum.with_index()
-    |> Enum.map(fn {{action, _label}, idx} ->
-      x = start_x + idx * (@button_width + @button_spacing)
-      {action, x, @button_y_offset, @button_width, @button_height}
+    |> Enum.zip(widths)
+    |> Enum.map_reduce(start_x, fn {{action, _label}, width}, x ->
+      {{action, x, @button_y_offset, width, @button_height}, x + width + @button_spacing}
     end)
+    |> elem(0)
+  end
+
+  defp button_width(label) do
+    label
+    |> String.length()
+    |> Kernel.*(8)
+    |> Kernel.+(28)
+    |> max(@button_min_width)
+    |> min(@button_max_width)
   end
 
   # ─────────────────────────────────────────────────

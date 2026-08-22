@@ -302,14 +302,18 @@ defmodule ScenicWidgets.FilePicker.Renderer do
       graph,
       %{
         id: :filename_input,
-        frame: Frame.new(pin: {input_x, input_y}, size: {width, @input_height}),
+        # Components draw and hit-test in their own coordinate system. Pinning
+        # the field's internal frame at its parent-space position made it look
+        # displaced and made clicks miss; the component itself is translated.
+        frame: Frame.new(pin: {0, 0}, size: {width, @input_height}),
         initial_text: filename,
         mode: :single_line,
         input_mode: :direct,
         show_line_numbers: false,
         font: font
       },
-      id: :filename_input
+      id: :filename_input,
+      translate: {input_x, input_y}
     )
   end
 
