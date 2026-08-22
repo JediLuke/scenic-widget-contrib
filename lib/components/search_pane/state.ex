@@ -46,7 +46,7 @@ defmodule ScenicWidgets.SearchPane.State do
     font_size: 13,
     small_font_size: 11,
     row_height: 20,
-    field_height: 24,
+    field_height: 28,
     padding: 8,
     indent: 14
   }
@@ -291,8 +291,12 @@ defmodule ScenicWidgets.SearchPane.State do
     # made them look like two more buttons in a row of buttons.
     query_x = pad + caret_w + gap
     query_w = max(width - pad - query_x, 60)
-    regex_x = query_x + query_w - 3 - toggle_w
-    case_x = regex_x - 2 - toggle_w
+    # Five pixels all around the pair: the same air above/below, between the
+    # buttons, and against the field's right edge. The equality matters more
+    # than any individual number; it makes them read as an intentional group.
+    toggle_gap = round((fh - toggle_w) / 2)
+    regex_x = query_x + query_w - toggle_gap - toggle_w
+    case_x = regex_x - toggle_gap - toggle_w
 
     # SQUARE, and centred in the field they sit inside. They were
     # `toggle_width` wide by `field_height - 6` tall — 22 by 25 at the
