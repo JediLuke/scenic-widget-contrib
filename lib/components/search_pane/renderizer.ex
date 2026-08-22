@@ -193,8 +193,8 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
 
         b ->
           %{
-            text: action_tooltip(b.action),
-            at: {b.x, State.header_height(state) + b.y - state.scroll.offset_y}
+            text: action_tooltip(b.action, state),
+            at: tooltip_at(b, state)
           }
       end
 
@@ -203,10 +203,23 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     )
   end
 
-  defp action_tooltip({:dismiss_file, _}), do: "Remove file from search scope"
-  defp action_tooltip({:replace_file, _}), do: "Replace eligible matches in this file"
-  defp action_tooltip({:dismiss_match, _, _, _}), do: "Skip this occurrence during replacement"
-  defp action_tooltip({:replace_match, _, _, _}), do: "Replace this occurrence"
+  defp tooltip_at(%{action: {kind, _}, x: x, y: y, h: h}, state)
+       when kind in [:dismiss_file, :replace_file],
+       do: {x, State.header_height(state) + y + h - state.scroll.offset_y}
+
+  defp tooltip_at(%{x: x, y: y}, state),
+    do: {x, State.header_height(state) + y - state.scroll.offset_y}
+
+  defp action_tooltip({:dismiss_file, _}, _state), do: "Remove file from search scope"
+  defp action_tooltip({:replace_file, _}, _state), do: "Replace all matches in this file"
+
+  defp action_tooltip({:dismiss_match, path, line, col}, state) do
+    if MapSet.member?(state.model.skipped, {path, line, col}),
+      do: "Add back to bulk replace",
+      else: "Skip this occurrence during replacement"
+  end
+
+  defp action_tooltip({:replace_match, _, _, _}, _state), do: "Replace this occurrence"
 
   defp settings_changed?(old_state, new_state) do
     settings_signature(old_state) != settings_signature(new_state)
@@ -331,6 +344,8 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     graph
     |> paint_row(old_state.hovered, false, new_state)
     |> paint_row(new_state.hovered, true, new_state)
+    |> show_row_actions(old_state.hovered, false, new_state)
+    |> show_row_actions(new_state.hovered, true, new_state)
   end
 
   defp paint_row(graph, nil, _hovered?, _state), do: graph
@@ -339,10 +354,35 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   # size, and therefore no need to build the rows to find it. Everything in
   # the body is a result now (the scope tree moved to the header), so an
   # unhovered row is the pane's own colour.
-  defp paint_row(graph, id, hovered?, %State{theme: theme}) do
+  defp paint_row(graph, hovered, hovered?, %State{theme: theme} = state) do
     fill = if hovered?, do: theme.row_hover, else: theme.background
+    id = hover_row_id(state, hovered) || hovered
 
     Graph.modify(graph, {:row_bg, id}, &Primitives.update_opts(&1, fill: fill))
+  end
+
+  defp show_row_actions(graph, nil, _visible?, _state), do: graph
+
+  defp show_row_actions(graph, hovered, visible?, state) do
+    row_id = hover_row_id(state, hovered)
+
+    if row_id do
+      Graph.modify(
+        graph,
+        {:row_actions, row_id},
+        &Primitives.update_opts(&1, opacity: if(visible?, do: 255, else: 0))
+      )
+    else
+      graph
+    end
+  end
+
+  defp hover_row_id(state, hovered) do
+    state
+    |> State.visible_rows()
+    |> Enum.find_value(fn row ->
+      if hovered == row.id or hovered in row.actions, do: row.id
+    end)
   end
 
   @doc """
@@ -969,10 +1009,18 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
 
   defp render_row(graph, row, %State{theme: theme} = state) do
     hovered? = state.hovered == row.id
+    actions_visible? = hovered? or state.hovered in row.actions
     x = theme.padding + row.depth * theme.indent
     # A row that opens something leaves room for its triangle.
     text_x = if disclosing?(row), do: x + 12, else: x
-    room = state.frame.size.width - text_x - 60
+
+    action_left =
+      state
+      |> State.action_bounds(row)
+      |> Enum.map(& &1.x)
+      |> Enum.min(fn -> state.frame.size.width end)
+
+    room = action_left - text_x - 4
     label = clip(row.label, room, theme.font_size)
 
     Primitives.group(
@@ -989,7 +1037,7 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
           font_size: row_font_size(row, theme)
         )
         |> maybe_skipped_strike(row, text_x, label, theme)
-        |> render_actions(row, hovered? or row.kind == :file or state.replace_open?, state)
+        |> render_actions(row, actions_visible?, state)
       end,
       translate: {0, row.y}
     )
@@ -1090,31 +1138,37 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
 
   defp maybe_skipped_strike(graph, _row, _x, _label, _theme), do: graph
 
-  defp render_actions(graph, _row, false, _state), do: graph
-
-  defp render_actions(graph, row, true, %State{theme: theme} = state) do
-    Enum.reduce(State.action_bounds(state, row), graph, fn b, g ->
-      g
-      |> Primitives.rect({b.w, b.h},
-        id: {:action_bg, b.action},
-        fill: theme.button_background,
-        translate: {b.x, b.y - row.y}
-      )
-      |> Primitives.text(action_glyph(b.action),
-        id: {:action_glyph, b.action},
-        translate: {b.x + b.w / 2, b.y - row.y + b.h - 4},
-        text_align: :center,
-        fill: theme.button_text,
-        font: theme.font,
-        font_size: theme.small_font_size
-      )
-    end)
+  defp render_actions(graph, row, visible?, %State{theme: theme} = state) do
+    Primitives.group(
+      graph,
+      fn group ->
+        Enum.reduce(State.action_bounds(state, row), group, fn b, g ->
+          g
+          |> Primitives.rect({b.w, b.h},
+            id: {:action_bg, b.action},
+            fill: theme.button_background,
+            translate: {b.x, b.y - row.y}
+          )
+          |> Primitives.text(action_label(b.action, row),
+            id: {:action_glyph, b.action},
+            translate: {b.x + b.w / 2, b.y - row.y + b.h - 4},
+            text_align: :center,
+            fill: theme.button_text,
+            font: theme.font,
+            font_size: theme.small_font_size
+          )
+        end)
+      end,
+      id: {:row_actions, row.id},
+      opacity: if(visible?, do: 255, else: 0)
+    )
   end
 
-  defp action_glyph({:replace_file, _}), do: "↺"
-  defp action_glyph({:replace_match, _, _, _}), do: "↺"
-  defp action_glyph({:dismiss_file, _}), do: "×"
-  defp action_glyph({:dismiss_match, _, _, _}), do: "×"
+  defp action_label({:replace_file, _}, _row), do: "Replace all"
+  defp action_label({:replace_match, _, _, _}, _row), do: "Replace"
+  defp action_label({:dismiss_file, _}, _row), do: "×"
+  defp action_label({:dismiss_match, _, _, _}, %{skipped?: true}), do: "↺"
+  defp action_label({:dismiss_match, _, _, _}, _row), do: "×"
 
   # ── Text metrics ──────────────────────────────────────────────────────────
   #

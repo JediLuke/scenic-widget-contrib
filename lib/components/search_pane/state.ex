@@ -1086,22 +1086,22 @@ defmodule ScenicWidgets.SearchPane.State do
   def action_bounds(%__MODULE__{replace_open?: false}, %{kind: :match}), do: []
 
   def action_bounds(%__MODULE__{frame: frame, theme: theme}, row) do
-    size = theme.row_height - 4
+    height = theme.row_height - 4
     right = frame.size.width - theme.padding - 6
 
     row.actions
     |> Enum.reverse()
-    |> Enum.with_index()
-    |> Enum.map(fn {action, i} ->
-      %{
-        action: action,
-        x: right - (i + 1) * (size + 4),
-        y: row.y + 2,
-        w: size,
-        h: size
-      }
+    |> Enum.map_reduce(right, fn action, edge ->
+      width = action_width(action, theme)
+      bound = %{action: action, x: edge - width, y: row.y + 2, w: width, h: height}
+      {bound, edge - width - 4}
     end)
+    |> elem(0)
   end
+
+  defp action_width({:replace_file, _}, theme), do: round(theme.small_font_size * 5.8) + 12
+  defp action_width({:replace_match, _, _, _}, theme), do: round(theme.small_font_size * 4.2) + 12
+  defp action_width(_action, theme), do: theme.row_height - 4
 
   # ── Hit testing ───────────────────────────────────────────────────────────
 
