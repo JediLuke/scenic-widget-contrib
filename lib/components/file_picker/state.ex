@@ -95,7 +95,7 @@ defmodule ScenicWidgets.FilePicker.State do
       current_path: start_path,
       entries: entries,
       selected_index: 0,
-      scroll: init_scroll(list_frame, content_height: content_height),
+      scroll: init_scroll(list_frame, content_height: content_height, initially_visible: true),
       show_hidden: show_hidden,
       filter: filter,
       font: Map.get(opts, :font),
@@ -124,7 +124,7 @@ defmodule ScenicWidgets.FilePicker.State do
           | current_path: path,
             entries: entries,
             selected_index: 0,
-            scroll: init_scroll(lf, content_height: content_height)
+            scroll: init_scroll(lf, content_height: content_height, initially_visible: true)
         }
 
       false ->

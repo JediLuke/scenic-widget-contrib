@@ -54,4 +54,23 @@ defmodule ScenicWidgets.FilePicker.ScrollTest do
     assert state.home_path == Path.expand(System.user_home!())
     assert File.dir?(state.disk_root)
   end
+
+  test "shows the shared scrollbar immediately when a directory overflows" do
+    path =
+      Path.join(System.tmp_dir!(), "file-picker-scroll-#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(path)
+    on_exit(fn -> File.rm_rf!(path) end)
+
+    for index <- 1..8, do: File.write!(Path.join(path, "file-#{index}.txt"), "")
+
+    state =
+      State.new(%{
+        frame: Widgex.Frame.new(pin: {0, 0}, size: {640, 500}),
+        start_path: path
+      })
+
+    assert state.scroll.scrollbar_visible
+    assert state.scroll.scrollbar_opacity == 255
+  end
 end

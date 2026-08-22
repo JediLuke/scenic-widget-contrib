@@ -154,7 +154,7 @@ defmodule ScenicWidgets.FilePicker.Renderer do
       fill: color(state, :header, @header_bg),
       translate: {x, y}
     )
-    |> render_button("↑ Up", :up_button, {x + 16, y + 12}, {64, 32}, :default, state)
+    |> render_location_button(:up, "Up", :up_button, {x + 16, y + 12}, {64, 32}, state)
     |> render_button(
       "Project root",
       :project_root_button,
@@ -163,8 +163,15 @@ defmodule ScenicWidgets.FilePicker.Renderer do
       :default,
       state
     )
-    |> render_button("⌂", :home_button, {x + 204, y + 12}, {44, 32}, :default, state)
-    |> render_button("/", :disk_root_button, {x + 256, y + 12}, {44, 32}, :default, state)
+    |> render_location_button(:home, nil, :home_button, {x + 204, y + 12}, {44, 32}, state)
+    |> render_location_button(
+      :disk,
+      nil,
+      :disk_root_button,
+      {x + 256, y + 12},
+      {44, 32},
+      state
+    )
     # Path text
     |> Primitives.text(display_path,
       id: :path_text,
@@ -233,8 +240,6 @@ defmodule ScenicWidgets.FilePicker.Renderer do
          )}
       end
 
-    icon = if entry.type == :directory, do: "[D]", else: "   "
-
     graph
     |> Primitives.group(
       fn g ->
@@ -244,12 +249,7 @@ defmodule ScenicWidgets.FilePicker.Renderer do
           id: :"entry_bg_#{idx}",
           fill: bg_color
         )
-        # Icon
-        |> Primitives.text(icon,
-          font_size: 14,
-          fill: text_color,
-          translate: {8, 18}
-        )
+        |> maybe_render_entry_icon(entry.type, text_color)
         # Name
         |> Primitives.text(entry.name,
           id: :"entry_text_#{idx}",
@@ -261,6 +261,12 @@ defmodule ScenicWidgets.FilePicker.Renderer do
       id: :"entry_#{idx}",
       translate: {0, y}
     )
+  end
+
+  defp maybe_render_entry_icon(graph, :file, _color), do: graph
+
+  defp maybe_render_entry_icon(graph, :directory, color) do
+    location_icon(graph, :folder, 18, 15, color)
   end
 
   # Render footer with buttons (open mode)
@@ -408,6 +414,85 @@ defmodule ScenicWidgets.FilePicker.Renderer do
       id: id,
       translate: {bx, by}
     )
+  end
+
+  # Navigation icons are Scenic primitives, not font characters. This keeps
+  # them crisp and present regardless of which editor font the host supplies.
+  defp render_location_button(graph, icon, label, id, {bx, by}, {bw, bh}, state) do
+    bg = color(state, :button, {220, 220, 220})
+    fg = color(state, :button_text, {50, 50, 50})
+    border = color(state, :panel_border, {180, 180, 180})
+    icon_x = if label, do: 18, else: bw / 2
+
+    graph
+    |> Primitives.group(
+      fn g ->
+        g
+        |> Primitives.rrect({bw, bh, 4}, fill: bg, stroke: {2, border})
+        |> location_icon(icon, icon_x, bh / 2, fg)
+        |> maybe_location_label(label, bw, bh, fg)
+      end,
+      id: id,
+      translate: {bx, by}
+    )
+  end
+
+  defp maybe_location_label(graph, nil, _bw, _bh, _color), do: graph
+
+  defp maybe_location_label(graph, label, bw, bh, color) do
+    Primitives.text(graph, label,
+      font_size: 13,
+      fill: color,
+      text_align: :center,
+      translate: {(bw + 18) / 2, bh / 2 + 5}
+    )
+  end
+
+  defp location_icon(graph, :up, cx, cy, color) do
+    graph
+    |> Primitives.line({{cx, cy + 6}, {cx, cy - 6}}, stroke: {2, color}, cap: :round)
+    |> Primitives.line({{cx, cy - 6}, {cx - 5, cy - 1}}, stroke: {2, color}, cap: :round)
+    |> Primitives.line({{cx, cy - 6}, {cx + 5, cy - 1}}, stroke: {2, color}, cap: :round)
+  end
+
+  defp location_icon(graph, :home, cx, cy, color) do
+    graph
+    |> Primitives.line({{cx - 8, cy - 1}, {cx, cy - 8}}, stroke: {2, color}, cap: :round)
+    |> Primitives.line({{cx, cy - 8}, {cx + 8, cy - 1}}, stroke: {2, color}, cap: :round)
+    |> Primitives.line({{cx - 6, cy - 2}, {cx - 6, cy + 7}}, stroke: {2, color}, cap: :round)
+    |> Primitives.line({{cx + 6, cy - 2}, {cx + 6, cy + 7}}, stroke: {2, color}, cap: :round)
+    |> Primitives.line({{cx - 6, cy + 7}, {cx + 6, cy + 7}}, stroke: {2, color}, cap: :round)
+    |> Primitives.line({{cx - 2, cy + 7}, {cx - 2, cy + 1}}, stroke: {2, color}, cap: :round)
+  end
+
+  defp location_icon(graph, :folder, cx, cy, color) do
+    graph
+    |> Primitives.rrect({18, 12, 2},
+      translate: {cx - 9, cy - 4},
+      stroke: {2, color},
+      fill: :transparent
+    )
+    |> Primitives.line({{cx - 7, cy - 4}, {cx - 4, cy - 8}}, stroke: {2, color}, cap: :round)
+    |> Primitives.line({{cx - 4, cy - 8}, {cx + 1, cy - 8}}, stroke: {2, color}, cap: :round)
+    |> Primitives.line({{cx + 1, cy - 8}, {cx + 4, cy - 4}}, stroke: {2, color}, cap: :round)
+  end
+
+  defp location_icon(graph, :disk, cx, cy, color) do
+    graph
+    |> Primitives.rrect({22, 12, 3},
+      translate: {cx - 11, cy - 6},
+      stroke: {2, color},
+      fill: :transparent
+    )
+    |> Primitives.line({{cx - 9, cy + 1}, {cx + 9, cy + 1}},
+      stroke: {1.5, color},
+      cap: :round
+    )
+    |> Primitives.line({{cx - 7, cy + 4}, {cx + 1, cy + 4}},
+      stroke: {1.5, color},
+      cap: :round
+    )
+    |> Primitives.circle(1.4, fill: color, translate: {cx + 7, cy + 4})
   end
 
   # Update selection highlighting
