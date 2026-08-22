@@ -183,6 +183,11 @@ defmodule ScenicWidgets.SearchPane.State do
       # the results is a row of results you cannot see.
       open_buffers_only: Map.get(model, :open_buffers_only, false),
       use_ignore_files: Map.get(model, :use_ignore_files, true),
+      active_match: Map.get(model, :active_match),
+      skipped: Map.get(model, :skipped, MapSet.new()),
+      total_matches: Map.get(model, :total_matches, 0),
+      eligible_matches: Map.get(model, :eligible_matches, 0),
+      eligible_files: Map.get(model, :eligible_files, 0),
       results_view: Map.get(model, :results_view, :tree),
       scope: Map.get(model, :scope, []),
       files: Map.get(model, :files, [])
@@ -289,6 +294,19 @@ defmodule ScenicWidgets.SearchPane.State do
     regex_x = query_x + query_w - 3 - toggle_w
     case_x = regex_x - 2 - toggle_w
 
+    # SQUARE, and centred in the field they sit inside. They were
+    # `toggle_width` wide by `field_height - 6` tall — 22 by 25 at the
+    # current type — and the two numbers come from different places, so the
+    # error changed size with the zoom rather than staying a constant wrongness
+    # somebody had chosen. Everything else on this pane is square now; a pair
+    # of bordered boxes in the most looked-at part of it should not be the
+    # exception.
+    toggle_y = query_y + round((fh - toggle_w) / 2)
+
+    # The settings no longer have a row of their own to be opened from —
+    # the cog on the status bar does that. What is left is the BOX, in the
+    # place it always appeared: above the bar, so it opens upward out of
+    # the button that opened it.
     header =
       [
         # A close button the size of the ones on the tabs, with room around it.
@@ -312,14 +330,10 @@ defmodule ScenicWidgets.SearchPane.State do
           h: if(state.replace_open?, do: 2 * fh + 4, else: fh)
         },
         %{id: {:field, :query}, x: query_x, y: query_y, w: query_w, h: fh},
-        %{id: {:toggle, :case_sensitive}, x: case_x, y: query_y + 3, w: toggle_w, h: fh - 6},
-        %{id: {:toggle, :regex}, x: regex_x, y: query_y + 3, w: toggle_w, h: fh - 6}
+        %{id: {:toggle, :case_sensitive}, x: case_x, y: toggle_y, w: toggle_w, h: toggle_w},
+        %{id: {:toggle, :regex}, x: regex_x, y: toggle_y, w: toggle_w, h: toggle_w}
       ] ++
         replace_widgets(state, query_x, replace_y, width, pad, fh, gap) ++
-        # The settings no longer have a row of their own to be opened from —
-        # the cog on the status bar does that. What is left is the BOX, in the
-        # place it always appeared: above the bar, so it opens upward out of
-        # the button that opened it.
         domain_widgets(state, settings_top(state) + @settings_pad, width, pad, theme)
 
     status = status_y(state)
@@ -335,6 +349,8 @@ defmodule ScenicWidgets.SearchPane.State do
     # that opens the settings above them.
     clear_x = width - pad - button
     settings_x = settings_button_x(state)
+    next_x = settings_x - 6 - button
+    previous_x = next_x - 4 - button
 
     header ++
       [
@@ -342,13 +358,15 @@ defmodule ScenicWidgets.SearchPane.State do
           id: :status,
           x: pad,
           y: status,
-          w: max(settings_x - pad - 10, 40),
+          w: max(previous_x - pad - 8, 40),
           h: theme.row_height
         },
         # The settings, as a cog on the bar rather than a labelled row of its
         # own above it. A whole row saying "SEARCH SETTINGS" spent a line of a
         # narrow pane telling you that a thing you could not see was shut.
         %{id: :domain_header, x: settings_x, y: button_y, w: button, h: button},
+        %{id: :previous_match, x: previous_x, y: button_y, w: button, h: button},
+        %{id: :next_match, x: next_x, y: button_y, w: button, h: button},
         # And a way to put the pane back to empty without hunting for the
         # query field and selecting what is in it.
         %{id: :clear, x: clear_x, y: button_y, w: button, h: button}
@@ -612,7 +630,11 @@ defmodule ScenicWidgets.SearchPane.State do
   """
   def scroll_settings(%__MODULE__{} = state, dy) do
     layout = settings_layout(state)
-    %{state | settings_scroll: ScenicWidgets.Menu.Dropdown.wheel(layout, state.settings_scroll, dy)}
+
+    %{
+      state
+      | settings_scroll: ScenicWidgets.Menu.Dropdown.wheel(layout, state.settings_scroll, dy)
+    }
   end
 
   @doc "The rows inside the settings panel, with where each one is drawn."
@@ -696,7 +718,8 @@ defmodule ScenicWidgets.SearchPane.State do
     do: status_y(state) + theme.row_height + 2
 
   @doc "Where the rule above the status line goes."
-  def status_rule_y(%__MODULE__{theme: theme} = state), do: status_y(state) - 5 + 0 * theme.padding
+  def status_rule_y(%__MODULE__{theme: theme} = state),
+    do: status_y(state) - 5 + 0 * theme.padding
 
   @doc """
   The body's rows, in content coordinates.
@@ -966,6 +989,8 @@ defmodule ScenicWidgets.SearchPane.State do
       # is the line number plus two spaces, so the offset shifts with it.
       match_start: String.length("#{match.line}  ") + match.match_start,
       match_len: match.match_len,
+      current?: Map.get(match, :current?, false),
+      skipped?: Map.get(match, :skipped?, false),
       path: path,
       line: match.line,
       col: match.col,
@@ -1058,6 +1083,8 @@ defmodule ScenicWidgets.SearchPane.State do
   end
 
   @doc "The rectangles of a row's right-edge action buttons, in content space."
+  def action_bounds(%__MODULE__{replace_open?: false}, %{kind: :match}), do: []
+
   def action_bounds(%__MODULE__{frame: frame, theme: theme}, row) do
     size = theme.row_height - 4
     right = frame.size.width - theme.padding - 6

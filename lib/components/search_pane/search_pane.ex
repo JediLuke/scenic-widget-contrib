@@ -133,7 +133,9 @@ defmodule ScenicWidgets.SearchPane do
 
   def handle_put({:set_theme, theme}, scene) when is_map(theme) do
     state = scene.assigns.state
-    {:noreply, redraw(scene, State.resync_scroll(%{state | theme: Map.merge(state.theme, theme)}))}
+
+    {:noreply,
+     redraw(scene, State.resync_scroll(%{state | theme: Map.merge(state.theme, theme)}))}
   end
 
   # Seeded from outside — the word under the cursor, or the last thing
@@ -186,7 +188,12 @@ defmodule ScenicWidgets.SearchPane do
   # :meta, so it is rewritten to :ctrl once, at the door — the clauses below
   # then say what they mean on both platforms.
   def handle_input({:key, {key, action, mods}}, context, scene),
-    do: route_input({:key, {key, action, ScenicWidgets.PrimaryModifier.normalize(mods)}}, context, scene)
+    do:
+      route_input(
+        {:key, {key, action, ScenicWidgets.PrimaryModifier.normalize(mods)}},
+        context,
+        scene
+      )
 
   # The scrollbar, BEFORE the catch-all that treats every left click as a click
   # on the pane. Routed by the id ScrollRenderer gave the primitive, the way
@@ -198,17 +205,33 @@ defmodule ScenicWidgets.SearchPane do
   # draws a bar of its own, through the same renderer and so under the same
   # kind of id, and it moves a different number. Matched loosely, pressing the
   # panel's bar dragged the results out from under it.
-  def handle_input({:cursor_button, {:btn_left, 1, _mods, at}}, {:scrollbar_y_thumb, :search_pane}, scene),
-    do: grab_scrollbar(scene, :y, at)
+  def handle_input(
+        {:cursor_button, {:btn_left, 1, _mods, at}},
+        {:scrollbar_y_thumb, :search_pane},
+        scene
+      ),
+      do: grab_scrollbar(scene, :y, at)
 
-  def handle_input({:cursor_button, {:btn_left, 1, _mods, at}}, {:scrollbar_x_thumb, :search_pane}, scene),
-    do: grab_scrollbar(scene, :x, at)
+  def handle_input(
+        {:cursor_button, {:btn_left, 1, _mods, at}},
+        {:scrollbar_x_thumb, :search_pane},
+        scene
+      ),
+      do: grab_scrollbar(scene, :x, at)
 
-  def handle_input({:cursor_button, {:btn_left, 1, _mods, {_x, y}}}, {:scrollbar_y_track, :search_pane}, scene),
-    do: page_scrollbar(scene, :y, y)
+  def handle_input(
+        {:cursor_button, {:btn_left, 1, _mods, {_x, y}}},
+        {:scrollbar_y_track, :search_pane},
+        scene
+      ),
+      do: page_scrollbar(scene, :y, y)
 
-  def handle_input({:cursor_button, {:btn_left, 1, _mods, {x, _y}}}, {:scrollbar_x_track, :search_pane}, scene),
-    do: page_scrollbar(scene, :x, x)
+  def handle_input(
+        {:cursor_button, {:btn_left, 1, _mods, {x, _y}}},
+        {:scrollbar_x_track, :search_pane},
+        scene
+      ),
+      do: page_scrollbar(scene, :x, x)
 
   # While a drag is on, the pointer belongs to the bar and nothing else — the
   # input is captured, so this sees moves from anywhere on the screen.
@@ -265,11 +288,13 @@ defmodule ScenicWidgets.SearchPane do
   # are not. Shutting the whole pane because a menu happened to be open throws
   # away the search as well as the menu.
   defp route_input({:key, {:key_esc, 1, _mods}}, _context, %{assigns: %{state: state}} = scene) do
-    if state.domain_open? do
-      {:noreply, redraw(scene, %{state | domain_open?: false})}
-    else
-      send_parent_event(scene, {:search_pane, :close})
-      {:noreply, scene}
+    cond do
+      state.domain_open? ->
+        {:noreply, close_settings(scene, state)}
+
+      true ->
+        send_parent_event(scene, {:search_pane, :close})
+        {:noreply, scene}
     end
   end
 
@@ -309,10 +334,12 @@ defmodule ScenicWidgets.SearchPane do
   # it means nothing, because the search already ran as it was typed.
   def handle_event({:enter_pressed, id, _text}, _from, scene) do
     if field_of(id) == :replace do
-      send_parent_event(scene, {:search_pane, :replace_all, scene.assigns.state.replace})
+      state = scene.assigns.state
+      send_parent_event(scene, {:search_pane, :replace_all, state.replace})
+      {:noreply, scene}
+    else
+      {:noreply, scene}
     end
-
-    {:noreply, scene}
   end
 
   # Escape is handled ONCE, in route_input/3 below, because the pane asks
@@ -325,8 +352,12 @@ defmodule ScenicWidgets.SearchPane do
   # Tab cycles between the fields — when there are two. With the replacement
   # row shut there is only the query, and moving focus to a field that has not
   # been built would hand the keyboard to nothing at all.
-  def handle_event({:tab_pressed, _id, _shift?}, _from, %{assigns: %{state: %State{replace_open?: false}}} = scene),
-    do: {:noreply, scene}
+  def handle_event(
+        {:tab_pressed, _id, _shift?},
+        _from,
+        %{assigns: %{state: %State{replace_open?: false}}} = scene
+      ),
+      do: {:noreply, scene}
 
   def handle_event({:tab_pressed, _id, shift?}, _from, scene) do
     state = scene.assigns.state
@@ -369,7 +400,12 @@ defmodule ScenicWidgets.SearchPane do
   defp focus_fields(scene, %State{} = state) do
     for field <- State.fields() do
       focus? = state.focused and state.focused_field == field
-      Scenic.Scene.put_child(scene, Renderizer.field_id(field), if(focus?, do: :focus, else: :blur))
+
+      Scenic.Scene.put_child(
+        scene,
+        Renderizer.field_id(field),
+        if(focus?, do: :focus, else: :blur)
+      )
     end
 
     scene
@@ -389,7 +425,7 @@ defmodule ScenicWidgets.SearchPane do
       # menu is a person having finished with the menu; leaving it open means
       # it hangs over what they are now reading.
       state.domain_open? ->
-        {:noreply, redraw(scene, %{state | domain_open?: false})}
+        {:noreply, close_settings(scene, state)}
 
       true ->
         wheel_body(scene, state, dy, {x, y})
@@ -441,7 +477,7 @@ defmodule ScenicWidgets.SearchPane do
     # is the toggle and would otherwise close and reopen on one click.
     scene =
       if state.domain_open? and dismisses_settings?(hit),
-        do: redraw(scene, %{state | domain_open?: false}),
+        do: close_settings(scene, state),
         else: scene
 
     state = scene.assigns.state
@@ -477,7 +513,6 @@ defmodule ScenicWidgets.SearchPane do
         send_parent_event(scene, {:search_pane, :toggle_option, option})
         {:noreply, scene}
 
-
       # Clearing is the START of a search, not the end of one, so the keyboard
       # belongs back in the query field afterwards. Without this the × emptied
       # the box and took the keyboard with it: the next thing typed went
@@ -494,6 +529,14 @@ defmodule ScenicWidgets.SearchPane do
 
       :replace_one ->
         send_parent_event(scene, {:search_pane, :replace_one, state.replace})
+        {:noreply, scene}
+
+      :previous_match ->
+        send_parent_event(scene, {:search_pane, :previous_match})
+        {:noreply, scene}
+
+      :next_match ->
+        send_parent_event(scene, {:search_pane, :next_match})
         {:noreply, scene}
 
       # A scope row in the header: the summary line opens the tree, a node
@@ -520,10 +563,13 @@ defmodule ScenicWidgets.SearchPane do
       # visit left it would hide the first settings behind an offset nobody
       # asked for.
       :domain_header ->
+        open? = not state.domain_open?
+        send_parent_event(scene, {:search_pane, :settings_open, open?})
+
         {:noreply,
          redraw(scene, %{
            state
-           | domain_open?: not state.domain_open?,
+           | domain_open?: open?,
              settings_scroll: 0,
              settings_drag: nil
          })}
@@ -591,9 +637,15 @@ defmodule ScenicWidgets.SearchPane do
     width = Map.fetch!(State.settings_row_bounds(state), :results_view).width
 
     case Dropdown.segmented_hit(seg, local, width, State.dropdown_theme(state)) do
-      nil -> {:noreply, scene}
-      value when value == seg.value -> {:noreply, scene}
-      value -> send_parent_event(scene, {:search_pane, :set_results_view, value}); {:noreply, scene}
+      nil ->
+        {:noreply, scene}
+
+      value when value == seg.value ->
+        {:noreply, scene}
+
+      value ->
+        send_parent_event(scene, {:search_pane, :set_results_view, value})
+        {:noreply, scene}
     end
   end
 
@@ -637,6 +689,11 @@ defmodule ScenicWidgets.SearchPane do
   defp dismisses_settings?({:scope_expand, _}), do: false
   defp dismisses_settings?(:edit_excludes), do: false
   defp dismisses_settings?(_hit), do: true
+
+  defp close_settings(scene, state) do
+    send_parent_event(scene, {:search_pane, :settings_open, false})
+    redraw(scene, %{state | domain_open?: false})
+  end
 
   defp row_click(scene, state, %{kind: :scope_header}),
     do: {:noreply, redraw(scene, State.toggle_scope_open(state))}
@@ -690,8 +747,8 @@ defmodule ScenicWidgets.SearchPane do
     # sign it is a button is one people click twice to check.
     hovered =
       case State.hit_test(state, coords) do
-        {:row, row, _action} ->
-          row.id
+        {:row, row, action} ->
+          action || row.id
 
         # A row of the settings panel. Kept as the ROW's id (and, in the scope
         # tree, the NODE under the pointer) and never the pointer position, or
@@ -700,10 +757,18 @@ defmodule ScenicWidgets.SearchPane do
         {:settings_row, row_id, local} ->
           settings_hover_target(state, row_id, local)
 
-        id when id in [:close, :replace_caret, :replace_all, :replace_one, :clear, :edit_excludes] -> id
-        :results_view -> :results_view
-        :domain_header -> :domain_header
-        _other -> nil
+        id
+        when id in [:close, :replace_caret, :replace_all, :replace_one, :clear, :edit_excludes] ->
+          id
+
+        :results_view ->
+          :results_view
+
+        :domain_header ->
+          :domain_header
+
+        _other ->
+          nil
       end
 
     if hovered == state.hovered do
@@ -778,27 +843,29 @@ defmodule ScenicWidgets.SearchPane do
           header = %{b | height: theme.dropdown_item_height}
 
           if(visible?.(header),
-            do: [{:search_pane_scope, b.x, b.y, b.width, theme.dropdown_item_height, "Search scope"}],
+            do: [
+              {:search_pane_scope, b.x, b.y, b.width, theme.dropdown_item_height, "Search scope"}
+            ],
             else: []
           ) ++
             (Dropdown.tree_node_bounds(tree, b, theme)
              |> Enum.filter(fn {_node, nb} -> visible?.(nb) end)
              |> Enum.flat_map(fn {node, nb} ->
-              mark = if node.checked?, do: "[x] ", else: "[ ] "
+               mark = if node.checked?, do: "[x] ", else: "[ ] "
 
-              [
-                {:"search_pane_scope_#{node.id}", nb.x, nb.y, nb.width, nb.height,
-                 mark <> node.label}
-                | if node.children == [] do
-                    []
-                  else
-                    [
-                      {:"search_pane_scope_expand_#{node.id}", nb.expander.x, nb.y,
-                       nb.expander.width, nb.height,
-                       if(node.expanded?, do: "Collapse ", else: "Expand ") <> node.label}
-                    ]
-                  end
-              ]
+               [
+                 {:"search_pane_scope_#{node.id}", nb.x, nb.y, nb.width, nb.height,
+                  mark <> node.label}
+                 | if node.children == [] do
+                     []
+                   else
+                     [
+                       {:"search_pane_scope_expand_#{node.id}", nb.expander.x, nb.y,
+                        nb.expander.width, nb.height,
+                        if(node.expanded?, do: "Collapse ", else: "Expand ") <> node.label}
+                     ]
+                   end
+               ]
              end))
 
         %Model.Segmented{} = seg ->
@@ -815,8 +882,10 @@ defmodule ScenicWidgets.SearchPane do
 
         _ ->
           if visible?.(b) do
-            [{semantic_id(Model.get_item_id(row)), b.x, b.y, b.width, b.height,
-              Model.display_label(row)}]
+            [
+              {semantic_id(Model.get_item_id(row)), b.x, b.y, b.width, b.height,
+               Model.display_label(row)}
+            ]
           else
             []
           end
@@ -860,8 +929,7 @@ defmodule ScenicWidgets.SearchPane do
 
           actions =
             Enum.map(State.action_bounds(state, row), fn b ->
-              {semantic_id(b.action), b.x, header_h + ty + b.y, b.w, b.h,
-               action_label(b.action)}
+              {semantic_id(b.action), b.x, header_h + ty + b.y, b.w, b.h, action_label(b.action)}
             end)
 
           [row_entry | actions]
@@ -870,7 +938,9 @@ defmodule ScenicWidgets.SearchPane do
       :ets.match_delete(viewport.semantic_table, {{:search_pane, :_}, :_})
       :ets.match_delete(viewport.semantic_index, {:_, {:search_pane, :_}})
 
-      Enum.each(header ++ settings ++ body, fn {id, x, y, w, h, label} ->
+      elements = header ++ settings ++ body
+
+      Enum.each(elements, fn {id, x, y, w, h, label} ->
         entry = %Scenic.Semantic.Compiler.Entry{
           id: id,
           type: :button,
@@ -903,6 +973,8 @@ defmodule ScenicWidgets.SearchPane do
   defp semantic_id(:clear), do: :search_pane_clear
   defp semantic_id(:edit_excludes), do: :search_pane_edit_excludes
   defp semantic_id(:replace_one), do: :search_pane_replace_one
+  defp semantic_id(:previous_match), do: :search_pane_previous
+  defp semantic_id(:next_match), do: :search_pane_next
   defp semantic_id(:results_view), do: :search_pane_view
   defp semantic_id(:domain_header), do: :search_pane_domain
   defp semantic_id({:domain, option}), do: :"search_pane_domain_#{option}"
@@ -950,6 +1022,8 @@ defmodule ScenicWidgets.SearchPane do
   defp header_label(:clear, _state), do: "Clear the search"
   defp header_label(:edit_excludes, _state), do: "Edit the exclude list"
   defp header_label(:replace_one, _state), do: "Replace this occurrence"
+  defp header_label(:previous_match, _state), do: "Previous project match"
+  defp header_label(:next_match, _state), do: "Next project match"
   defp header_label(:results_view, _state), do: "Show results as a tree or a list"
 
   defp header_label({:domain, :open_buffers_only}, _state), do: "Search only open buffers"
@@ -958,7 +1032,7 @@ defmodule ScenicWidgets.SearchPane do
     do: "Use exclude settings and ignore files"
 
   defp action_label({:replace_file, path}), do: "Replace all in #{path}"
-  defp action_label({:dismiss_file, path}), do: "Dismiss #{path}"
+  defp action_label({:dismiss_file, path}), do: "Remove #{path} from search scope"
   defp action_label({:replace_match, _path, line, col}), do: "Replace match #{line}:#{col}"
-  defp action_label({:dismiss_match, _path, line, col}), do: "Dismiss match #{line}:#{col}"
+  defp action_label({:dismiss_match, _path, line, col}), do: "Skip replacement at #{line}:#{col}"
 end

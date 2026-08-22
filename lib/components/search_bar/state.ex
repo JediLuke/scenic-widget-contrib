@@ -191,7 +191,11 @@ defmodule ScenicWidgets.SearchBar.State do
 
     field_y = round((@bar_height - @field_height) / 2)
 
-    toggle_h = @field_height - 6
+    # Square, like every other box in this bar and in the search pane. It was
+    # `@field_height - 6` tall against `@toggle_width` wide — 20 by 22, wrong
+    # the OTHER way from the pane's, which is why neither looked square and
+    # neither looked like a mistake.
+    toggle_h = @toggle_width
     toggle_y = round((@bar_height - toggle_h) / 2)
     regex_x = input_x + input_w - @toggle_gap - @toggle_width
     case_x = regex_x - @toggle_gap - @toggle_width

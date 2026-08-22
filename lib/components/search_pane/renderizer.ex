@@ -32,7 +32,7 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   alias ScenicWidgets.SearchPane.State
 
   # Where a match's highlight rectangle sits relative to the text baseline.
-  @highlight_top 3
+  @highlight_top 5
 
   # IconMenu's dropdown corner, and the slightly tighter one it gives the rows
   # inside it.
@@ -51,6 +51,7 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     |> render_widgets(state)
     |> render_body(state)
     |> render_settings(state)
+    |> render_action_tooltip(state)
   end
 
   # Everything the live widgets sit ON TOP of. Each piece carries an id and is
@@ -177,7 +178,35 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
         else: g
     end)
     |> then(fn g -> if moved?, do: move_fields(g, new_state), else: g end)
+    |> Graph.delete(:search_pane_action_tooltip)
+    |> render_action_tooltip(new_state)
   end
+
+  defp render_action_tooltip(graph, %State{} = state) do
+    tooltip =
+      State.visible_rows(state)
+      |> Enum.flat_map(&State.action_bounds(state, &1))
+      |> Enum.find(&(&1.action == state.hovered))
+      |> case do
+        nil ->
+          nil
+
+        b ->
+          %{
+            text: action_tooltip(b.action),
+            at: {b.x, State.header_height(state) + b.y - state.scroll.offset_y}
+          }
+      end
+
+    ScenicWidgets.Tooltip.add(graph, tooltip, state.theme, state.frame.size.width,
+      id: :search_pane_action_tooltip
+    )
+  end
+
+  defp action_tooltip({:dismiss_file, _}), do: "Remove file from search scope"
+  defp action_tooltip({:replace_file, _}), do: "Replace eligible matches in this file"
+  defp action_tooltip({:dismiss_match, _, _, _}), do: "Skip this occurrence during replacement"
+  defp action_tooltip({:replace_match, _, _, _}), do: "Replace this occurrence"
 
   defp settings_changed?(old_state, new_state) do
     settings_signature(old_state) != settings_signature(new_state)
@@ -194,8 +223,8 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   # search — so the status changed, and the header redrew for that instead.
   defp settings_signature(%State{model: model} = state) do
     {state.domain_open?, state.scope_open?, state.settings_scroll, state.results_view,
-     settings_hover(state), model.open_buffers_only,
-     model.use_ignore_files, Enum.map(State.scope_rows(state), &{&1.id, &1.label, Map.get(&1, :expanded?)})}
+     settings_hover(state), model.open_buffers_only, model.use_ignore_files,
+     Enum.map(State.scope_rows(state), &{&1.id, &1.label, Map.get(&1, :expanded?)})}
   end
 
   defp maybe_replace(graph, _id, false, _render), do: graph
@@ -219,8 +248,16 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   # By the SHAPE of the id, not by searching the header for it: this runs on
   # every mouse move, and building the header widgets to answer it meant
   # walking the scope tree each time the pointer twitched.
-  @header_ids [:close, :replace_caret, :replace_all, :replace_one, :clear, :edit_excludes,
-               :domain_header, :status]
+  @header_ids [
+    :close,
+    :replace_caret,
+    :replace_all,
+    :replace_one,
+    :clear,
+    :edit_excludes,
+    :domain_header,
+    :status
+  ]
 
   defp header_hover(%State{hovered: hovered}) when hovered in @header_ids, do: hovered
   defp header_hover(%State{hovered: {:domain, _} = hovered}), do: hovered
@@ -261,7 +298,7 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   defp widget_signature(%State{model: model} = state) do
     {state.focused, state.focused_field, header_hover(state), model.status, model.error,
      model.case_sensitive, model.regex, model.open_buffers_only, model.use_ignore_files,
-     layout_signature(state)}
+     model.active_match, model.total_matches, layout_signature(state)}
   end
 
   # The rows are derived from a good deal of state — results, dismissals, which
@@ -441,8 +478,15 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
       w = Enum.find(State.header_widgets(state), &(&1.id == {:field, field}))
 
       case Graph.get(g, field_id(field)) do
-        [] -> g
-        _ -> Graph.modify(g, field_id(field), &Scenic.Primitive.put_transform(&1, :translate, {w.x, w.y}))
+        [] ->
+          g
+
+        _ ->
+          Graph.modify(
+            g,
+            field_id(field),
+            &Scenic.Primitive.put_transform(&1, :translate, {w.x, w.y})
+          )
       end
     end)
   end
@@ -539,6 +583,25 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   defp render_header_widget(graph, %{id: :replace_all} = w, %State{} = state),
     do: replace_button(graph, w, 3, state)
 
+  defp render_header_widget(graph, %{id: direction} = w, %State{theme: theme} = state)
+       when direction in [:previous_match, :next_match] do
+    cx = w.x + w.w / 2
+    cy = w.y + w.h / 2
+    tip_x = if direction == :previous_match, do: cx - 3, else: cx + 3
+    tail_x = if direction == :previous_match, do: cx + 2, else: cx - 2
+
+    graph
+    |> hover_row(w, state)
+    |> Primitives.line({{tail_x, cy - 5}, {tip_x, cy}},
+      stroke: {1.7, theme.dim_text},
+      cap: :round
+    )
+    |> Primitives.line({{tip_x, cy}, {tail_x, cy + 5}},
+      stroke: {1.7, theme.dim_text},
+      cap: :round
+    )
+  end
+
   defp replace_button(graph, w, lines, %State{theme: theme} = state) do
     cx = w.x + w.w / 2
     cy = w.y + w.h / 2
@@ -584,8 +647,14 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
 
     graph
     |> hover_row(w, state)
-    |> Primitives.line({{cx - r, cy - r}, {cx + r, cy + r}}, stroke: {1.8, theme.text}, cap: :round)
-    |> Primitives.line({{cx + r, cy - r}, {cx - r, cy + r}}, stroke: {1.8, theme.text}, cap: :round)
+    |> Primitives.line({{cx - r, cy - r}, {cx + r, cy + r}},
+      stroke: {1.8, theme.text},
+      cap: :round
+    )
+    |> Primitives.line({{cx + r, cy - r}, {cx - r, cy + r}},
+      stroke: {1.8, theme.text},
+      cap: :round
+    )
   end
 
   # A scope row, drawn in the header now. Same shape as a body row — a
@@ -781,12 +850,20 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
         :debouncing -> "typing…"
         :searching -> "searching…"
         {:done, 0, 0, _ms} -> "no matches"
-        {:done, n, files, ms} -> "#{n} in #{files} #{plural(files, "file")}  (#{ms}ms)"
+        {:done, _n, _files, _ms} -> navigation_status(model)
         {:error, reason} -> "search failed: #{inspect(reason)}"
       end
 
     colour = if match?({:error, _}, model.status), do: theme.error_text, else: theme.dim_text
     {text, colour}
+  end
+
+  defp navigation_status(%{total_matches: 0}), do: "no matches"
+
+  defp navigation_status(%{active_match: active, files: files, total_matches: total}) do
+    flat = for file <- files, match <- file.matches, do: {file.path, match.line, match.col}
+    current = (Enum.find_index(flat, &(&1 == active)) || 0) + 1
+    "#{current} of #{total}"
   end
 
   # An empty pane should say WHAT it is about to search, not describe itself.
@@ -796,7 +873,13 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
 
   defp idle_line(root, %State{theme: theme} = state) do
     room = status_room(state)
-    "Search " <> clip_left(pretty_path(root), room - 7 * char_width(theme.small_font_size), theme.small_font_size)
+
+    "Search " <>
+      clip_left(
+        pretty_path(root),
+        room - 7 * char_width(theme.small_font_size),
+        theme.small_font_size
+      )
   end
 
   defp status_room(%State{} = state) do
@@ -810,8 +893,13 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   # says it.
   defp pretty_path(path) do
     case System.user_home() do
-      nil -> path
-      home -> if String.starts_with?(path, home), do: "~" <> String.slice(path, String.length(home)..-1//1), else: path
+      nil ->
+        path
+
+      home ->
+        if String.starts_with?(path, home),
+          do: "~" <> String.slice(path, String.length(home)..-1//1),
+          else: path
     end
   end
 
@@ -900,7 +988,8 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
           font: theme.font,
           font_size: row_font_size(row, theme)
         )
-        |> render_actions(row, hovered?, state)
+        |> maybe_skipped_strike(row, text_x, label, theme)
+        |> render_actions(row, hovered? or row.kind == :file or state.replace_open?, state)
       end,
       translate: {0, row.y}
     )
@@ -918,7 +1007,9 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
 
   # Scope rows share the settings background: without it the tree reads as a
   # strange first result — a list of directories among a list of matches.
+  defp row_fill(%{current?: true}, _hovered, theme), do: theme.button_background
   defp row_fill(_row, true, theme), do: theme.row_hover
+
   defp row_fill(%{kind: kind}, false, theme) when kind in [:scope, :scope_header],
     do: theme.header_background
 
@@ -989,16 +1080,28 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   defp row_font_size(%{kind: :scope_header}, theme), do: theme.small_font_size
   defp row_font_size(_row, theme), do: theme.font_size
 
+  defp maybe_skipped_strike(graph, %{kind: :match, skipped?: true}, x, label, theme) do
+    width = min(String.length(label) * char_width(theme.font_size), 240)
+
+    Primitives.line(graph, {{x, theme.row_height / 2}, {x + width, theme.row_height / 2}},
+      stroke: {1, theme.dim_text}
+    )
+  end
+
+  defp maybe_skipped_strike(graph, _row, _x, _label, _theme), do: graph
+
   defp render_actions(graph, _row, false, _state), do: graph
 
   defp render_actions(graph, row, true, %State{theme: theme} = state) do
     Enum.reduce(State.action_bounds(state, row), graph, fn b, g ->
       g
       |> Primitives.rect({b.w, b.h},
+        id: {:action_bg, b.action},
         fill: theme.button_background,
         translate: {b.x, b.y - row.y}
       )
       |> Primitives.text(action_glyph(b.action),
+        id: {:action_glyph, b.action},
         translate: {b.x + b.w / 2, b.y - row.y + b.h - 4},
         text_align: :center,
         fill: theme.button_text,

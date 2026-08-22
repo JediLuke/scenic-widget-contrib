@@ -1,7 +1,6 @@
 defmodule ScenicWidgets.TextField.Renderer do
   @multiline_row_y_offset 4
 
-
   @moduledoc """
   Rendering logic for the TextField component.
 
@@ -45,6 +44,7 @@ defmodule ScenicWidgets.TextField.Renderer do
 
   def row_top(%State{} = state, row),
     do: (row - 1) * State.line_height(state) + @multiline_row_y_offset
+
   alias ScenicWidgets.TextField.MatchingBrace
   alias ScenicWidgets.TextField.Wrapping
   require Logger
@@ -436,7 +436,12 @@ defmodule ScenicWidgets.TextField.Renderer do
   end
 
   # Render scrollbars inside content_group (positioned relative to content area)
-  defp render_scrollbars_in_content(graph, %State{scroll: scroll} = state, content_width, frame_height) do
+  defp render_scrollbars_in_content(
+         graph,
+         %State{scroll: scroll} = state,
+         content_width,
+         frame_height
+       ) do
     scrollbar_width = 10
     scrollbar_padding = 2
     colors = {State.color(state, :scrollbar_track), State.color(state, :scrollbar_thumb)}
@@ -604,7 +609,6 @@ defmodule ScenicWidgets.TextField.Renderer do
          last,
          row_segments
        ) do
-
     display_lines
     |> Enum.slice(first - 1, max(last - first + 1, 0))
     |> Enum.with_index(first)
@@ -1005,7 +1009,11 @@ defmodule ScenicWidgets.TextField.Renderer do
             g,
             {max(1, State.string_width(state, match_text)), line_height},
             fill: color,
-            translate: {x_offset + x, (row - 1) * line_height + @multiline_row_y_offset},
+            # Search paint belongs behind the glyph body, not against the
+            # row's cap line. The font baseline leaves a little more air
+            # below than above, so compensate visually rather than drawing a
+            # mathematically centred block that reads too high.
+            translate: {x_offset + x, (row - 1) * line_height + @multiline_row_y_offset + 2},
             id: {:search_match, idx}
           )
         end
