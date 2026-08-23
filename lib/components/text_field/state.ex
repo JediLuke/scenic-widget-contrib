@@ -606,6 +606,62 @@ defmodule ScenicWidgets.TextField.State do
     trunc(frame.size.height / line_height)
   end
 
+  # ===== KEYBOARD OWNERSHIP TRANSITIONS (PURE) =====
+  #
+  # Public so unit tests can pin them directly; the component's handle_put/2
+  # clauses are thin wrappers that also touch Scenic (capture/release input,
+  # push the graph).
+
+  @doc """
+  This field now owns the keyboard.
+
+  Clears `overlay_open` as well as setting `focused`: being told to focus means
+  any "an overlay owns the keyboard" gate is by definition stale. Without that,
+  a single missed clear latches the gate and the editor silently ignores
+  everything typed into it.
+  """
+  def focus(%__MODULE__{} = state) do
+    %{state | focused: true, overlay_open: false}
+    |> forget_held_modifiers()
+  end
+
+  @doc """
+  This field no longer owns the keyboard.
+  """
+  def blur(%__MODULE__{} = state) do
+    %{state | focused: false}
+    |> forget_held_modifiers()
+  end
+
+  @doc """
+  An overlay owns the keyboard (or has given it back).
+  """
+  def set_overlay_open(%__MODULE__{} = state, open?) do
+    %{state | overlay_open: open? || false}
+    |> forget_held_modifiers()
+  end
+
+  @doc """
+  Forget any modifier key we watched go down but will never watch come up.
+
+  A wheel event carries no modifiers, so Shift+scroll can only work by
+  remembering that Shift is down — which makes the key RELEASE load-bearing.
+  Every transition above is a moment when key input stops reaching this
+  component: focus and blur hand the keyboard to someone else, and the overlay
+  gate drops `{:key, _}` outright. A modifier that was down at that moment
+  never delivers its release here, and a latched Shift silently turns every
+  later scroll into a horizontal one.
+
+  `Ctrl+Shift+F` is the case that found this: the press arrives, the search
+  overlay opens and gates key input, the release is dropped, and the buffer
+  scrolls sideways from then on.
+  """
+  def forget_held_modifiers(%__MODULE__{scroll: %Widgex.Scroll.ScrollState{} = scroll} = state) do
+    %{state | scroll: Widgex.Scroll.ScrollReducer.set_shift_held(scroll, false)}
+  end
+
+  def forget_held_modifiers(%__MODULE__{} = state), do: state
+
   # ===== QUERY FUNCTIONS (PURE) =====
 
   @doc """

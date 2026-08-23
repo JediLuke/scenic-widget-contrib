@@ -231,6 +231,18 @@ defmodule Widgex.Scrollable do
             new_scroll = set_scroll_shift(state.scroll, false)
             {:noop, %{state | scroll: new_scroll}}
           end
+
+      > #### The release is load-bearing {: .warning}
+      >
+      > Held state is only as good as the release that clears it. Any moment
+      > your component stops receiving key input — losing focus, or a host
+      > gating `{:key, _}` because an overlay took the keyboard — is a moment
+      > the release can be dropped, and a latched Shift turns every later
+      > wheel event into a horizontal scroll.
+      >
+      > Clear it on every keyboard-ownership change. `TextField.State` does
+      > this in `forget_held_modifiers/1`, called from `focus/1`, `blur/1`
+      > and `set_overlay_open/2`.
       """
       def set_scroll_shift(%ScrollState{} = scroll, held) do
         ScrollReducer.set_shift_held(scroll, held)

@@ -789,18 +789,14 @@ defmodule ScenicWidgets.TextField do
 
   def handle_put(:focus, scene) do
     # Focus the text field
-    # Being told to focus means this field owns the keyboard now, so any
-    # "an overlay owns it" gate is by definition stale — clear it. Without
-    # this, a single missed clear latches the gate and the editor silently
-    # ignores everything typed into it.
-    state = %{scene.assigns.state | focused: true, overlay_open: false}
+    state = State.focus(scene.assigns.state)
     if state.editable, do: capture_input(scene, :codepoint)
     update_scene(scene, scene.assigns.state, state)
   end
 
   def handle_put(:blur, scene) do
     # Blur the text field
-    state = %{scene.assigns.state | focused: false}
+    state = State.blur(scene.assigns.state)
     if state.editable, do: release_input(scene, :codepoint)
     update_scene(scene, scene.assigns.state, state)
   end
@@ -829,7 +825,7 @@ defmodule ScenicWidgets.TextField do
   """
   def handle_put({:set_overlay_open, open?}, scene)
       when is_boolean(open?) or is_map(open?) or is_nil(open?) do
-    {:noreply, assign(scene, state: %{scene.assigns.state | overlay_open: open? || false})}
+    {:noreply, assign(scene, state: State.set_overlay_open(scene.assigns.state, open?))}
   end
 
   def handle_put({:update_settings, settings}, scene) when is_map(settings) do
