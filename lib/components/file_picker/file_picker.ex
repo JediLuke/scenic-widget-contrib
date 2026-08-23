@@ -87,6 +87,11 @@ defmodule ScenicWidgets.FilePicker do
 
     request_input(scene, input_types)
 
+    # Open mode has no child text field, so the picker itself exclusively owns
+    # keyboard navigation and swallows printable input. Save mode delegates
+    # codepoint capture to its focused filename TextField.
+    if state.mode == :open, do: capture_input(scene, [:key, :codepoint])
+
     if state.mode == :save, do: Process.send_after(self(), {:focus_filename, 0}, 30)
 
     {:ok, scene}

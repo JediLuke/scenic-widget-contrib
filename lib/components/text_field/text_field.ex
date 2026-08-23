@@ -269,6 +269,13 @@ defmodule ScenicWidgets.TextField do
       |> assign(state: state, graph: graph)
       |> push_graph(graph)
 
+    # Printable text is a separate Scenic input class from :key. Capturing
+    # only :codepoint lets global shortcuts continue to reach RootScene while
+    # guaranteeing that exactly the most recently focused TextField receives
+    # typed characters. Scenic keeps captures as a stack, so releasing on blur
+    # naturally restores the previous field.
+    if state.focused and state.editable, do: capture_input(scene, :codepoint)
+
     # Note: We don't use capture_input here because it steals input globally,
     # preventing shortcuts like space+k from reaching RootScene.
     # request_input (called above) is sufficient for normal TextField operation.
@@ -679,6 +686,7 @@ defmodule ScenicWidgets.TextField do
   # panes can hold the keyboard at once and every keystroke is typed twice —
   # once into the document, once into a search field.
   defp announce_focus_taken(scene, %State{focused: false}, %State{focused: true} = new_state) do
+    if new_state.editable, do: capture_input(scene, :codepoint)
     send_parent_event(scene, {:focus_taken, new_state.id})
   end
 
@@ -691,12 +699,14 @@ defmodule ScenicWidgets.TextField do
     # this, a single missed clear latches the gate and the editor silently
     # ignores everything typed into it.
     state = %{scene.assigns.state | focused: true, overlay_open: false}
+    if state.editable, do: capture_input(scene, :codepoint)
     update_scene(scene, scene.assigns.state, state)
   end
 
   def handle_put(:blur, scene) do
     # Blur the text field
     state = %{scene.assigns.state | focused: false}
+    if state.editable, do: release_input(scene, :codepoint)
     update_scene(scene, scene.assigns.state, state)
   end
 

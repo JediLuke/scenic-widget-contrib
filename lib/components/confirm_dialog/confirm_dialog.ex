@@ -193,6 +193,7 @@ defmodule ScenicWidgets.ConfirmDialog do
       |> push_graph(graph)
 
     request_input(scene, [:key, :cursor_button])
+    capture_input(scene, [:key, :codepoint])
 
     {:ok, scene}
   end

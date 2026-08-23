@@ -77,6 +77,7 @@ defmodule ScenicWidgets.PopupModal do
 
     # Modal: consume the keyboard while open (Enter/Escape dismiss).
     request_input(scene, [:key])
+    capture_input(scene, [:key, :codepoint])
 
     {:ok, scene}
   end

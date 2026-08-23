@@ -269,11 +269,13 @@ defmodule ScenicWidgets.IconMenu do
        do: scene
 
   defp notify_dropdown_state(scene, _old_state, %{active_menu: nil}) do
+    release_input(scene, [:key, :codepoint])
     send_parent_event(scene, {:dropdown_closed})
     scene
   end
 
   defp notify_dropdown_state(scene, _old_state, %{active_menu: menu_id} = new_state) do
+    capture_input(scene, [:key, :codepoint])
     # Send the dropdown's BOUNDS, not just "a menu is open". A consumer that
     # only knows "open" has to ignore every click while it is set, so a
     # single missed close event makes the whole UI beneath it unclickable.
