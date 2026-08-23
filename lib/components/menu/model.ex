@@ -101,6 +101,7 @@ defmodule ScenicWidgets.Menu.Model do
       :label,
       :nodes,
       :tooltip,
+      :closed_caret,
       expanded?: false,
       enabled?: true
     ]

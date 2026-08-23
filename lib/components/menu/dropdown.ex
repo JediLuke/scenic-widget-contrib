@@ -470,8 +470,10 @@ defmodule ScenicWidgets.Menu.Dropdown do
       # A Tree is one row holding many, so lighting the row would light the
       # whole tree when the pointer is on one node of it. Its nodes carry
       # their own highlight instead.
+      tree_node_hover? = match?(%Model.Tree{}, item) and not is_nil(hovered_node)
+
       bg_color =
-        if is_hovered and not match?(%Model.Tree{}, item) and not match?(%Model.Select{}, item),
+        if is_hovered and not tree_node_hover? and not match?(%Model.Select{}, item),
           do: theme.item_hover_bg,
           else: :clear
 
@@ -666,7 +668,13 @@ defmodule ScenicWidgets.Menu.Dropdown do
       font_size: theme.dropdown_font_size,
       translate: {8, baseline}
     )
-    |> caret(row_width - 16, row_height / 2, tree.expanded?, text_color)
+    |> caret(
+      row_width - 16,
+      row_height / 2,
+      tree.expanded?,
+      text_color,
+      tree.closed_caret || :right
+    )
     |> render_tree_nodes(tree, row_width, row_height, text_color, theme, hovered_node)
   end
 
@@ -725,11 +733,13 @@ defmodule ScenicWidgets.Menu.Dropdown do
   end
 
   # A disclosure triangle, drawn: right when shut, down when open.
-  defp caret(graph, x, y, open?, colour) do
+  defp caret(graph, x, y, open?, colour, closed_direction \\ :right) do
     points =
-      if open?,
-        do: [{x - 4, y - 2}, {x + 4, y - 2}, {x, y + 3}],
-        else: [{x - 2, y - 4}, {x + 3, y}, {x - 2, y + 4}]
+      cond do
+        open? -> [{x - 4, y - 2}, {x + 4, y - 2}, {x, y + 3}]
+        closed_direction == :left -> [{x + 2, y - 4}, {x - 3, y}, {x + 2, y + 4}]
+        true -> [{x - 2, y - 4}, {x + 3, y}, {x - 2, y + 4}]
+      end
 
     Primitives.triangle(graph, List.to_tuple(points), fill: colour)
   end

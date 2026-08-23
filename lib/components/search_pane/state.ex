@@ -548,6 +548,7 @@ defmodule ScenicWidgets.SearchPane.State do
         id: :scope,
         label: "Choose search scope",
         tooltip: "Choose the project directories and files included in this search.",
+        closed_caret: :left,
         expanded?: state.scope_open?,
         nodes: Enum.map(scope, &scope_node(&1, state))
       }
