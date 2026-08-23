@@ -35,13 +35,15 @@ defmodule ScenicWidgets.SideNav.Renderizer do
     |> Primitives.group(
       fn g ->
         g
-        # Background with border
+        # Background and independently selectable edges. A SideNav placed
+        # directly beneath a breadcrumb/header must not draw a second seam;
+        # standalone navigators retain all four edges by default.
         |> Primitives.rect(
           state.frame.size.box,
           id: :sidebar_background,
-          fill: state.theme.background,
-          stroke: {1, border_color}
+          fill: state.theme.background
         )
+        |> render_border(state.frame.size.box, border_color, Map.get(state.theme, :border_sides))
         # Scrollable content area using Widgex.Scrollable macro
         |> scrollable_group(
           state.scroll,
@@ -67,6 +69,18 @@ defmodule ScenicWidgets.SideNav.Renderizer do
       # Render at local origin - parent handles positioning via translate
       translate: {0, 0}
     )
+  end
+
+  defp render_border(graph, {width, height}, color, sides) do
+    sides = sides || [:top, :right, :bottom, :left]
+
+    Enum.reduce(sides, graph, fn
+      :top, g -> Primitives.line(g, {{0, 0}, {width, 0}}, stroke: {1, color})
+      :right, g -> Primitives.line(g, {{width, 0}, {width, height}}, stroke: {1, color})
+      :bottom, g -> Primitives.line(g, {{0, height}, {width, height}}, stroke: {1, color})
+      :left, g -> Primitives.line(g, {{0, 0}, {0, height}}, stroke: {1, color})
+      _other, g -> g
+    end)
   end
 
   @doc """
