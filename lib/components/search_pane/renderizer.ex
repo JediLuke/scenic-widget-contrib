@@ -192,9 +192,11 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
           nil
 
         b ->
+          text = action_tooltip(b.action, state)
+
           %{
-            text: action_tooltip(b.action, state),
-            at: tooltip_at(b, state)
+            text: text,
+            at: tooltip_at(b, text, state)
           }
       end
 
@@ -203,12 +205,23 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
     )
   end
 
-  defp tooltip_at(%{action: {kind, _}, x: x, y: y, h: h}, state)
-       when kind in [:dismiss_file, :replace_file],
-       do: {x, State.header_height(state) + y + h - state.scroll.offset_y}
+  defp tooltip_at(%{x: x, y: y, w: w, h: h}, text, state) do
+    font_size = Map.get(state.theme, :tooltip_font_size, 12)
+    tooltip_width = ScenicWidgets.Tooltip.width(text, state.theme.font, font_size)
+    tooltip_height = font_size + 14
+    button_top = State.header_height(state) + y - state.scroll.offset_y
+    button_bottom = button_top + h
 
-  defp tooltip_at(%{x: x, y: y}, state),
-    do: {x, State.header_height(state) + y - state.scroll.offset_y}
+    anchor_y =
+      if button_bottom + tooltip_height + 4 <= state.frame.size.height,
+        do: button_bottom,
+        else: button_top - tooltip_height - 8
+
+    # Tooltip.add/5 applies its own ten-pixel pointer offset. Subtract it here
+    # so the resulting box, rather than that historical pointer offset, is
+    # centred on the action button.
+    {max(x + w / 2 - tooltip_width / 2 - 10, -6), anchor_y}
+  end
 
   defp action_tooltip({:dismiss_file, _}, _state), do: "Remove file from search scope"
   defp action_tooltip({:replace_file, _}, _state), do: "Replace all matches in this file"
@@ -372,7 +385,7 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
       Graph.modify(
         graph,
         {:row_actions, row_id},
-        &Primitives.update_opts(&1, opacity: if(visible?, do: 255, else: 0))
+        &Primitives.update_opts(&1, hidden: not visible?)
       )
     else
       graph
@@ -1147,15 +1160,17 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
       fn group ->
         Enum.reduce(State.action_bounds(state, row), group, fn b, g ->
           g
-          |> Primitives.rect({b.w, b.h},
+          |> Primitives.rrect({b.w, b.h, 3},
             id: {:action_bg, b.action},
             fill: theme.button_background,
+            stroke: {1, theme.field_border},
             translate: {b.x, b.y - row.y}
           )
           |> Primitives.text(action_label(b.action, row),
             id: {:action_glyph, b.action},
-            translate: {b.x + b.w / 2, b.y - row.y + b.h - 4},
+            translate: {b.x + b.w / 2, b.y - row.y + b.h / 2},
             text_align: :center,
+            text_base: :middle,
             fill: theme.button_text,
             font: theme.font,
             font_size: theme.small_font_size
@@ -1163,7 +1178,7 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
         end)
       end,
       id: {:row_actions, row.id},
-      opacity: if(visible?, do: 255, else: 0)
+      hidden: not visible?
     )
   end
 

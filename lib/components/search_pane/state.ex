@@ -1120,7 +1120,7 @@ defmodule ScenicWidgets.SearchPane.State do
     |> elem(0)
   end
 
-  defp action_width({:replace_file, _}, theme), do: round(theme.small_font_size * 5.8) + 12
+  defp action_width({:replace_file, _}, theme), do: round(theme.small_font_size * 6.2) + 20
   defp action_width({:replace_match, _, _, _}, theme), do: round(theme.small_font_size * 4.2) + 12
   defp action_width({:dismiss_match, _, _, _}, theme), do: round(theme.small_font_size * 4.8) + 12
   defp action_width(_action, theme), do: theme.row_height - 4
