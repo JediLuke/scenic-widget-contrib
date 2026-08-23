@@ -14,7 +14,6 @@ defmodule ScenicWidgets.IconMenu.Renderer do
   alias ScenicWidgets.MenuBar.TextHelper
   alias ScenicWidgets.Menu.Dropdown
 
-
   @doc """
   Initial render - create all UI elements.
   """
@@ -305,6 +304,7 @@ defmodule ScenicWidgets.IconMenu.Renderer do
       Dropdown.render(graph, menu.items, dropdown,
         theme: state.theme,
         hovered: state.hovered_item,
+        hovered_select_option: state.hovered_select_option,
         show_shortcuts: state.show_shortcuts,
         id: :dropdown_group
       )
@@ -436,7 +436,9 @@ defmodule ScenicWidgets.IconMenu.Renderer do
       # Hover affects every part of compound rows (slider label, value, track,
       # fill, and thumb), so rebuild the small dropdown to restore all colours
       # symmetrically when the pointer leaves.
-      new_state.active_menu && old_state.hovered_item != new_state.hovered_item ->
+      new_state.active_menu &&
+          {old_state.hovered_item, old_state.hovered_select_option} !=
+            {new_state.hovered_item, new_state.hovered_select_option} ->
         graph
         |> Graph.delete(:dropdown_group)
         |> render_dropdown(new_state)

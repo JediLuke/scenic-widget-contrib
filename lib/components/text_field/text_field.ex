@@ -1175,7 +1175,17 @@ defmodule ScenicWidgets.TextField do
       |> State.advance_render_window()
       |> Renderer.prepare_display_cache()
 
-    graph = Renderer.update_render(scene.assigns.graph, old_state, new_state)
+    # A context menu is an overlay. Rebuild the complete graph when it opens,
+    # closes, or changes hover so its group is emitted after every gutter and
+    # content primitive. Incrementally deleting/re-adding just the menu left
+    # Scenic's compiled content script above it: the panel background covered
+    # the gutter while buffer glyphs still painted across the panel.
+    graph =
+      if old_state.gutter_menu || new_state.gutter_menu do
+        Renderer.initial_render(Graph.build(), new_state)
+      else
+        Renderer.update_render(scene.assigns.graph, old_state, new_state)
+      end
 
     scene =
       scene

@@ -91,7 +91,12 @@ defmodule ScenicWidgets.IconMenu.Reducer do
       State.point_in_icon_bar?(state, coords) ->
         hovered_icon = State.find_hovered_icon(state, coords)
 
-        new_state = %{state | hovered_menu: hovered_icon, hovered_item: nil}
+        new_state = %{
+          state
+          | hovered_menu: hovered_icon,
+            hovered_item: nil,
+            hovered_select_option: nil
+        }
 
         # If a dropdown is open and we hover a different icon, switch to it
         new_state =
@@ -108,23 +113,48 @@ defmodule ScenicWidgets.IconMenu.Reducer do
         case State.point_in_dropdown?(state, coords) do
           {true, item_id} ->
             # Inside dropdown, possibly over an item
-            {:noop, %{state | hovered_item: item_id, hovered_menu: state.active_menu}}
+            option = hovered_select_option(state, item_id, coords)
+
+            {:noop,
+             %{
+               state
+               | hovered_item: item_id,
+                 hovered_select_option: option,
+                 hovered_menu: state.active_menu
+             }}
 
           {false, _} ->
             # Pointer motion alone never dismisses an open menu. This avoids
             # stale/out-of-order cursor samples closing a menu immediately
             # after a semantic or real click; click-away and Escape remain the
             # authoritative dismissal gestures.
-            {:noop, %{state | hovered_item: nil}}
+            {:noop, %{state | hovered_item: nil, hovered_select_option: nil}}
         end
 
       # Cursor outside menu area
       true ->
         if state.hovered_menu do
-          {:noop, %{state | hovered_menu: nil, hovered_item: nil}}
+          {:noop, %{state | hovered_menu: nil, hovered_item: nil, hovered_select_option: nil}}
         else
           {:noop, state}
         end
+    end
+  end
+
+  defp hovered_select_option(state, item_id, {x, y}) do
+    item = State.find_item(state, item_id)
+    bounds = get_in(state.dropdown_bounds, [state.active_menu, :items, item_id])
+
+    if match?(%ScenicWidgets.Menu.Model.Select{expanded?: true}, item) and bounds do
+      row_height = state.theme.dropdown_item_height
+      box_width = item.option_width || 76
+      box_left = bounds.x + bounds.width - box_width - 8
+      index = floor((y - bounds.y - row_height) / row_height)
+      options = ScenicWidgets.Menu.Model.select_options(item)
+
+      if x >= box_left and x <= box_left + box_width and index >= 0,
+        do: options |> Enum.at(index) |> then(&if(&1, do: elem(&1, 0))),
+        else: nil
     end
   end
 

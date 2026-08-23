@@ -745,14 +745,10 @@ defmodule ScenicWidgets.SearchPane do
   defp hover(scene, coords) do
     state = scene.assigns.state
 
-    if state.domain_open? and not over_settings?(state, coords) do
-      {:noreply, close_settings(scene, state)}
-    else
-      hover_inside(scene, state, coords)
-    end
-  end
-
-  defp hover_inside(scene, state, coords) do
+    # Like IconMenu, pointer motion alone never dismisses an open panel. The
+    # route from the cog into a hanging panel necessarily crosses a sliver of
+    # non-panel space; closing on that sample made the panel impossible to
+    # enter. Click-away, Escape and scrolling behind it still dismiss it.
     # Header controls light up under the pointer too. A button that gives no
     # sign it is a button is one people click twice to check.
     hovered =

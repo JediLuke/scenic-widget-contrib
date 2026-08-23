@@ -142,6 +142,34 @@ defmodule ScenicWidgets.IconMenu.LayoutTest do
     refute State.find_item(collapsed, :fold_level).expanded?
   end
 
+  test "select hover highlights only its control and follows expanded options" do
+    select = %Select{id: :fold_level, label: "Set Fold Level", value: 1, options: [1, 2, 3, 4]}
+    state = %{state([select]) | active_menu: :file}
+    bounds = state.dropdown_bounds.file.items.fold_level
+
+    assert {:noop, row_hovered} =
+             Reducer.handle_cursor_pos(state, {bounds.x + 20, bounds.y + 10})
+
+    graph = Renderer.initial_render(Graph.build(), row_hovered)
+
+    assert Primitive.get_style(Graph.get!(graph, {:item_bg, :fold_level}), :fill) ==
+             {:color, {:color_rgba, {0, 0, 0, 0}}}
+
+    refute Primitive.get_style(Graph.get!(graph, {:select_box, :fold_level}), :fill) ==
+             {:color, {:color_rgba, {0, 0, 0, 0}}}
+
+    assert {:noop, expanded} = Reducer.handle_click(state, {bounds.x + 20, bounds.y + 10})
+    option_x = bounds.x + bounds.width - 10
+    option_y = bounds.y + expanded.theme.dropdown_item_height * 2 + 1
+    assert {:noop, option_hovered} = Reducer.handle_cursor_pos(expanded, {option_x, option_y})
+    assert option_hovered.hovered_select_option == 2
+
+    graph = Renderer.initial_render(Graph.build(), option_hovered)
+
+    assert Primitive.get_style(Graph.get!(graph, {:select_option_bg, :fold_level, 2}), :fill) ==
+             Primitive.get_style(Graph.get!(graph, {:select_box, :fold_level}), :fill)
+  end
+
   test "select rows accept labelled values and render optional palette swatches" do
     select = %Select{
       id: :theme,

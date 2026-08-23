@@ -370,6 +370,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
   def render(graph, rows, bounds, opts) do
     theme = Keyword.fetch!(opts, :theme)
     hovered = Keyword.get(opts, :hovered)
+    hovered_select_option = Keyword.get(opts, :hovered_select_option)
     hovered_node = Keyword.get(opts, :hovered_node)
     show_shortcuts = Keyword.get(opts, :show_shortcuts, true)
     id = Keyword.get(opts, :id, :dropdown_group)
@@ -385,7 +386,16 @@ defmodule ScenicWidgets.Menu.Dropdown do
         )
         |> Primitives.group(
           fn inner ->
-            render_rows(inner, rows, bounds, theme, hovered, hovered_node, show_shortcuts)
+            render_rows(
+              inner,
+              rows,
+              bounds,
+              theme,
+              hovered,
+              hovered_node,
+              hovered_select_option,
+              show_shortcuts
+            )
           end,
           id: :dropdown_items_group,
           # A clamped panel scrolls, so its rows have to be clipped to it.
@@ -423,7 +433,16 @@ defmodule ScenicWidgets.Menu.Dropdown do
     end
   end
 
-  defp render_rows(graph, items, dropdown, theme, hovered_item, hovered_node, show_shortcuts) do
+  defp render_rows(
+         graph,
+         items,
+         dropdown,
+         theme,
+         hovered_item,
+         hovered_node,
+         hovered_select_option,
+         show_shortcuts
+       ) do
     padding = theme.dropdown_padding
 
     # Space reserved for checkmark on the left
@@ -452,7 +471,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
       # whole tree when the pointer is on one node of it. Its nodes carry
       # their own highlight instead.
       bg_color =
-        if is_hovered and not match?(%Model.Tree{}, item),
+        if is_hovered and not match?(%Model.Tree{}, item) and not match?(%Model.Select{}, item),
           do: theme.item_hover_bg,
           else: :clear
 
@@ -461,7 +480,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
       text_color =
         cond do
           not enabled? -> {120, 120, 120}
-          is_hovered -> theme.item_hover_text_color
+          is_hovered and not match?(%Model.Select{}, item) -> theme.item_hover_text_color
           true -> theme.item_text_color
         end
 
@@ -506,7 +525,15 @@ defmodule ScenicWidgets.Menu.Dropdown do
                 render_segmented(g, item, row_width, text_color, is_hovered, theme)
 
               match?(%Model.Select{}, item) ->
-                render_select(g, item, row_width, text_color, theme)
+                render_select(
+                  g,
+                  item,
+                  row_width,
+                  text_color,
+                  is_hovered,
+                  hovered_select_option,
+                  theme
+                )
 
               match?(%Model.Stepper{}, item) ->
                 render_stepper(g, item, row_width, text_color, theme)
@@ -850,7 +877,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
     end
   end
 
-  defp render_select(graph, select, row_width, text_color, theme) do
+  defp render_select(graph, select, row_width, text_color, hovered?, hovered_option, theme) do
     row_height = theme.dropdown_item_height
     box_width = select.option_width || 76
     box_x = row_width - box_width - 8
@@ -866,26 +893,47 @@ defmodule ScenicWidgets.Menu.Dropdown do
     )
     |> Primitives.rrect({box_width, row_height - 8, 3},
       id: {:select_box, select.id},
-      fill: :clear,
+      fill: if(hovered?, do: theme.item_hover_bg, else: :clear),
       stroke: {1, theme.dropdown_border},
       translate: {box_x, 4}
     )
     |> Primitives.text(Model.select_label(select),
       id: {:select_value, select.id},
-      fill: text_color,
+      fill: if(hovered?, do: theme.item_hover_text_color, else: text_color),
       font: theme.font,
       font_size: theme.dropdown_font_size,
       text_align: :center,
       translate: {box_x + box_width / 2 - 7, baseline}
     )
-    |> caret(box_x + box_width - 13, row_height / 2, true, text_color)
-    |> render_select_options(select, row_width, row_height, text_color, theme)
+    |> caret(
+      box_x + box_width - 13,
+      row_height / 2,
+      true,
+      if(hovered?, do: theme.item_hover_text_color, else: text_color)
+    )
+    |> render_select_options(select, row_width, row_height, text_color, hovered_option, theme)
   end
 
-  defp render_select_options(graph, %{expanded?: false}, _width, _height, _color, _theme),
-    do: graph
+  defp render_select_options(
+         graph,
+         %{expanded?: false},
+         _width,
+         _height,
+         _color,
+         _hovered,
+         _theme
+       ),
+       do: graph
 
-  defp render_select_options(graph, select, row_width, row_height, text_color, theme) do
+  defp render_select_options(
+         graph,
+         select,
+         row_width,
+         row_height,
+         text_color,
+         hovered_option,
+         theme
+       ) do
     select
     |> Model.select_options()
     |> Enum.with_index()
@@ -899,12 +947,17 @@ defmodule ScenicWidgets.Menu.Dropdown do
       acc
       |> Primitives.rect({box_width, row_height},
         id: {:select_option_bg, select.id, value},
-        fill: if(value == select.value, do: theme.item_hover_bg, else: theme.dropdown_bg),
+        fill:
+          cond do
+            value == hovered_option -> theme.item_hover_bg
+            value == select.value -> Map.get(theme, :button_background, theme.dropdown_border)
+            true -> theme.dropdown_bg
+          end,
         translate: {box_x, y}
       )
       |> Primitives.text(label,
         id: {:select_option, select.id, value},
-        fill: text_color,
+        fill: if(value == hovered_option, do: theme.item_hover_text_color, else: text_color),
         font: theme.font,
         font_size: theme.dropdown_font_size,
         translate: {box_x + 7, y + row_height / 2 + theme.dropdown_font_size / 3}
