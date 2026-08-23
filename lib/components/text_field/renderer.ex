@@ -436,6 +436,12 @@ defmodule ScenicWidgets.TextField.Renderer do
   end
 
   # Render scrollbars inside content_group (positioned relative to content area)
+  # A one-line input follows its caret horizontally; it never has enough
+  # vertical room for scrollbar chrome, and the clipped moving text is the
+  # conventional overflow affordance for form fields.
+  defp render_scrollbars_in_content(graph, %State{mode: :single_line}, _width, _height),
+    do: graph
+
   defp render_scrollbars_in_content(
          graph,
          %State{scroll: scroll} = state,

@@ -69,6 +69,8 @@ defmodule ScenicWidgets.CursorPosLabel do
     graph = render(scene.assigns)
     scene = scene |> assign(graph: graph) |> push_graph(graph)
 
+    request_input(scene, [:cursor_button])
+
     # Subscribing re-delivers the source's retained snapshot, so the label
     # is correct immediately even if it was created mid-session.
     Scenic.PubSub.subscribe(data.source)
@@ -99,6 +101,16 @@ defmodule ScenicWidgets.CursorPosLabel do
 
   def handle_info({{Scenic.PubSub, :registered}, _}, scene), do: {:noreply, scene}
   def handle_info({{Scenic.PubSub, :unregistered}, _}, scene), do: {:noreply, scene}
+
+  def handle_input({:cursor_button, {:btn_left, 1, _mods, coords}}, _context, scene) do
+    if point_inside?(scene.assigns.frame, coords) do
+      send_parent_event(scene, {:cursor_position_clicked, :cursor_pos_label})
+    end
+
+    {:noreply, scene}
+  end
+
+  def handle_input(_input, _context, scene), do: {:noreply, scene}
 
   # Repaint: `%{color: _, background: _}`, either key optional.
   def handle_put({:set_theme, theme}, scene) when is_map(theme) do
@@ -135,5 +147,10 @@ defmodule ScenicWidgets.CursorPosLabel do
       fill: color,
       id: :cursor_pos_text
     )
+  end
+
+  defp point_inside?(frame, {x, y}) do
+    %{pin: %{x: left, y: top}, size: %{width: width, height: height}} = frame
+    x >= left and x <= left + width and y >= top and y <= top + height
   end
 end

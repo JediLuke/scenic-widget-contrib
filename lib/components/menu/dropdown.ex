@@ -179,7 +179,14 @@ defmodule ScenicWidgets.Menu.Dropdown do
   """
   def drag(bounds, start, delta) do
     {_thumb_y, thumb_height} = thumb_span(bounds)
-    ScrollController.drag_offset(start, delta, track_length(bounds), thumb_height, max_scroll(bounds))
+
+    ScrollController.drag_offset(
+      start,
+      delta,
+      track_length(bounds),
+      thumb_height,
+      max_scroll(bounds)
+    )
   end
 
   @doc """
@@ -448,6 +455,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
         if is_hovered and not match?(%Model.Tree{}, item),
           do: theme.item_hover_bg,
           else: :clear
+
       enabled? = Model.item_enabled?(item)
 
       text_color =
@@ -486,11 +494,9 @@ defmodule ScenicWidgets.Menu.Dropdown do
             # panel it came out as a lower-case v, which is not a tick and is
             # not nothing either, so it reads as part of the label.
             g =
-              if is_toggle and is_checked do
-                check_mark(g, 8, row_height / 2, text_color)
-              else
-                g
-              end
+              if is_toggle,
+                do: toggle_box(g, 8, row_height / 2, is_checked, text_color),
+                else: g
 
             cond do
               match?(%Model.Tree{}, item) ->
@@ -666,7 +672,8 @@ defmodule ScenicWidgets.Menu.Dropdown do
         fill: text_color,
         font: theme.font,
         font_size: theme.dropdown_font_size,
-        translate: {x + Model.tree_indent() + 16, y + row_height / 2 + theme.dropdown_font_size / 3}
+        translate:
+          {x + Model.tree_indent() + 16, y + row_height / 2 + theme.dropdown_font_size / 3}
       )
     end)
   end
@@ -713,6 +720,25 @@ defmodule ScenicWidgets.Menu.Dropdown do
       translate: {x, y - 5.5}
     )
     |> then(fn g -> if checked?, do: check_mark(g, x, y, colour), else: g end)
+  end
+
+  # Boolean menu rows always reserve and draw the same box. The mark says
+  # which state is in force; the label no longer jumps sideways when toggled.
+  defp toggle_box(graph, x, y, checked?, colour) do
+    graph =
+      Primitives.rrect(graph, {11, 11, 2},
+        fill: :clear,
+        stroke: {1, colour},
+        translate: {x, y - 5.5}
+      )
+
+    if checked? do
+      check_mark(graph, x, y, colour)
+    else
+      graph
+      |> Primitives.line({{x + 3, y - 3}, {x + 8, y + 3}}, stroke: {1.4, colour}, cap: :round)
+      |> Primitives.line({{x + 8, y - 3}, {x + 3, y + 3}}, stroke: {1.4, colour}, cap: :round)
+    end
   end
 
   # An either/or: one track with a position per choice, and the one in force

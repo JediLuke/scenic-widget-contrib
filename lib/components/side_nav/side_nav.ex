@@ -128,7 +128,7 @@ defmodule ScenicWidgets.SideNav do
     # bounds-checks against our frame before acting (the same shape TextField
     # uses; without the check an editor beside a sidebar would both scroll on
     # one wheel event).
-    request_input(scene, [:key, :codepoint, :cursor_scroll])
+    request_input(scene, [:key, :codepoint, :cursor_pos, :cursor_scroll])
 
     Logger.debug("   Graph pushed, now calling register_semantic_elements...")
     # Register semantic elements for MCP interaction
@@ -341,7 +341,6 @@ defmodule ScenicWidgets.SideNav do
     {:noreply, scene |> assign(state: new_state, graph: graph) |> push_graph(graph)}
   end
 
-
   def handle_input(
         {:cursor_button, {:btn_left, 0, _mods, {x, y}}},
         _context,
@@ -439,10 +438,12 @@ defmodule ScenicWidgets.SideNav do
     end
   end
 
-  # Cursor not over any row - clear hover
-  def handle_input({:cursor_pos, _coords}, _context, scene) do
+  # Cursor not delivered by a row primitive (empty pane space or outside the
+  # component). A globally requested cursor position lets us retire stale
+  # hover as soon as the pointer leaves the tree.
+  def handle_input({:cursor_pos, coords}, _context, scene) do
     state = scene.assigns.state
-    new_state = Map.put(state, :hovered_id, nil)
+    new_state = Reducer.handle_cursor_pos(state, coords)
 
     if new_state != state do
       graph = Renderizer.update_render(scene.assigns.graph, state, new_state)
@@ -891,6 +892,31 @@ defmodule ScenicWidgets.SideNav do
     handle_keyboard(scene, &Reducer.handle_key_end/1)
   end
 
+  def handle_input(
+        {:key, {:key_esc, 1, _}},
+        _context,
+        %{assigns: %{state: %State{drag_source: source}}} = scene
+      )
+      when not is_nil(source) do
+    old_state = scene.assigns.state
+    state = old_state |> cancel_auto_expand() |> cancel_auto_scroll()
+    :ok = release_input(scene, [:cursor_pos, :cursor_button])
+
+    new_state = %{
+      state
+      | drag_source: nil,
+        drag_start: nil,
+        drag_mods: [],
+        dragging: false,
+        drag_target: nil,
+        drop_valid: false,
+        drag_pos: nil
+    }
+
+    graph = Renderizer.update_render(scene.assigns.graph, old_state, new_state)
+    {:noreply, scene |> assign(state: new_state, graph: graph) |> push_graph(graph)}
+  end
+
   def handle_input({:key, {:key_esc, 1, _}}, _context, scene) do
     handle_keyboard(scene, &Reducer.handle_key_escape/1)
   end
@@ -930,11 +956,11 @@ defmodule ScenicWidgets.SideNav do
   defp valid_drop?(%State{} = state, target_id) do
     MapSet.size(state.selected_ids) > 0 and
       Enum.all?(state.selected_ids, fn source ->
-      source != target_id and
-        not descendant_path?(target_id, source) and
         # Already sitting in the target. Easy to do by accident once empty space
         # is a drop zone, and the move would only bounce back as an error.
-        Path.dirname(source) != target_id
+        source != target_id and
+          not descendant_path?(target_id, source) and
+          Path.dirname(source) != target_id
       end)
   end
 

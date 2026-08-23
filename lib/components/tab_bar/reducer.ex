@@ -124,7 +124,7 @@ defmodule ScenicWidgets.TabBar.Reducer do
   end
 
   defp handle_press(state, {x, _y} = coords) do
-    case State.hit_test(state, coords) do
+    case if(State.point_inside?(state, coords), do: State.hit_test(state, coords), else: :none) do
       {:close, _id} ->
         handle_click(state, coords)
 

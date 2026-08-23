@@ -18,6 +18,19 @@ defmodule ScenicWidgets.TabBarOverflowTest do
     assert unchanged.scroll_offset == state.scroll_offset
   end
 
+  test "a menubar click outside the tab strip cannot select or drag a tab" do
+    state = state_with_tabs()
+
+    assert {:noop, unchanged} =
+             Reducer.process_input(
+               state,
+               {:cursor_button, {:btn_left, 1, [], {state.frame.size.width + 80, 15}}}
+             )
+
+    assert unchanged.selected_id == :a
+    assert unchanged.dragging_tab_id == nil
+  end
+
   test "selecting an offscreen tab reveals it" do
     state = state_with_tabs()
     assert {:tab_selected, :c, selected} = Reducer.select_tab(state, :c)
