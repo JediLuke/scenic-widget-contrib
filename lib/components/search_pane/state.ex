@@ -1118,17 +1118,26 @@ defmodule ScenicWidgets.SearchPane.State do
     actions
     |> Enum.reverse()
     |> Enum.map_reduce(right, fn action, edge ->
-      width = action_width(action, theme)
+      width = action_width(action, row, theme)
       bound = %{action: action, x: edge - width, y: row.y + 2, w: width, h: height}
       {bound, edge - width - 4}
     end)
     |> elem(0)
   end
 
-  defp action_width({:replace_file, _}, theme), do: round(theme.small_font_size * 6.2) + 20
-  defp action_width({:replace_match, _, _, _}, theme), do: round(theme.small_font_size * 4.2) + 12
-  defp action_width({:dismiss_match, _, _, _}, theme), do: round(theme.small_font_size * 4.8) + 12
-  defp action_width(_action, theme), do: theme.row_height - 4
+  defp action_width({:replace_file, _}, _row, theme),
+    do: round(theme.small_font_size * 6.2) + 20
+
+  defp action_width({:replace_match, _, _, _}, _row, theme),
+    do: round(theme.small_font_size * 4.2) + 12
+
+  defp action_width({:dismiss_match, _, _, _}, %{skipped?: true}, theme),
+    do: round(theme.small_font_size * 4.8) + 12
+
+  defp action_width({:dismiss_match, _, _, _}, _row, theme),
+    do: round(theme.small_font_size * 2.4) + 12
+
+  defp action_width(_action, _row, theme), do: theme.row_height - 4
 
   defp replace_mode_action?({:replace_file, _}), do: true
   defp replace_mode_action?({:replace_match, _, _, _}), do: true
