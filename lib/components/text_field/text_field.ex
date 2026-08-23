@@ -325,7 +325,7 @@ defmodule ScenicWidgets.TextField do
                   do: floor(local_y / row_height),
                   else: nil
 
-              {:gutter_fold_level, if(option in 1..4, do: option)}
+              {:gutter_fold_level, if(option in 1..5, do: option)}
 
             {id, _local} ->
               {id, nil}
@@ -672,7 +672,7 @@ defmodule ScenicWidgets.TextField do
   end
 
   defp fold_action?({:toggle_fold, line}) when is_integer(line), do: true
-  defp fold_action?({:fold_to_level, level}) when level in 1..4, do: true
+  defp fold_action?({:fold_to_level, level}) when level in 1..5, do: true
   defp fold_action?(:unfold_all), do: true
   defp fold_action?(_), do: false
 
@@ -684,7 +684,7 @@ defmodule ScenicWidgets.TextField do
         row_height = Renderer.gutter_menu_theme(state).dropdown_item_height
         option = floor(local_y / row_height)
 
-        if state.gutter_menu.select_expanded? and option in 1..4 do
+        if state.gutter_menu.select_expanded? and option in 1..5 do
           apply_gutter_fold_action(scene, state, {:fold_to_level, option})
         else
           menu = %{state.gutter_menu | select_expanded?: not state.gutter_menu.select_expanded?}

@@ -222,7 +222,7 @@ defmodule ScenicWidgets.TextField.FoldingTest do
     expanded = put_in(state.gutter_menu.select_expanded?, true)
     expanded_graph = Renderer.initial_render(Graph.build(), expanded)
     assert Graph.get(expanded_graph, {:select_option, :gutter_fold_level, 1}) != []
-    assert Graph.get(expanded_graph, {:select_option, :gutter_fold_level, 4}) != []
+    assert Graph.get(expanded_graph, {:select_option, :gutter_fold_level, 5}) != []
     assert clear_text.data == "Clear All Folds"
 
     assert {:event, _event, folded} = Reducer.process_action(state, {:fold_to_level, 1})

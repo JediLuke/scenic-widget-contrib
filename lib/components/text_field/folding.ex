@@ -22,7 +22,7 @@ defmodule ScenicWidgets.TextField.Folding do
 
   def unfold_all, do: MapSet.new()
 
-  def fold_to_level(lines, level) when level in 1..4 do
+  def fold_to_level(lines, level) when level in 1..5 do
     lines
     |> foldable_lines_with_levels()
     |> Enum.reduce(MapSet.new(), fn {line, fold_level}, acc ->

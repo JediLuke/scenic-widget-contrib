@@ -147,8 +147,12 @@ defmodule ScenicWidgets.IconMenu.Reducer do
 
     if match?(%ScenicWidgets.Menu.Model.Select{expanded?: true}, item) and bounds do
       row_height = state.theme.dropdown_item_height
-      box_width = item.option_width || 76
-      box_left = bounds.x + bounds.width - box_width - 8
+
+      {box_left, box_width} =
+        if item.options_full_width?,
+          do: {bounds.x, bounds.width},
+          else: {bounds.x + bounds.width - (item.option_width || 76) - 8, item.option_width || 76}
+
       index = floor((y - bounds.y - row_height) / row_height)
       options = ScenicWidgets.Menu.Model.select_options(item)
 

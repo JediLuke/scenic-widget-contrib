@@ -38,6 +38,8 @@ defmodule ScenicWidgets.Menu.Model do
       :tooltip,
       :option_width,
       :swatches,
+      :closed_caret,
+      options_full_width?: false,
       expanded?: false,
       enabled?: true
     ]

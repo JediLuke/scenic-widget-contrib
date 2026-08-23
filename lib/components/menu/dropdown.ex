@@ -470,12 +470,11 @@ defmodule ScenicWidgets.Menu.Dropdown do
       # A Tree is one row holding many, so lighting the row would light the
       # whole tree when the pointer is on one node of it. Its nodes carry
       # their own highlight instead.
-      tree_node_hover? = match?(%Model.Tree{}, item) and not is_nil(hovered_node)
-
       bg_color =
-        if is_hovered and not tree_node_hover? and not match?(%Model.Select{}, item),
-          do: theme.item_hover_bg,
-          else: :clear
+        if is_hovered and not match?(%Model.Tree{}, item) and
+             not match?(%Model.Select{}, item),
+           do: theme.item_hover_bg,
+           else: :clear
 
       enabled? = Model.item_enabled?(item)
 
@@ -521,7 +520,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
 
             cond do
               match?(%Model.Tree{}, item) ->
-                render_tree(g, item, row_width, text_color, theme, hovered_node)
+                render_tree(g, item, row_width, text_color, theme, is_hovered, hovered_node)
 
               match?(%Model.Segmented{}, item) ->
                 render_segmented(g, item, row_width, text_color, is_hovered, theme)
@@ -656,11 +655,21 @@ defmodule ScenicWidgets.Menu.Dropdown do
   # expanded Select, one level per indent. Its triangle and its tick are DRAWN
   # rather than typed: a font that has no ▸ draws an empty box instead, and a
   # box beside every folder is worse than no triangle at all.
-  defp render_tree(graph, tree, row_width, text_color, theme, hovered_node) do
+  defp render_tree(graph, tree, row_width, text_color, theme, header_hovered?, hovered_node) do
     row_height = theme.dropdown_item_height
     baseline = row_height / 2 + theme.dropdown_font_size / 3
 
     graph
+    |> then(fn g ->
+      if header_hovered? and is_nil(hovered_node) do
+        Primitives.rrect(g, {row_width, row_height, 3},
+          id: {:tree_header_bg, tree.id},
+          fill: theme.item_hover_bg
+        )
+      else
+        g
+      end
+    end)
     |> Primitives.text(Model.display_label(tree),
       id: {:tree_label, tree.id},
       fill: text_color,
@@ -907,7 +916,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
       stroke: {1, theme.dropdown_border},
       translate: {box_x, 4}
     )
-    |> Primitives.text(Model.select_label(select),
+    |> Primitives.text(clip_select_label(Model.select_label(select), box_width, theme),
       id: {:select_value, select.id},
       fill: if(hovered?, do: theme.item_hover_text_color, else: text_color),
       font: theme.font,
@@ -918,8 +927,9 @@ defmodule ScenicWidgets.Menu.Dropdown do
     |> caret(
       box_x + box_width - 13,
       row_height / 2,
-      true,
-      if(hovered?, do: theme.item_hover_text_color, else: text_color)
+      select.expanded?,
+      if(hovered?, do: theme.item_hover_text_color, else: text_color),
+      select.closed_caret || :right
     )
     |> render_select_options(select, row_width, row_height, text_color, hovered_option, theme)
   end
@@ -949,10 +959,9 @@ defmodule ScenicWidgets.Menu.Dropdown do
     |> Enum.with_index()
     |> Enum.reduce(graph, fn {{value, label}, index}, acc ->
       y = row_height * (index + 1)
-      box_width = select.option_width || 76
-      box_x = row_width - box_width - 8
+      {box_x, box_width} = select_option_box(select, row_width)
       swatches = Map.get(select.swatches || %{}, value, [])
-      swatch_width = if swatches == [], do: 0, else: length(swatches) * 10 + 6
+      label_x = box_x + if(swatches == [], do: 7, else: 34)
 
       acc
       |> Primitives.rect({box_width, row_height},
@@ -970,22 +979,42 @@ defmodule ScenicWidgets.Menu.Dropdown do
         fill: if(value == hovered_option, do: theme.item_hover_text_color, else: text_color),
         font: theme.font,
         font_size: theme.dropdown_font_size,
-        translate: {box_x + 7, y + row_height / 2 + theme.dropdown_font_size / 3}
+        translate: {label_x, y + row_height / 2 + theme.dropdown_font_size / 3}
       )
-      |> render_select_swatches(swatches, box_x + box_width - swatch_width, y + row_height / 2)
+      |> render_select_swatches(swatches, box_x + 9, y + row_height / 2)
     end)
   end
 
+  defp select_option_box(%{options_full_width?: true}, row_width), do: {0, row_width}
+
+  defp select_option_box(select, row_width) do
+    width = select.option_width || 76
+    {row_width - width - 8, width}
+  end
+
+  defp clip_select_label(label, box_width, theme) do
+    available = max(box_width - 30, 0)
+    max_chars = trunc(available / max(theme.dropdown_font_size * 0.6, 1))
+
+    if String.length(label) <= max_chars,
+      do: label,
+      else: String.slice(label, 0, max(max_chars - 1, 0)) <> "…"
+  end
+
+  defp render_select_swatches(graph, [], _x, _y), do: graph
+
   defp render_select_swatches(graph, colors, x, y) do
-    colors
-    |> Enum.with_index()
-    |> Enum.reduce(graph, fn {color, index}, acc ->
-      Primitives.circle(acc, 4,
-        fill: color,
-        stroke: {1, {128, 128, 128}},
-        translate: {x + index * 10, y}
-      )
-    end)
+    [base, upper, lower | _] = Enum.take(colors ++ colors ++ colors, 3)
+
+    graph
+    |> Primitives.rect({18, 18}, fill: base, translate: {x, y - 9})
+    |> Primitives.triangle({{x, y - 9}, {x + 18, y - 9}, {x + 18, y + 9}}, fill: upper)
+    |> Primitives.triangle({{x, y + 9}, {x + 9, y}, {x + 18, y + 9}}, fill: lower)
+    |> Primitives.rect({18, 18},
+      fill: :clear,
+      stroke: {1, {128, 128, 128}},
+      translate: {x, y - 9}
+    )
   end
 
   defp render_slider(graph, slider, row_width, text_color, hovered?, theme) do

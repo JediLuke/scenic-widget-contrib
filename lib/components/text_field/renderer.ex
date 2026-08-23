@@ -161,7 +161,7 @@ defmodule ScenicWidgets.TextField.Renderer do
         id: :gutter_fold_level,
         label: "Set Fold Level",
         value: state.fold_level,
-        options: Enum.map(1..4, &{&1, "Level #{&1}"}),
+        options: Enum.map(1..5, &{&1, "Level #{&1}"}),
         option_width: 90,
         expanded?: Map.get(state.gutter_menu, :select_expanded?, false)
       },
