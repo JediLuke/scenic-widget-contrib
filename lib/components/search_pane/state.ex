@@ -1108,7 +1108,9 @@ defmodule ScenicWidgets.SearchPane.State do
   @doc "The rectangles of a row's right-edge action buttons, in content space."
   def action_bounds(%__MODULE__{frame: frame, theme: theme} = state, row) do
     height = theme.row_height - 4
-    right = frame.size.width - theme.padding - 6
+    # Leave a quiet lane between the action cluster and the body scrollbar.
+    # Without it the rightmost button reads as though it touches the thumb.
+    right = frame.size.width - theme.padding - 14
 
     actions =
       if state.replace_open?,
