@@ -141,7 +141,8 @@ defmodule ScenicWidgets.IconMenu.Reducer do
         {:noop, %{state | dropdown_drag: {y, state.dropdown_scroll}}}
 
       {:track, along} ->
-        {:noop, recalculate(%{state | dropdown_scroll: Dropdown.page(active_dropdown(state), along)})}
+        {:noop,
+         recalculate(%{state | dropdown_scroll: Dropdown.page(active_dropdown(state), along)})}
 
       nil ->
         click_rows(state, coords)
@@ -245,9 +246,14 @@ defmodule ScenicWidgets.IconMenu.Reducer do
           gutter = 8 + depth * ScenicWidgets.Menu.Model.tree_indent()
 
           cond do
-            node.children != [] and x >= gutter and x < gutter + ScenicWidgets.Menu.Model.tree_indent() ->
-              {:noop, replace_and_recalculate(state, item_id,
-                ScenicWidgets.Menu.Model.toggle_tree_expanded(tree, node.id))}
+            node.children != [] and x >= gutter and
+                x < gutter + ScenicWidgets.Menu.Model.tree_indent() ->
+              {:noop,
+               replace_and_recalculate(
+                 state,
+                 item_id,
+                 ScenicWidgets.Menu.Model.toggle_tree_expanded(tree, node.id)
+               )}
 
             true ->
               updated = ScenicWidgets.Menu.Model.toggle_tree_node(tree, node.id)
@@ -257,8 +263,7 @@ defmodule ScenicWidgets.IconMenu.Reducer do
           end
       end
     else
-      {:noop,
-       replace_and_recalculate(state, item_id, %{tree | expanded?: not tree.expanded?})}
+      {:noop, replace_and_recalculate(state, item_id, %{tree | expanded?: not tree.expanded?})}
     end
   end
 
@@ -267,13 +272,17 @@ defmodule ScenicWidgets.IconMenu.Reducer do
     row_height = state.theme.dropdown_item_height
 
     if select.expanded? and y >= bounds.y + row_height do
-      option = Enum.at(select.options, floor((y - bounds.y - row_height) / row_height))
+      option =
+        select
+        |> ScenicWidgets.Menu.Model.select_options()
+        |> Enum.at(floor((y - bounds.y - row_height) / row_height))
 
       if is_nil(option) do
         {:noop, state}
       else
-        updated = %{select | value: option, expanded?: false}
-        {:menu_value_changed, item_id, option, replace_and_recalculate(state, item_id, updated)}
+        {value, _label} = option
+        updated = %{select | value: value, expanded?: false}
+        {:menu_value_changed, item_id, value, replace_and_recalculate(state, item_id, updated)}
       end
     else
       updated = %{select | expanded?: not select.expanded?}

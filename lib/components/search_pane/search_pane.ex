@@ -1028,8 +1028,11 @@ defmodule ScenicWidgets.SearchPane do
 
   defp header_label({:domain, :open_buffers_only}, _state), do: "Search only open buffers"
 
-  defp header_label({:domain, :use_ignore_files}, _state),
-    do: "Use exclude settings and ignore files"
+  defp header_label({:domain, :show_ignored_files}, _state),
+    do: "Show .gitignore files in search"
+
+  defp header_label({:domain, :apply_custom_excludes}, _state),
+    do: "Apply custom search excludes"
 
   defp action_label({:replace_file, path}), do: "Replace all in #{path}"
   defp action_label({:dismiss_file, path}), do: "Remove #{path} from search scope"

@@ -182,7 +182,8 @@ defmodule ScenicWidgets.SearchPane.State do
       # because most searches want the default and a row of switches above
       # the results is a row of results you cannot see.
       open_buffers_only: Map.get(model, :open_buffers_only, false),
-      use_ignore_files: Map.get(model, :use_ignore_files, true),
+      show_ignored_files: Map.get(model, :show_ignored_files, false),
+      apply_custom_excludes: Map.get(model, :apply_custom_excludes, true),
       active_match: Map.get(model, :active_match),
       skipped: Map.get(model, :skipped, MapSet.new()),
       total_matches: Map.get(model, :total_matches, 0),
@@ -417,12 +418,13 @@ defmodule ScenicWidgets.SearchPane.State do
 
     [
       %{id: {:domain, :open_buffers_only}, x: x, y: y, w: w, h: row},
-      %{id: {:domain, :use_ignore_files}, x: x, y: y + row, w: w, h: row},
+      %{id: {:domain, :show_ignored_files}, x: x, y: y + row, w: w, h: row},
+      %{id: {:domain, :apply_custom_excludes}, x: x, y: y + 2 * row, w: w, h: row},
       # The excludes list is a file, and this opens it — right here, beside
       # the switch that says whether it is being honoured, rather than buried
       # in a menu three clicks away from the search it governs.
-      %{id: :edit_excludes, x: x, y: y + 2 * row, w: w, h: row}
-    ] ++ scope_widgets(state, y + 3 * row, theme)
+      %{id: :edit_excludes, x: x, y: y + 3 * row, w: w, h: row}
+    ] ++ scope_widgets(state, y + 4 * row, theme)
   end
 
   defp settings_x(%__MODULE__{} = state) do
@@ -502,14 +504,27 @@ defmodule ScenicWidgets.SearchPane.State do
       %Model.Toggle{
         id: {:domain, :open_buffers_only},
         label: "Search only open buffers",
-        checked?: model.open_buffers_only
+        checked?: model.open_buffers_only,
+        tooltip: "Limit this search to files already open in the editor."
       },
       %Model.Toggle{
-        id: {:domain, :use_ignore_files},
-        label: "Use exclude settings & ignore files",
-        checked?: model.use_ignore_files
+        id: {:domain, :show_ignored_files},
+        label: "Show .gitignore files in search",
+        checked?: model.show_ignored_files,
+        tooltip: "Include files hidden by the project's .gitignore and .ignore rules."
       },
-      %Model.Item{id: :edit_excludes, label: "Edit the exclude list…"},
+      %Model.Toggle{
+        id: {:domain, :apply_custom_excludes},
+        label: "Apply custom search excludes",
+        checked?: model.apply_custom_excludes,
+        tooltip: "Apply the patterns in Quillex's editable search-excludes file."
+      },
+      %Model.Item{
+        id: :edit_excludes,
+        label: "Edit the exclude list…",
+        flush_left?: true,
+        tooltip: "Open the custom search-excludes file in the editor."
+      },
       # Tree or list: an either/or with both choices on show. It used to be a
       # slider on the status bar, taking a third of a narrow bar to say
       # something you change rarely — it is the same control, in the drawer
@@ -530,7 +545,8 @@ defmodule ScenicWidgets.SearchPane.State do
     [
       %ScenicWidgets.Menu.Model.Tree{
         id: :scope,
-        label: "SCOPE",
+        label: "Setup search domain",
+        tooltip: "Choose the project directories and files included in this search.",
         expanded?: state.scope_open?,
         nodes: Enum.map(scope, &scope_node(&1, state))
       }
@@ -1066,14 +1082,15 @@ defmodule ScenicWidgets.SearchPane.State do
 
   # The project row is the whole of the scope, so when it is unticked there is
   # nothing to count — saying "1 excluded" would be true and useless.
-  defp scope_summary([%{included?: false} | _]), do: "SCOPE  (nothing selected)"
+  defp scope_summary([%{included?: false} | _]),
+    do: "Setup search domain  (nothing selected)"
 
   defp scope_summary(scope) do
     excluded = count_excluded(scope)
 
     if excluded == 0,
-      do: "SCOPE  (whole project)",
-      else: "SCOPE  (#{excluded} excluded)"
+      do: "Setup search domain  (whole project)",
+      else: "Setup search domain  (#{excluded} excluded)"
   end
 
   # An excluded directory counts ONCE, not once per thing inside it. Exclusion

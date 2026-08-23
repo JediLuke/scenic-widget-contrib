@@ -427,7 +427,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
     padding = theme.dropdown_padding
 
     # Space reserved for checkmark on the left
-    checkmark_width = 20
+    checkmark_width = 28
 
     Enum.reduce(items, graph, fn item, acc ->
       item_id = Model.get_item_id(item)
@@ -522,7 +522,11 @@ defmodule ScenicWidgets.Menu.Dropdown do
                 )
 
               true ->
-                text_x = if has_any_toggle_items?(items), do: checkmark_width, else: 8
+                text_x =
+                  if Map.get(item, :flush_left?, false) or not has_any_toggle_items?(items),
+                    do: 8,
+                    else: checkmark_width
+
                 shortcut_right = row_width - 8
                 column_gap = Map.get(theme, :dropdown_column_gap, 24)
                 available_width = shortcut_right - text_x
@@ -846,7 +850,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
 
   defp render_select(graph, select, row_width, text_color, theme) do
     row_height = theme.dropdown_item_height
-    box_width = 76
+    box_width = select.option_width || 76
     box_x = row_width - box_width - 8
     baseline = row_height / 2 + theme.dropdown_font_size / 3
 
@@ -864,7 +868,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
       stroke: {1, theme.dropdown_border},
       translate: {box_x, 4}
     )
-    |> Primitives.text(to_string(select.value),
+    |> Primitives.text(Model.select_label(select),
       id: {:select_value, select.id},
       fill: text_color,
       font: theme.font,
@@ -880,24 +884,41 @@ defmodule ScenicWidgets.Menu.Dropdown do
     do: graph
 
   defp render_select_options(graph, select, row_width, row_height, text_color, theme) do
-    select.options
+    select
+    |> Model.select_options()
     |> Enum.with_index()
-    |> Enum.reduce(graph, fn {value, index}, acc ->
+    |> Enum.reduce(graph, fn {{value, label}, index}, acc ->
       y = row_height * (index + 1)
+      box_width = select.option_width || 76
+      box_x = row_width - box_width - 8
+      swatches = Map.get(select.swatches || %{}, value, [])
+      swatch_width = if swatches == [], do: 0, else: length(swatches) * 10 + 6
 
       acc
-      |> Primitives.rect({76, row_height},
+      |> Primitives.rect({box_width, row_height},
         id: {:select_option_bg, select.id, value},
         fill: if(value == select.value, do: theme.item_hover_bg, else: theme.dropdown_bg),
-        translate: {row_width - 84, y}
+        translate: {box_x, y}
       )
-      |> Primitives.text(to_string(value),
+      |> Primitives.text(label,
         id: {:select_option, select.id, value},
         fill: text_color,
         font: theme.font,
         font_size: theme.dropdown_font_size,
-        text_align: :center,
-        translate: {row_width - 46, y + row_height / 2 + theme.dropdown_font_size / 3}
+        translate: {box_x + 7, y + row_height / 2 + theme.dropdown_font_size / 3}
+      )
+      |> render_select_swatches(swatches, box_x + box_width - swatch_width, y + row_height / 2)
+    end)
+  end
+
+  defp render_select_swatches(graph, colors, x, y) do
+    colors
+    |> Enum.with_index()
+    |> Enum.reduce(graph, fn {color, index}, acc ->
+      Primitives.circle(acc, 4,
+        fill: color,
+        stroke: {1, {128, 128, 128}},
+        translate: {x + index * 10, y}
       )
     end)
   end

@@ -408,7 +408,10 @@ defmodule ScenicWidgets.IconMenu.State do
       |> Enum.map(&text_width(&1, font_opts))
       |> Enum.max(fn -> 0 end)
 
-    leading_space = if Enum.any?(items, &is_toggle_item?/1), do: 20, else: 8
+    # Keep width measurement in lockstep with Dropdown's permanent checkbox
+    # lane. Otherwise adding breathing room between the box and its label
+    # steals those pixels back from the longest label as truncation.
+    leading_space = if Enum.any?(items, &is_toggle_item?/1), do: 28, else: 8
     shortcut_space = if shortcut_width > 0, do: gap + shortcut_width, else: 0
 
     # And room for the scrollbar, on a menu long enough to need one. Without
@@ -453,7 +456,6 @@ defmodule ScenicWidgets.IconMenu.State do
   @doc "Returns optional explanatory text for a top-level icon button."
   def menu_tooltip(%{tooltip: tooltip}) when is_binary(tooltip), do: tooltip
   def menu_tooltip(_menu), do: nil
-
 
   # ── Row helpers ───────────────────────────────────────────────────────────
   #

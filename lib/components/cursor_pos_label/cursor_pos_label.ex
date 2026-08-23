@@ -69,8 +69,6 @@ defmodule ScenicWidgets.CursorPosLabel do
     graph = render(scene.assigns)
     scene = scene |> assign(graph: graph) |> push_graph(graph)
 
-    request_input(scene, [:cursor_button])
-
     # Subscribing re-delivers the source's retained snapshot, so the label
     # is correct immediately even if it was created mid-session.
     Scenic.PubSub.subscribe(data.source)
@@ -102,11 +100,12 @@ defmodule ScenicWidgets.CursorPosLabel do
   def handle_info({{Scenic.PubSub, :registered}, _}, scene), do: {:noreply, scene}
   def handle_info({{Scenic.PubSub, :unregistered}, _}, scene), do: {:noreply, scene}
 
-  def handle_input({:cursor_button, {:btn_left, 1, _mods, coords}}, _context, scene) do
-    if point_inside?(scene.assigns.frame, coords) do
-      send_parent_event(scene, {:cursor_position_clicked, :cursor_pos_label})
-    end
-
+  def handle_input(
+        {:cursor_button, {:btn_left, 1, _mods, _coords}},
+        :cursor_pos_background,
+        scene
+      ) do
+    send_parent_event(scene, {:cursor_position_clicked, :cursor_pos_label})
     {:noreply, scene}
   end
 
@@ -138,7 +137,11 @@ defmodule ScenicWidgets.CursorPosLabel do
     # padding was visibly lopsided — and it shifted every time the digit count
     # changed. Centring makes the two gaps equal by construction at any width.
     Graph.build()
-    |> rect({w, h}, fill: assigns.background, id: :cursor_pos_background)
+    |> rect({w, h},
+      fill: assigns.background,
+      id: :cursor_pos_background,
+      input: [:cursor_button]
+    )
     |> text("Ln #{line}, Col #{col}",
       translate: {w / 2, h / 2 + font.size / 3},
       text_align: :center,
@@ -147,10 +150,5 @@ defmodule ScenicWidgets.CursorPosLabel do
       fill: color,
       id: :cursor_pos_text
     )
-  end
-
-  defp point_inside?(frame, {x, y}) do
-    %{pin: %{x: left, y: top}, size: %{width: width, height: height}} = frame
-    x >= left and x <= left + width and y >= top and y <= top + height
   end
 end

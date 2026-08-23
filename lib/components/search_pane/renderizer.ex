@@ -236,7 +236,8 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   # search — so the status changed, and the header redrew for that instead.
   defp settings_signature(%State{model: model} = state) do
     {state.domain_open?, state.scope_open?, state.settings_scroll, state.results_view,
-     settings_hover(state), model.open_buffers_only, model.use_ignore_files,
+     settings_hover(state), model.open_buffers_only, model.show_ignored_files,
+     model.apply_custom_excludes,
      Enum.map(State.scope_rows(state), &{&1.id, &1.label, Map.get(&1, :expanded?)})}
   end
 
@@ -310,8 +311,9 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
 
   defp widget_signature(%State{model: model} = state) do
     {state.focused, state.focused_field, header_hover(state), model.status, model.error,
-     model.case_sensitive, model.regex, model.open_buffers_only, model.use_ignore_files,
-     model.active_match, model.total_matches, layout_signature(state)}
+     model.case_sensitive, model.regex, model.open_buffers_only, model.show_ignored_files,
+     model.apply_custom_excludes, model.active_match, model.total_matches,
+     layout_signature(state)}
   end
 
   # The rows are derived from a good deal of state — results, dismissals, which
@@ -838,7 +840,8 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   end
 
   defp domain_label(:open_buffers_only), do: "Search only open buffers"
-  defp domain_label(:use_ignore_files), do: "Use exclude settings & ignore files"
+  defp domain_label(:show_ignored_files), do: "Show .gitignore files in search"
+  defp domain_label(:apply_custom_excludes), do: "Apply custom search excludes"
 
   # A plain action among the switches, so it reads as "and here is the list
   # those settings are talking about".

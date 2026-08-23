@@ -3,7 +3,7 @@ defmodule ScenicWidgets.Menu.Model do
 
   defmodule Item do
     @enforce_keys [:id, :label]
-    defstruct [:id, :label, :icon, :shortcut, :tooltip, enabled?: true]
+    defstruct [:id, :label, :icon, :shortcut, :tooltip, flush_left?: false, enabled?: true]
   end
 
   defmodule Toggle do
@@ -36,6 +36,8 @@ defmodule ScenicWidgets.Menu.Model do
       :value,
       :options,
       :tooltip,
+      :option_width,
+      :swatches,
       expanded?: false,
       enabled?: true
     ]
@@ -168,6 +170,22 @@ defmodule ScenicWidgets.Menu.Model do
       {value, label} -> {value, label}
       value -> {value, to_string(value)}
     end)
+  end
+
+  @doc "A Select's choices, normalised to `{value, label}` pairs."
+  def select_options(%Select{options: options}) do
+    Enum.map(options, fn
+      {value, label} -> {value, label}
+      value -> {value, to_string(value)}
+    end)
+  end
+
+  @doc "The label shown for a Select's current value."
+  def select_label(%Select{value: value} = select) do
+    case Enum.find(select_options(select), fn {option, _label} -> option == value end) do
+      {_value, label} -> label
+      nil -> to_string(value)
+    end
   end
 
   @doc "Which segment a point along the control's width falls in."

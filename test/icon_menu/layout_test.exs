@@ -142,6 +142,33 @@ defmodule ScenicWidgets.IconMenu.LayoutTest do
     refute State.find_item(collapsed, :fold_level).expanded?
   end
 
+  test "select rows accept labelled values and render optional palette swatches" do
+    select = %Select{
+      id: :theme,
+      label: "Theme",
+      value: :dark,
+      options: [{:dark, "Dark Room"}, {:light, "Light Room"}],
+      option_width: 180,
+      swatches: %{dark: [{20, 20, 20}, {230, 230, 230}]}
+    }
+
+    state = %{state([select]) | active_menu: :file}
+    bounds = state.dropdown_bounds.file.items.theme
+    {:noop, expanded} = Reducer.handle_click(state, {bounds.x + 10, bounds.y + 10})
+    graph = Renderer.initial_render(Graph.build(), expanded)
+
+    assert Graph.get!(graph, {:select_value, :theme}).data == "Dark Room"
+    assert Graph.get!(graph, {:select_option, :theme, :light}).data == "Light Room"
+
+    assert {:menu_value_changed, :theme, :light, collapsed} =
+             Reducer.handle_click(expanded, {
+               bounds.x + 10,
+               bounds.y + expanded.theme.dropdown_item_height * 2 + 1
+             })
+
+    assert State.find_item(collapsed, :theme).value == :light
+  end
+
   test "stepper buttons clamp and emit numeric changes" do
     stepper = %Stepper{id: :zoom, label: "Zoom", value: 100, min: 50, max: 200, step: 10}
     state = %{state([stepper]) | active_menu: :file}
