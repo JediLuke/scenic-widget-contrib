@@ -162,7 +162,7 @@ defmodule ScenicWidgets.TextField.FoldingTest do
     assert_in_delta triangle_anchor_y, expected_anchor_y, 0.01
   end
 
-  test "line-number context menu opens down/right with fold choices already expanded" do
+  test "line-number context menu is layered over both panes and opens its select on demand" do
     menu_theme = %{
       dropdown_bg: {31, 32, 33},
       dropdown_border: {41, 42, 43},
@@ -188,20 +188,27 @@ defmodule ScenicWidgets.TextField.FoldingTest do
           path: Path.expand("../../assets/fonts/IBMPlexMono-Regular.ttf", __DIR__)
         }
       })
-      |> Map.put(:gutter_menu, %{x: 24, y: 30, hovered: :gutter_clear_folds})
+      |> Map.put(:gutter_menu, %{
+        x: 24,
+        y: 30,
+        hovered: :gutter_clear_folds,
+        hovered_option: nil,
+        select_expanded?: false
+      })
 
     bounds = Renderer.gutter_menu_bounds(state)
     assert bounds.x == 24
     assert bounds.y == 30
 
     graph = Renderer.initial_render(Graph.build(), state)
-    assert Graph.get!(graph, :gutter_context_menu)
+    assert Graph.get!(graph, :gutter_context_menu_gutter)
+    assert Graph.get!(graph, :gutter_context_menu_content)
 
-    assert Scenic.Primitive.get_style(Graph.get!(graph, :dropdown_bg), :fill) ==
+    assert Scenic.Primitive.get_style(hd(Graph.get(graph, :dropdown_bg)), :fill) ==
              {:color, {:color_rgba, {31, 32, 33, 255}}}
 
-    clear_bg = Graph.get!(graph, {:item_bg, :gutter_clear_folds})
-    clear_text = Graph.get!(graph, {:item_text, :gutter_clear_folds})
+    clear_bg = hd(Graph.get(graph, {:item_bg, :gutter_clear_folds}))
+    clear_text = hd(Graph.get(graph, {:item_text, :gutter_clear_folds}))
 
     assert Scenic.Primitive.get_style(clear_bg, :fill) ==
              {:color, {:color_rgba, {61, 62, 63, 255}}}
@@ -210,9 +217,13 @@ defmodule ScenicWidgets.TextField.FoldingTest do
              {:color, {:color_rgba, {71, 72, 73, 255}}}
 
     assert Scenic.Primitive.get_style(clear_text, :font_size) == 13
-    assert Graph.get!(graph, {:select_option, :gutter_fold_level, 1})
-    assert Graph.get!(graph, {:select_option, :gutter_fold_level, 4})
-    assert Graph.get!(graph, {:item_text, :gutter_clear_folds}).data == "Clear All Folds"
+    assert Graph.get(graph, {:select_option, :gutter_fold_level, 1}) == []
+
+    expanded = put_in(state.gutter_menu.select_expanded?, true)
+    expanded_graph = Renderer.initial_render(Graph.build(), expanded)
+    assert Graph.get(expanded_graph, {:select_option, :gutter_fold_level, 1}) != []
+    assert Graph.get(expanded_graph, {:select_option, :gutter_fold_level, 4}) != []
+    assert clear_text.data == "Clear All Folds"
 
     assert {:event, _event, folded} = Reducer.process_action(state, {:fold_to_level, 1})
     assert folded.fold_level == 1

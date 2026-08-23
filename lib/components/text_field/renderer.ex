@@ -58,7 +58,6 @@ defmodule ScenicWidgets.TextField.Renderer do
     |> render_background(state)
     |> render_border(state)
     |> render_gutter_and_content(state)
-    |> render_gutter_menu(state)
   end
 
   @doc """
@@ -133,26 +132,23 @@ defmodule ScenicWidgets.TextField.Renderer do
         |> update_scrollbars_if_changed(old_state, new_state)
       end
 
-    if old_state.gutter_menu != new_state.gutter_menu or
-         old_state.fold_level != new_state.fold_level do
-      graph |> Graph.delete(:gutter_context_menu) |> render_gutter_menu(new_state)
-    else
-      graph
-    end
+    graph
   end
 
-  defp render_gutter_menu(graph, %State{gutter_menu: nil}), do: graph
+  defp render_gutter_menu_layer(graph, %State{gutter_menu: nil}, _x_shift, _id), do: graph
 
-  defp render_gutter_menu(graph, %State{} = state) do
+  defp render_gutter_menu_layer(graph, %State{} = state, x_shift, id) do
     rows = gutter_menu_rows(state)
     theme = gutter_menu_theme(state)
     bounds = gutter_menu_bounds(state, rows, theme)
+    bounds = %{bounds | x: bounds.x + x_shift}
 
     ScenicWidgets.Menu.Dropdown.render(graph, rows, bounds,
       theme: theme,
       hovered: Map.get(state.gutter_menu, :hovered),
+      hovered_select_option: Map.get(state.gutter_menu, :hovered_option),
       show_shortcuts: false,
-      id: :gutter_context_menu
+      id: id
     )
   end
 
@@ -167,7 +163,7 @@ defmodule ScenicWidgets.TextField.Renderer do
         value: state.fold_level,
         options: Enum.map(1..4, &{&1, "Level #{&1}"}),
         option_width: 90,
-        expanded?: true
+        expanded?: Map.get(state.gutter_menu, :select_expanded?, false)
       },
       %Item{id: :gutter_clear_folds, label: "Clear All Folds"}
     ]
@@ -345,6 +341,7 @@ defmodule ScenicWidgets.TextField.Renderer do
           # Only vertical scroll
           translate: {0, -scroll.offset_y}
         )
+        |> render_gutter_menu_layer(state, 0, :gutter_context_menu_gutter)
       end,
       id: :gutter_group,
       scissor: {gutter_width, frame_height}
@@ -438,6 +435,10 @@ defmodule ScenicWidgets.TextField.Renderer do
         )
         # Render scrollbars INSIDE content_group, after text, so they're on top
         |> render_scrollbars_in_content(state, content_width, frame_height)
+        # The menu is repeated into each independently clipped layer. Scenic
+        # compiles the gutter and document into separate scripts; a root-level
+        # overlay could cover the gutter yet still sit beneath document glyphs.
+        |> render_gutter_menu_layer(state, -x_offset, :gutter_context_menu_content)
       end,
       id: :content_group,
       translate: {x_offset, 0},

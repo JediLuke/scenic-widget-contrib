@@ -301,23 +301,50 @@ defmodule ScenicWidgets.TextField do
     case input do
       {:cursor_button, {:btn_right, 1, _mods, {x, y}}}
       when state.show_line_numbers == true and x >= 0 and x <= state.line_number_width ->
-        update_scene(scene, state, %{state | gutter_menu: %{x: x, y: y, hovered: nil}})
+        update_scene(scene, state, %{
+          state
+          | gutter_menu: %{
+              x: x,
+              y: y,
+              hovered: nil,
+              hovered_option: nil,
+              select_expanded?: false
+            }
+        })
 
       {:cursor_pos, coords} when not is_nil(state.gutter_menu) ->
         bounds = Renderer.gutter_menu_bounds(state)
 
-        hovered =
+        {hovered, hovered_option} =
           case ScenicWidgets.Menu.Dropdown.row_at(bounds, coords) do
-            {id, _local} -> id
-            _ -> nil
+            {:gutter_fold_level, {_x, local_y}} ->
+              row_height = Renderer.gutter_menu_theme(state).dropdown_item_height
+
+              option =
+                if state.gutter_menu.select_expanded? and local_y >= row_height,
+                  do: floor(local_y / row_height),
+                  else: nil
+
+              {:gutter_fold_level, if(option in 1..4, do: option)}
+
+            {id, _local} ->
+              {id, nil}
+
+            _ ->
+              {nil, nil}
           end
 
-        if hovered == Map.get(state.gutter_menu, :hovered) do
+        if {hovered, hovered_option} ==
+             {Map.get(state.gutter_menu, :hovered), Map.get(state.gutter_menu, :hovered_option)} do
           {:noreply, scene}
         else
           update_scene(scene, state, %{
             state
-            | gutter_menu: %{state.gutter_menu | hovered: hovered}
+            | gutter_menu: %{
+                state.gutter_menu
+                | hovered: hovered,
+                  hovered_option: hovered_option
+              }
           })
         end
 
@@ -657,9 +684,12 @@ defmodule ScenicWidgets.TextField do
         row_height = Renderer.gutter_menu_theme(state).dropdown_item_height
         option = floor(local_y / row_height)
 
-        if option in 1..4,
-          do: apply_gutter_fold_action(scene, state, {:fold_to_level, option}),
-          else: {:noreply, scene}
+        if state.gutter_menu.select_expanded? and option in 1..4 do
+          apply_gutter_fold_action(scene, state, {:fold_to_level, option})
+        else
+          menu = %{state.gutter_menu | select_expanded?: not state.gutter_menu.select_expanded?}
+          update_scene(scene, state, %{state | gutter_menu: menu})
+        end
 
       {:gutter_clear_folds, _local} ->
         apply_gutter_fold_action(scene, state, :unfold_all)

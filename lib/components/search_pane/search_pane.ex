@@ -86,7 +86,7 @@ defmodule ScenicWidgets.SearchPane do
 
     scene =
       scene
-      |> assign(state: state, graph: graph, id: :search_pane)
+      |> assign(state: state, graph: graph, id: :search_pane, settings_leave_timer: nil)
       |> push_graph(graph)
 
     # Keyboard for the fields, scroll for the results. Clicks arrive through
@@ -694,7 +694,7 @@ defmodule ScenicWidgets.SearchPane do
 
   defp close_settings(scene, state) do
     send_parent_event(scene, {:search_pane, :settings_open, false})
-    redraw(scene, %{state | domain_open?: false})
+    scene |> cancel_settings_leave() |> redraw(%{state | domain_open?: false})
   end
 
   defp row_click(scene, state, %{kind: :scope_header}),
@@ -745,10 +745,7 @@ defmodule ScenicWidgets.SearchPane do
   defp hover(scene, coords) do
     state = scene.assigns.state
 
-    # Like IconMenu, pointer motion alone never dismisses an open panel. The
-    # route from the cog into a hanging panel necessarily crosses a sliver of
-    # non-panel space; closing on that sample made the panel impossible to
-    # enter. Click-away, Escape and scrolling behind it still dismiss it.
+    scene = track_settings_leave(scene, state, coords)
     # Header controls light up under the pointer too. A button that gives no
     # sign it is a button is one people click twice to check.
     hovered =
@@ -782,6 +779,37 @@ defmodule ScenicWidgets.SearchPane do
     else
       {:noreply, redraw(scene, %{state | hovered: hovered})}
     end
+  end
+
+  defp track_settings_leave(scene, %State{domain_open?: false}, _coords), do: scene
+
+  defp track_settings_leave(scene, state, coords) do
+    cond do
+      over_settings?(state, coords) ->
+        cancel_settings_leave(scene)
+
+      scene.assigns.settings_leave_timer ->
+        scene
+
+      true ->
+        timer = Process.send_after(self(), :close_settings_after_leave, 220)
+        assign(scene, settings_leave_timer: timer)
+    end
+  end
+
+  defp cancel_settings_leave(scene) do
+    if timer = scene.assigns.settings_leave_timer, do: Process.cancel_timer(timer)
+    assign(scene, settings_leave_timer: nil)
+  end
+
+  @impl Scenic.Scene
+  def handle_info(:close_settings_after_leave, scene) do
+    state = scene.assigns.state
+    scene = assign(scene, settings_leave_timer: nil)
+
+    if state.domain_open?,
+      do: {:noreply, close_settings(scene, state)},
+      else: {:noreply, scene}
   end
 
   # Requested positional input arrives already transformed into this
