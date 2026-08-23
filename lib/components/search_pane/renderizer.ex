@@ -1170,8 +1170,8 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   defp action_label({:replace_file, _}, _row), do: "Replace all"
   defp action_label({:replace_match, _, _, _}, _row), do: "Replace"
   defp action_label({:dismiss_file, _}, _row), do: "×"
-  defp action_label({:dismiss_match, _, _, _}, %{skipped?: true}), do: "↺"
-  defp action_label({:dismiss_match, _, _, _}, _row), do: "×"
+  defp action_label({:dismiss_match, _, _, _}, %{skipped?: true}), do: "Add back"
+  defp action_label({:dismiss_match, _, _, _}, _row), do: "Skip"
 
   # ── Text metrics ──────────────────────────────────────────────────────────
   #

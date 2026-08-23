@@ -1106,8 +1106,6 @@ defmodule ScenicWidgets.SearchPane.State do
   end
 
   @doc "The rectangles of a row's right-edge action buttons, in content space."
-  def action_bounds(%__MODULE__{replace_open?: false}, %{kind: :match}), do: []
-
   def action_bounds(%__MODULE__{frame: frame, theme: theme}, row) do
     height = theme.row_height - 4
     right = frame.size.width - theme.padding - 6
@@ -1124,6 +1122,7 @@ defmodule ScenicWidgets.SearchPane.State do
 
   defp action_width({:replace_file, _}, theme), do: round(theme.small_font_size * 5.8) + 12
   defp action_width({:replace_match, _, _, _}, theme), do: round(theme.small_font_size * 4.2) + 12
+  defp action_width({:dismiss_match, _, _, _}, theme), do: round(theme.small_font_size * 4.8) + 12
   defp action_width(_action, theme), do: theme.row_height - 4
 
   # ── Hit testing ───────────────────────────────────────────────────────────
