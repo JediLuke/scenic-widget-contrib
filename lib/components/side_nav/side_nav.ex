@@ -128,7 +128,7 @@ defmodule ScenicWidgets.SideNav do
     # bounds-checks against our frame before acting (the same shape TextField
     # uses; without the check an editor beside a sidebar would both scroll on
     # one wheel event).
-    request_input(scene, [:key, :codepoint, :cursor_pos, :cursor_scroll])
+    request_input(scene, [:key, :codepoint, :cursor_scroll])
 
     Logger.debug("   Graph pushed, now calling register_semantic_elements...")
     # Register semantic elements for MCP interaction
@@ -254,6 +254,13 @@ defmodule ScenicWidgets.SideNav do
 
   def handle_put(:blur, scene) do
     {:noreply, assign(scene, state: %{scene.assigns.state | focused: false})}
+  end
+
+  def handle_put(:clear_hover, scene) do
+    state = scene.assigns.state
+    new_state = %{state | hovered_id: nil}
+    graph = Renderizer.update_render(scene.assigns.graph, state, new_state)
+    {:noreply, scene |> assign(state: new_state, graph: graph) |> push_graph(graph)}
   end
 
   def handle_put(_value, scene) do
@@ -438,12 +445,10 @@ defmodule ScenicWidgets.SideNav do
     end
   end
 
-  # Cursor not delivered by a row primitive (empty pane space or outside the
-  # component). A globally requested cursor position lets us retire stale
-  # hover as soon as the pointer leaves the tree.
-  def handle_input({:cursor_pos, coords}, _context, scene) do
+  # Cursor not over any row - clear hover.
+  def handle_input({:cursor_pos, _coords}, _context, scene) do
     state = scene.assigns.state
-    new_state = Reducer.handle_cursor_pos(state, coords)
+    new_state = %{state | hovered_id: nil}
 
     if new_state != state do
       graph = Renderizer.update_render(scene.assigns.graph, state, new_state)
@@ -547,6 +552,12 @@ defmodule ScenicWidgets.SideNav do
       ) do
     state = scene.assigns.state
     item_id = state.context_menu.item_id
+
+    # Inline rename is a one-task text input just like a dialog field. Merely
+    # requesting codepoints loses to the editor's existing capture, leaving
+    # the painted rename box active while every typed character goes nowhere.
+    unless state.focused, do: send_parent_event(scene, {:focus_taken, :file_nav})
+    :ok = capture_input(scene, [:key, :codepoint])
 
     new_state = %{
       state
@@ -1144,6 +1155,7 @@ defmodule ScenicWidgets.SideNav do
 
   defp finish_rename(scene) do
     state = scene.assigns.state
+    :ok = release_input(scene, [:key, :codepoint])
 
     new_state = %{
       state
