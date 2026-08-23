@@ -503,7 +503,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
                 render_tree(g, item, row_width, text_color, theme, hovered_node)
 
               match?(%Model.Segmented{}, item) ->
-                render_segmented(g, item, row_width, text_color, theme)
+                render_segmented(g, item, row_width, text_color, is_hovered, theme)
 
               match?(%Model.Select{}, item) ->
                 render_select(g, item, row_width, text_color, theme)
@@ -740,8 +740,6 @@ defmodule ScenicWidgets.Menu.Dropdown do
       check_mark(graph, x, y, colour)
     else
       graph
-      |> Primitives.line({{x + 3, y - 3}, {x + 8, y + 3}}, stroke: {1.4, colour}, cap: :round)
-      |> Primitives.line({{x + 8, y - 3}, {x + 3, y + 3}}, stroke: {1.4, colour}, cap: :round)
     end
   end
 
@@ -749,7 +747,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
   # filled. The same control the search pane had on its status bar, which is
   # where this came from — it was a good control in the wrong place, and the
   # only reason it was not a menu row is that a menu row could not be one.
-  defp render_segmented(graph, seg, row_width, text_color, theme) do
+  defp render_segmented(graph, seg, row_width, text_color, hovered?, theme) do
     row_height = theme.dropdown_item_height
     baseline = row_height / 2 + theme.dropdown_font_size / 3
     segments = Model.segments(seg)
@@ -779,7 +777,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
 
       Primitives.rrect(g, {seg_width, track_height, 4},
         id: {:segmented_thumb, seg.id},
-        fill: theme.item_hover_bg,
+        fill: if(hovered?, do: theme.item_hover_text_color, else: theme.item_hover_bg),
         translate: {track_x + index * seg_width, 4}
       )
     end)
@@ -789,7 +787,11 @@ defmodule ScenicWidgets.Menu.Dropdown do
       |> Enum.reduce(g, fn {{value, label}, i}, acc ->
         Primitives.text(acc, label,
           id: {:segmented_option, seg.id, value},
-          fill: if(value == seg.value, do: theme.item_hover_text_color, else: text_color),
+          fill:
+            if(value == seg.value,
+              do: if(hovered?, do: theme.item_hover_bg, else: theme.item_hover_text_color),
+              else: text_color
+            ),
           font: theme.font,
           font_size: theme.dropdown_font_size,
           text_align: :center,

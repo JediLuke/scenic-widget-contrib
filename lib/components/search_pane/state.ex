@@ -36,6 +36,7 @@ defmodule ScenicWidgets.SearchPane.State do
     match_text: {255, 214, 120},
     row_hover: {48, 48, 58},
     menu_row_hover: {0, 150, 255},
+    menu_row_hover_text: {255, 255, 255},
     menu_border: {70, 70, 82},
     button_background: {52, 52, 64},
     button_active: {70, 110, 180},
@@ -532,7 +533,7 @@ defmodule ScenicWidgets.SearchPane.State do
       # have one.
       %Model.Segmented{
         id: :results_view,
-        label: "Results as",
+        label: "Show results as",
         value: state.results_view,
         options: [:tree, :list]
       }
@@ -545,7 +546,7 @@ defmodule ScenicWidgets.SearchPane.State do
     [
       %ScenicWidgets.Menu.Model.Tree{
         id: :scope,
-        label: "Setup search domain",
+        label: "Choose search scope",
         tooltip: "Choose the project directories and files included in this search.",
         expanded?: state.scope_open?,
         nodes: Enum.map(scope, &scope_node(&1, state))
@@ -589,7 +590,7 @@ defmodule ScenicWidgets.SearchPane.State do
       # one thing in an open menu you are addressing; quieter is not better.
       item_hover_bg: Map.get(theme, :menu_row_hover, theme.button_active),
       item_text_color: theme.text,
-      item_hover_text_color: theme.button_text
+      item_hover_text_color: Map.get(theme, :menu_row_hover_text, theme.button_text)
     }
   end
 
@@ -1083,14 +1084,14 @@ defmodule ScenicWidgets.SearchPane.State do
   # The project row is the whole of the scope, so when it is unticked there is
   # nothing to count — saying "1 excluded" would be true and useless.
   defp scope_summary([%{included?: false} | _]),
-    do: "Setup search domain  (nothing selected)"
+    do: "Choose search scope  (nothing selected)"
 
   defp scope_summary(scope) do
     excluded = count_excluded(scope)
 
     if excluded == 0,
-      do: "Setup search domain  (whole project)",
-      else: "Setup search domain  (#{excluded} excluded)"
+      do: "Choose search scope  (whole project)",
+      else: "Choose search scope  (#{excluded} excluded)"
   end
 
   # An excluded directory counts ONCE, not once per thing inside it. Exclusion

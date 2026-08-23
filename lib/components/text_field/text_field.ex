@@ -301,7 +301,25 @@ defmodule ScenicWidgets.TextField do
     case input do
       {:cursor_button, {:btn_right, 1, _mods, {x, y}}}
       when state.show_line_numbers == true and x >= 0 and x <= state.line_number_width ->
-        update_scene(scene, state, %{state | gutter_menu: %{x: x, y: y}})
+        update_scene(scene, state, %{state | gutter_menu: %{x: x, y: y, hovered: nil}})
+
+      {:cursor_pos, coords} when not is_nil(state.gutter_menu) ->
+        bounds = Renderer.gutter_menu_bounds(state)
+
+        hovered =
+          case ScenicWidgets.Menu.Dropdown.row_at(bounds, coords) do
+            {id, _local} -> id
+            _ -> nil
+          end
+
+        if hovered == Map.get(state.gutter_menu, :hovered) do
+          {:noreply, scene}
+        else
+          update_scene(scene, state, %{
+            state
+            | gutter_menu: %{state.gutter_menu | hovered: hovered}
+          })
+        end
 
       {:cursor_button, {:btn_left, 1, _mods, coords}} when not is_nil(state.gutter_menu) ->
         handle_gutter_menu_click(scene, state, coords)
@@ -802,6 +820,7 @@ defmodule ScenicWidgets.TextField do
           :colors,
           :font,
           :overlay_open,
+          :gutter_menu_theme,
           :highlight_styles,
           :placeholder
         ],

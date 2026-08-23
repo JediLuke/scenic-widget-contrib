@@ -142,7 +142,7 @@ defmodule ScenicWidgets.IconMenu.State do
     state = %__MODULE__{
       frame: frame,
       menus: menus,
-      active_menu: nil,
+      active_menu: Map.get(data, :active_menu),
       hovered_menu: nil,
       hovered_item: nil,
       dragging_slider: nil,
@@ -153,6 +153,8 @@ defmodule ScenicWidgets.IconMenu.State do
       dropdown_bounds: %{},
       align: align
     }
+
+    state = %{state | dropdown_scroll: Map.get(data, :dropdown_scroll, 0)}
 
     %{state | dropdown_bounds: calculate_dropdown_bounds(state)}
   end

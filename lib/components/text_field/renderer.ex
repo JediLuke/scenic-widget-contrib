@@ -150,6 +150,7 @@ defmodule ScenicWidgets.TextField.Renderer do
 
     ScenicWidgets.Menu.Dropdown.render(graph, rows, bounds,
       theme: theme,
+      hovered: Map.get(state.gutter_menu, :hovered),
       show_shortcuts: false,
       id: :gutter_context_menu
     )
@@ -176,20 +177,23 @@ defmodule ScenicWidgets.TextField.Renderer do
   def gutter_menu_theme(%State{} = state) do
     c = state.colors
 
-    %{
-      dropdown_bg: c.background,
-      dropdown_border: c.border,
-      item_text_color: c.text,
-      item_hover_bg: c.selection,
-      item_hover_text_color: c.text,
-      font: state.font.name,
-      dropdown_font_size: max(11, state.font.size - 2),
-      dropdown_item_height: max(26, State.line_height(state)),
-      dropdown_divider_height: 10,
-      dropdown_padding: 4,
-      dropdown_width: 210,
-      dropdown_column_gap: 16
-    }
+    Map.merge(
+      %{
+        dropdown_bg: c.background,
+        dropdown_border: c.border,
+        item_text_color: c.text,
+        item_hover_bg: c.selection,
+        item_hover_text_color: c.background,
+        font: state.font.name,
+        dropdown_font_size: 14,
+        dropdown_item_height: 30,
+        dropdown_divider_height: 10,
+        dropdown_padding: 4,
+        dropdown_width: 210,
+        dropdown_column_gap: 16
+      },
+      state.gutter_menu_theme || %{}
+    )
   end
 
   @doc false

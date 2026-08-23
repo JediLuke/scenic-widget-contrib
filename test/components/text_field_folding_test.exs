@@ -163,6 +163,17 @@ defmodule ScenicWidgets.TextField.FoldingTest do
   end
 
   test "line-number context menu opens down/right with fold choices already expanded" do
+    menu_theme = %{
+      dropdown_bg: {31, 32, 33},
+      dropdown_border: {41, 42, 43},
+      item_text_color: {51, 52, 53},
+      item_hover_bg: {61, 62, 63},
+      item_hover_text_color: {71, 72, 73},
+      font: :ibm_plex_mono,
+      dropdown_font_size: 13,
+      dropdown_item_height: 28
+    }
+
     state =
       State.new(%{
         id: :editor,
@@ -170,13 +181,14 @@ defmodule ScenicWidgets.TextField.FoldingTest do
         initial_text: Enum.join(@lines, "\n"),
         show_line_numbers: true,
         fold_level: 2,
+        gutter_menu_theme: menu_theme,
         font: %{
           name: :ibm_plex_mono,
           size: 16,
           path: Path.expand("../../assets/fonts/IBMPlexMono-Regular.ttf", __DIR__)
         }
       })
-      |> Map.put(:gutter_menu, %{x: 24, y: 30})
+      |> Map.put(:gutter_menu, %{x: 24, y: 30, hovered: :gutter_clear_folds})
 
     bounds = Renderer.gutter_menu_bounds(state)
     assert bounds.x == 24
@@ -184,6 +196,20 @@ defmodule ScenicWidgets.TextField.FoldingTest do
 
     graph = Renderer.initial_render(Graph.build(), state)
     assert Graph.get!(graph, :gutter_context_menu)
+
+    assert Scenic.Primitive.get_style(Graph.get!(graph, :dropdown_bg), :fill) ==
+             {:color, {:color_rgba, {31, 32, 33, 255}}}
+
+    clear_bg = Graph.get!(graph, {:item_bg, :gutter_clear_folds})
+    clear_text = Graph.get!(graph, {:item_text, :gutter_clear_folds})
+
+    assert Scenic.Primitive.get_style(clear_bg, :fill) ==
+             {:color, {:color_rgba, {61, 62, 63, 255}}}
+
+    assert Scenic.Primitive.get_style(clear_text, :fill) ==
+             {:color, {:color_rgba, {71, 72, 73, 255}}}
+
+    assert Scenic.Primitive.get_style(clear_text, :font_size) == 13
     assert Graph.get!(graph, {:select_option, :gutter_fold_level, 1})
     assert Graph.get!(graph, {:select_option, :gutter_fold_level, 4})
     assert Graph.get!(graph, {:item_text, :gutter_clear_folds}).data == "Clear All Folds"

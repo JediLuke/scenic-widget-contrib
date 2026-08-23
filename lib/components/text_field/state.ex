@@ -68,6 +68,7 @@ defmodule ScenicWidgets.TextField.State do
     :overlay_open,
     # Right-click menu anchored in the line-number gutter.
     :gutter_menu,
+    :gutter_menu_theme,
     :fold_level,
 
     # Buffer-backed mode (when input_mode == :store_backed)
@@ -294,6 +295,7 @@ defmodule ScenicWidgets.TextField.State do
       border_sides: Map.get(data, :border_sides, [:top, :right, :bottom, :left]),
       overlay_open: Map.get(data, :overlay_open, false),
       gutter_menu: nil,
+      gutter_menu_theme: Map.get(data, :gutter_menu_theme),
       fold_level: Map.get(data, :fold_level, 1),
 
       # Buffer-backed mode
