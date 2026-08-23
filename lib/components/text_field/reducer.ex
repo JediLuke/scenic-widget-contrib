@@ -564,7 +564,9 @@ defmodule ScenicWidgets.TextField.Reducer do
 
   def process_action(%State{} = state, {:fold_to_level, level}) when level in 1..4 do
     folds = ScenicWidgets.TextField.Folding.fold_to_level(state.lines, level)
-    {:event, {:folds_changed, state.id, MapSet.to_list(folds)}, %{state | folds: folds}}
+
+    {:event, {:folds_changed, state.id, MapSet.to_list(folds)},
+     %{state | folds: folds, fold_level: level}}
   end
 
   # Perform search across all lines.
@@ -788,7 +790,6 @@ defmodule ScenicWidgets.TextField.Reducer do
     vertical_buffer_action(state, 1, :down, :shift in mods)
   end
 
-
   # Home/End keys. With Shift they extend the selection, like every other
   # movement key.
   #
@@ -822,7 +823,6 @@ defmodule ScenicWidgets.TextField.Reducer do
   def input_to_buffer_action(%State{focused: true}, {:key, {:key_a, 1, [:ctrl]}}) do
     :select_all
   end
-
 
   # Ctrl+C - Copy. In store_backed mode the store is the source of truth for
   # the selection shape; TextField's local `selection` mirror can lag behind a
@@ -1527,8 +1527,6 @@ defmodule ScenicWidgets.TextField.Reducer do
     new_state = %{state | cursor: {line, String.length(current_line) + 1}}
     State.ensure_cursor_visible(new_state)
   end
-
-
 
   # ===== SELECTION HELPERS =====
 

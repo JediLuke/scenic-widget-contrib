@@ -299,6 +299,16 @@ defmodule ScenicWidgets.TextField do
     # (e.g., buffer pane shouldn't receive input when search bar is open,
     #  read-only HyperCards shouldn't capture keyboard input)
     case input do
+      {:cursor_button, {:btn_right, 1, _mods, {x, y}}}
+      when state.show_line_numbers == true and x >= 0 and x <= state.line_number_width ->
+        update_scene(scene, state, %{state | gutter_menu: %{x: x, y: y}})
+
+      {:cursor_button, {:btn_left, 1, _mods, coords}} when not is_nil(state.gutter_menu) ->
+        handle_gutter_menu_click(scene, state, coords)
+
+      {:key, {:key_esc, 1, _mods}} when not is_nil(state.gutter_menu) ->
+        update_scene(scene, state, %{state | gutter_menu: nil})
+
       {:cursor_pos, {x, y}} when state.show_line_numbers == true ->
         handle_fold_hover(input, scene, state, x, y)
 
@@ -621,6 +631,43 @@ defmodule ScenicWidgets.TextField do
   defp fold_action?(:unfold_all), do: true
   defp fold_action?(_), do: false
 
+  defp handle_gutter_menu_click(scene, state, coords) do
+    bounds = Renderer.gutter_menu_bounds(state)
+
+    case ScenicWidgets.Menu.Dropdown.row_at(bounds, coords) do
+      {:gutter_fold_level, {_x, local_y}} ->
+        row_height = Renderer.gutter_menu_theme(state).dropdown_item_height
+        option = floor(local_y / row_height)
+
+        if option in 1..4,
+          do: apply_gutter_fold_action(scene, state, {:fold_to_level, option}),
+          else: {:noreply, scene}
+
+      {:gutter_clear_folds, _local} ->
+        apply_gutter_fold_action(scene, state, :unfold_all)
+
+      _outside_or_panel ->
+        update_scene(scene, state, %{state | gutter_menu: nil})
+    end
+  end
+
+  defp apply_gutter_fold_action(scene, state, action) do
+    case action do
+      {:fold_to_level, level} -> send_parent_event(scene, {:fold_level_changed, state.id, level})
+      _ -> :ok
+    end
+
+    case Reducer.process_action(%{state | gutter_menu: nil}, action) do
+      {:noop, new_state} ->
+        update_scene(scene, state, new_state)
+
+      {:event, event, new_state} ->
+        send_parent_event(scene, event)
+        maybe_persist_view(state, new_state)
+        update_scene(scene, state, Reducer.update_scroll_content_size(new_state))
+    end
+  end
+
   defp handle_fold_hover(input, scene, state, x, y) do
     hover_line =
       if x >= 0 and x <= state.line_number_width do
@@ -750,6 +797,7 @@ defmodule ScenicWidgets.TextField do
           :wrap_mode,
           :auto_indent,
           :tab_width,
+          :fold_level,
           :frame,
           :colors,
           :font,

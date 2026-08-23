@@ -161,4 +161,34 @@ defmodule ScenicWidgets.TextField.FoldingTest do
     assert y3 > triangle_anchor_y
     assert_in_delta triangle_anchor_y, expected_anchor_y, 0.01
   end
+
+  test "line-number context menu opens down/right with fold choices already expanded" do
+    state =
+      State.new(%{
+        id: :editor,
+        frame: Frame.new(%{pin: {0, 0}, size: {500, 300}}),
+        initial_text: Enum.join(@lines, "\n"),
+        show_line_numbers: true,
+        fold_level: 2,
+        font: %{
+          name: :ibm_plex_mono,
+          size: 16,
+          path: Path.expand("../../assets/fonts/IBMPlexMono-Regular.ttf", __DIR__)
+        }
+      })
+      |> Map.put(:gutter_menu, %{x: 24, y: 30})
+
+    bounds = Renderer.gutter_menu_bounds(state)
+    assert bounds.x == 24
+    assert bounds.y == 30
+
+    graph = Renderer.initial_render(Graph.build(), state)
+    assert Graph.get!(graph, :gutter_context_menu)
+    assert Graph.get!(graph, {:select_option, :gutter_fold_level, 1})
+    assert Graph.get!(graph, {:select_option, :gutter_fold_level, 4})
+    assert Graph.get!(graph, {:item_text, :gutter_clear_folds}).data == "Clear All Folds"
+
+    assert {:event, _event, folded} = Reducer.process_action(state, {:fold_to_level, 1})
+    assert folded.fold_level == 1
+  end
 end

@@ -66,6 +66,9 @@ defmodule ScenicWidgets.TextField.State do
     :border_sides,
     # Host says an overlay (menu/dialog) owns the pointer — ignore clicks
     :overlay_open,
+    # Right-click menu anchored in the line-number gutter.
+    :gutter_menu,
+    :fold_level,
 
     # Buffer-backed mode (when input_mode == :store_backed)
     # Buffer store process: pid or via-tuple (GenServer.cast target)
@@ -226,6 +229,7 @@ defmodule ScenicWidgets.TextField.State do
         :single_line -> :none
         _ -> Map.get(data, :wrap_mode, :word)
       end
+
     show_line_numbers = Map.get(data, :show_line_numbers, false)
 
     # Calculate dynamic gutter width based on line count
@@ -289,6 +293,8 @@ defmodule ScenicWidgets.TextField.State do
       placeholder: Map.get(data, :placeholder),
       border_sides: Map.get(data, :border_sides, [:top, :right, :bottom, :left]),
       overlay_open: Map.get(data, :overlay_open, false),
+      gutter_menu: nil,
+      fold_level: Map.get(data, :fold_level, 1),
 
       # Buffer-backed mode
       dispatch: Map.get(data, :dispatch),
@@ -583,7 +589,6 @@ defmodule ScenicWidgets.TextField.State do
   # Every colour the field draws with, in one map. A host that supplies only
   # some keys keeps these for the rest, so an existing caller sees no change.
   defp default_colors, do: @default_colors
-
 
   @doc """
   One of the field's colours, falling back to the built-in default.

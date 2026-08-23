@@ -58,6 +58,7 @@ defmodule ScenicWidgets.TextField.Renderer do
     |> render_background(state)
     |> render_border(state)
     |> render_gutter_and_content(state)
+    |> render_gutter_menu(state)
   end
 
   @doc """
@@ -110,26 +111,103 @@ defmodule ScenicWidgets.TextField.Renderer do
   """
   def update_render(graph, old_state, new_state) do
     # If gutter width changed, need full rebuild of gutter and content areas
-    if old_state.line_number_width != new_state.line_number_width do
-      rebuild_gutter_and_content(graph, new_state)
+    graph =
+      if old_state.line_number_width != new_state.line_number_width do
+        rebuild_gutter_and_content(graph, new_state)
+      else
+        graph
+        |> update_border_if_changed(old_state, new_state)
+        |> update_gutter_scroll(old_state, new_state)
+        |> update_content_scroll(old_state, new_state)
+        |> update_lines_if_changed(old_state, new_state)
+        |> update_placeholder_if_changed(old_state, new_state)
+        |> update_highlights_if_changed(old_state, new_state)
+        |> update_semantic_if_changed(old_state, new_state)
+        |> update_line_numbers_if_changed(old_state, new_state)
+        |> update_fold_gutter_if_changed(old_state, new_state)
+        |> update_selection_if_changed(old_state, new_state)
+        |> update_search_matches_if_changed(old_state, new_state)
+        |> update_matching_braces_if_changed(old_state, new_state)
+        |> update_cursor_guides_if_changed(old_state, new_state)
+        |> update_cursor_if_changed(old_state, new_state)
+        |> update_scrollbars_if_changed(old_state, new_state)
+      end
+
+    if old_state.gutter_menu != new_state.gutter_menu or
+         old_state.fold_level != new_state.fold_level do
+      graph |> Graph.delete(:gutter_context_menu) |> render_gutter_menu(new_state)
     else
       graph
-      |> update_border_if_changed(old_state, new_state)
-      |> update_gutter_scroll(old_state, new_state)
-      |> update_content_scroll(old_state, new_state)
-      |> update_lines_if_changed(old_state, new_state)
-      |> update_placeholder_if_changed(old_state, new_state)
-      |> update_highlights_if_changed(old_state, new_state)
-      |> update_semantic_if_changed(old_state, new_state)
-      |> update_line_numbers_if_changed(old_state, new_state)
-      |> update_fold_gutter_if_changed(old_state, new_state)
-      |> update_selection_if_changed(old_state, new_state)
-      |> update_search_matches_if_changed(old_state, new_state)
-      |> update_matching_braces_if_changed(old_state, new_state)
-      |> update_cursor_guides_if_changed(old_state, new_state)
-      |> update_cursor_if_changed(old_state, new_state)
-      |> update_scrollbars_if_changed(old_state, new_state)
     end
+  end
+
+  defp render_gutter_menu(graph, %State{gutter_menu: nil}), do: graph
+
+  defp render_gutter_menu(graph, %State{} = state) do
+    rows = gutter_menu_rows(state)
+    theme = gutter_menu_theme(state)
+    bounds = gutter_menu_bounds(state, rows, theme)
+
+    ScenicWidgets.Menu.Dropdown.render(graph, rows, bounds,
+      theme: theme,
+      show_shortcuts: false,
+      id: :gutter_context_menu
+    )
+  end
+
+  @doc false
+  def gutter_menu_rows(%State{} = state) do
+    alias ScenicWidgets.Menu.Model.{Item, Select}
+
+    [
+      %Select{
+        id: :gutter_fold_level,
+        label: "Set Fold Level",
+        value: state.fold_level,
+        options: Enum.map(1..4, &{&1, "Level #{&1}"}),
+        option_width: 90,
+        expanded?: true
+      },
+      %Item{id: :gutter_clear_folds, label: "Clear All Folds"}
+    ]
+  end
+
+  @doc false
+  def gutter_menu_theme(%State{} = state) do
+    c = state.colors
+
+    %{
+      dropdown_bg: c.background,
+      dropdown_border: c.border,
+      item_text_color: c.text,
+      item_hover_bg: c.selection,
+      item_hover_text_color: c.text,
+      font: state.font.name,
+      dropdown_font_size: max(11, state.font.size - 2),
+      dropdown_item_height: max(26, State.line_height(state)),
+      dropdown_divider_height: 10,
+      dropdown_padding: 4,
+      dropdown_width: 210,
+      dropdown_column_gap: 16
+    }
+  end
+
+  @doc false
+  def gutter_menu_bounds(%State{} = state, rows \\ nil, theme \\ nil) do
+    rows = rows || gutter_menu_rows(state)
+    theme = theme || gutter_menu_theme(state)
+    %{x: click_x, y: click_y} = state.gutter_menu
+    width = 210
+    height = ScenicWidgets.Menu.Dropdown.content_height(rows, theme)
+    x = min(click_x, max(state.frame.size.width - width, 0))
+    y = min(click_y, max(state.frame.size.height - height, 0))
+
+    ScenicWidgets.Menu.Dropdown.layout(rows, theme,
+      x: x,
+      y: y,
+      width: width,
+      max_height: state.frame.size.height - y
+    )
   end
 
   # Rebuild both gutter and content when gutter width changes
