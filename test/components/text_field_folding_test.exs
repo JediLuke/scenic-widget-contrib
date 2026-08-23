@@ -31,6 +31,15 @@ defmodule ScenicWidgets.TextField.FoldingTest do
     assert Folding.foldable_lines(@lines) == MapSet.new([1, 2])
   end
 
+  test "tabs and multi-column indentation count as one structural level" do
+    tabbed = ["defmodule A do", "\tdef x do", "\t\t:ok", "\tend", "end"]
+    four_spaces = ["defmodule A do", "    def x do", "        :ok", "    end", "end"]
+
+    assert Folding.fold_to_level(tabbed, 2) == MapSet.new([2])
+    assert Folding.fold_to_level(tabbed, 3) == MapSet.new()
+    assert Folding.fold_to_level(four_spaces, 2) == MapSet.new([2])
+  end
+
   test "fold header discovery scales linearly across a large document" do
     lines =
       1..10_000
@@ -197,7 +206,7 @@ defmodule ScenicWidgets.TextField.FoldingTest do
       })
 
     bounds = Renderer.gutter_menu_bounds(state)
-    assert bounds.x == 24
+    assert bounds.x == state.line_number_width
     assert bounds.y == 30
 
     graph = Renderer.initial_render(Graph.build(), state)
@@ -223,6 +232,8 @@ defmodule ScenicWidgets.TextField.FoldingTest do
     expanded_graph = Renderer.initial_render(Graph.build(), expanded)
     assert Graph.get(expanded_graph, {:select_option, :gutter_fold_level, 1}) != []
     assert Graph.get(expanded_graph, {:select_option, :gutter_fold_level, 5}) != []
+    assert Renderer.gutter_menu_bounds(state).width == 240
+    assert Renderer.gutter_menu_bounds(state).x >= state.line_number_width
     assert clear_text.data == "Clear All Folds"
 
     assert {:event, _event, folded} = Reducer.process_action(state, {:fold_to_level, 1})

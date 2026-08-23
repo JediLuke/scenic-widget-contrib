@@ -903,7 +903,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
     baseline = row_height / 2 + theme.dropdown_font_size / 3
 
     graph
-    |> Primitives.text(select.label,
+    |> Primitives.text(clip_select_row_label(select.label, box_x, theme),
       id: {:select_label, select.id},
       fill: text_color,
       font: theme.font,
@@ -994,6 +994,15 @@ defmodule ScenicWidgets.Menu.Dropdown do
 
   defp clip_select_label(label, box_width, theme) do
     available = max(box_width - 30, 0)
+    max_chars = trunc(available / max(theme.dropdown_font_size * 0.6, 1))
+
+    if String.length(label) <= max_chars,
+      do: label,
+      else: String.slice(label, 0, max(max_chars - 1, 0)) <> "…"
+  end
+
+  defp clip_select_row_label(label, box_x, theme) do
+    available = max(box_x - 16, 0)
     max_chars = trunc(available / max(theme.dropdown_font_size * 0.6, 1))
 
     if String.length(label) <= max_chars,

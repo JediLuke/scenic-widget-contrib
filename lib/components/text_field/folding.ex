@@ -106,28 +106,36 @@ defmodule ScenicWidgets.TextField.Folding do
     end
   end
 
-  # Scan upward so each nonblank line already knows the indentation of the
-  # next nonblank line. This replaces the old remaining-document scan for
-  # every source line (quadratic on large buffers).
+  # Fold level is structural depth, not a division of indentation columns.
+  # A single nesting step may be two spaces, four spaces, or one tab; all are
+  # Level 2 beneath a Level 1 header. Dividing columns by two made tab-indented
+  # files appear one level deeper than they really were.
   defp foldable_lines_with_levels(lines) do
-    lines
-    |> Enum.with_index(1)
-    |> Enum.reverse()
-    |> Enum.reduce({[], nil}, fn {text, line}, {headers, next_indent} ->
-      if String.trim(text) == "" do
-        {headers, next_indent}
-      else
-        current_indent = indent(text)
+    nonblank =
+      lines
+      |> Enum.with_index(1)
+      |> Enum.reject(fn {text, _line} -> String.trim(text) == "" end)
+      |> Enum.map(fn {text, line} -> {line, indent(text)} end)
 
-        headers =
-          if is_integer(next_indent) and next_indent > current_indent,
-            do: [{line, div(current_indent, 2) + 1} | headers],
-            else: headers
+    nonblank
+    |> Enum.zip(Enum.drop(nonblank, 1) ++ [nil])
+    |> Enum.reduce({[], []}, fn {{line, current_indent}, next}, {headers, ancestors} ->
+      ancestors = Enum.take_while(ancestors, &(&1 < current_indent)) ++ [current_indent]
+      level = length(ancestors)
 
-        {headers, current_indent}
-      end
+      headers =
+        case next do
+          {_next_line, next_indent} when next_indent > current_indent ->
+            [{line, level} | headers]
+
+          _ ->
+            headers
+        end
+
+      {headers, ancestors}
     end)
     |> elem(0)
+    |> Enum.reverse()
   end
 
   defp indent(text) do

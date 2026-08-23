@@ -163,6 +163,7 @@ defmodule ScenicWidgets.TextField.Renderer do
         value: state.fold_level,
         options: Enum.map(1..5, &{&1, "Level #{&1}"}),
         option_width: 90,
+        closed_caret: :left,
         expanded?: Map.get(state.gutter_menu, :select_expanded?, false)
       },
       %Item{id: :gutter_clear_folds, label: "Clear All Folds"}
@@ -185,7 +186,7 @@ defmodule ScenicWidgets.TextField.Renderer do
         dropdown_item_height: 30,
         dropdown_divider_height: 10,
         dropdown_padding: 4,
-        dropdown_width: 210,
+        dropdown_width: 240,
         dropdown_column_gap: 16
       },
       state.gutter_menu_theme || %{}
@@ -197,9 +198,15 @@ defmodule ScenicWidgets.TextField.Renderer do
     rows = rows || gutter_menu_rows(state)
     theme = theme || gutter_menu_theme(state)
     %{x: click_x, y: click_y} = state.gutter_menu
-    width = 210
+    width = theme.dropdown_width
     height = ScenicWidgets.Menu.Dropdown.content_height(rows, theme)
-    x = min(click_x, max(state.frame.size.width - width, 0))
+    max_x = max(state.frame.size.width - width, 0)
+
+    # Keep the popup wholly in the document layer whenever the pane has room.
+    # The gutter and document are independently clipped Scenic scripts; a
+    # glyph crossing their seam is rasterised twice and its two clipped halves
+    # can have visibly different hinting/weight.
+    x = min(max(click_x, state.line_number_width), max_x)
     y = min(click_y, max(state.frame.size.height - height, 0))
 
     ScenicWidgets.Menu.Dropdown.layout(rows, theme,
