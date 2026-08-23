@@ -1071,7 +1071,7 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
 
   # Scope rows share the settings background: without it the tree reads as a
   # strange first result — a list of directories among a list of matches.
-  defp row_fill(%{current?: true}, _hovered, theme), do: theme.button_background
+  defp row_fill(%{current?: true}, _hovered, theme), do: theme.button_active
   defp row_fill(_row, true, theme), do: theme.row_hover
 
   defp row_fill(%{kind: kind}, false, theme) when kind in [:scope, :scope_header],
@@ -1135,6 +1135,7 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
   defp row_open?(%{expanded?: open?}), do: open?
   defp row_open?(_row), do: false
 
+  defp row_colour(%{current?: true}, theme), do: theme.button_text
   defp row_colour(%{kind: :dir}, theme), do: theme.heading
   defp row_colour(%{kind: :file}, theme), do: theme.text
   defp row_colour(%{kind: :scope_header}, theme), do: theme.heading

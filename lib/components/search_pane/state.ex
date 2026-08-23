@@ -1106,11 +1106,16 @@ defmodule ScenicWidgets.SearchPane.State do
   end
 
   @doc "The rectangles of a row's right-edge action buttons, in content space."
-  def action_bounds(%__MODULE__{frame: frame, theme: theme}, row) do
+  def action_bounds(%__MODULE__{frame: frame, theme: theme} = state, row) do
     height = theme.row_height - 4
     right = frame.size.width - theme.padding - 6
 
-    row.actions
+    actions =
+      if state.replace_open?,
+        do: row.actions,
+        else: Enum.reject(row.actions, &replace_mode_action?/1)
+
+    actions
     |> Enum.reverse()
     |> Enum.map_reduce(right, fn action, edge ->
       width = action_width(action, theme)
@@ -1124,6 +1129,11 @@ defmodule ScenicWidgets.SearchPane.State do
   defp action_width({:replace_match, _, _, _}, theme), do: round(theme.small_font_size * 4.2) + 12
   defp action_width({:dismiss_match, _, _, _}, theme), do: round(theme.small_font_size * 4.8) + 12
   defp action_width(_action, theme), do: theme.row_height - 4
+
+  defp replace_mode_action?({:replace_file, _}), do: true
+  defp replace_mode_action?({:replace_match, _, _, _}), do: true
+  defp replace_mode_action?({:dismiss_match, _, _, _}), do: true
+  defp replace_mode_action?(_action), do: false
 
   # ── Hit testing ───────────────────────────────────────────────────────────
 
