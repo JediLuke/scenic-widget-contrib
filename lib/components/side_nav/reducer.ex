@@ -271,6 +271,82 @@ defmodule ScenicWidgets.SideNav.Reducer do
     end
   end
 
+  # Inline rename — the edit primitives of a single-line text field.
+  #
+  # These are here, pure, rather than inline in the input handlers, because
+  # caret arithmetic is the part of a text input that is worth testing without
+  # a viewport: quillex's test/side_nav/rename_editing_test.exs drives them
+  # directly (contrib's own suite cannot build without cairo headers).
+  #
+  # The caret is a grapheme index into rename_value, so it is safe against
+  # multi-byte names and always in 0..String.length(rename_value).
+
+  @doc """
+  Begin renaming `item_id`, seeded with its basename and the caret at the end.
+
+  The name is the starting text, not a placeholder: it is there to be edited.
+  """
+  def start_rename(%State{} = state, item_id) do
+    name = Path.basename(item_id)
+    %{state | renaming_id: item_id, rename_value: name, rename_caret: String.length(name)}
+  end
+
+  @doc """
+  Insert `text` at the caret and leave the caret after what was inserted.
+  """
+  def rename_insert(%State{rename_value: value, rename_caret: caret} = state, text)
+      when is_binary(text) do
+    {before_caret, after_caret} = split_rename(value, caret)
+
+    %{
+      state
+      | rename_value: before_caret <> text <> after_caret,
+        rename_caret: caret + String.length(text)
+    }
+  end
+
+  @doc """
+  Delete the grapheme before the caret. At the start of the name, a no-op.
+  """
+  def rename_backspace(%State{rename_caret: 0} = state), do: state
+
+  def rename_backspace(%State{rename_value: value, rename_caret: caret} = state) do
+    {before_caret, after_caret} = split_rename(value, caret)
+
+    %{
+      state
+      | rename_value: String.slice(before_caret, 0, caret - 1) <> after_caret,
+        rename_caret: caret - 1
+    }
+  end
+
+  @doc """
+  Delete the grapheme at the caret. At the end of the name, a no-op.
+  """
+  def rename_delete(%State{rename_value: value, rename_caret: caret} = state) do
+    {before_caret, after_caret} = split_rename(value, caret)
+    %{state | rename_value: before_caret <> String.slice(after_caret, 1..-1//1)}
+  end
+
+  @doc "Move the caret one grapheme left, stopping at the start of the name."
+  def rename_caret_left(%State{rename_caret: caret} = state),
+    do: %{state | rename_caret: max(caret - 1, 0)}
+
+  @doc "Move the caret one grapheme right, stopping at the end of the name."
+  def rename_caret_right(%State{rename_value: value, rename_caret: caret} = state),
+    do: %{state | rename_caret: min(caret + 1, String.length(value))}
+
+  @doc "Move the caret to the start of the name."
+  def rename_caret_home(%State{} = state), do: %{state | rename_caret: 0}
+
+  @doc "Move the caret to the end of the name."
+  def rename_caret_end(%State{rename_value: value} = state),
+    do: %{state | rename_caret: String.length(value)}
+
+  defp split_rename(value, caret) do
+    {String.slice(value, 0, caret), String.slice(value, caret..-1//1)}
+  end
+
   # Private helpers
 
   defp auto_scroll_to_item(%State{} = state, item_id) do

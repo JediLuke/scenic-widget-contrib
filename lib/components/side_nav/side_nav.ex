@@ -49,6 +49,16 @@ defmodule ScenicWidgets.SideNav do
   - `{:sidebar, :collapse, item_id}` - When a node is collapsed
   - `{:sidebar, :hover, item_id}` - When mouse hovers over an item
   - `{:sidebar, :rename_requested, item_id, new_name}` - Inline rename committed
+
+  ## Inline rename
+
+  Choosing Rename from the context menu opens a single-line text box on the
+  row, pre-filled with the item's current name and the caret at its end — the
+  name is the starting text, not a placeholder, so a rename that only changes
+  one character costs one keystroke. Left/Right move the caret, Home/End jump
+  to the ends, typing inserts at the caret, Backspace and Delete cut either
+  side of it, Enter commits and Escape cancels. While the box is open it owns
+  the keyboard, so the arrow keys do not also move the tree's selection.
   """
 
   use Scenic.Component, has_children: false
@@ -562,14 +572,9 @@ defmodule ScenicWidgets.SideNav do
     unless state.focused, do: send_parent_event(scene, {:focus_taken, :file_nav})
     :ok = capture_input(scene, [:key, :codepoint])
 
-    new_state = %{
-      state
-      | context_menu: nil,
-        renaming_id: item_id,
-        rename_value: Path.basename(item_id),
-        rename_replace_on_input: true,
-        focused: true
-    }
+    new_state =
+      %{state | context_menu: nil, focused: true}
+      |> Reducer.start_rename(item_id)
 
     graph = Renderizer.update_render(scene.assigns.graph, state, new_state)
     {:noreply, scene |> assign(state: new_state, graph: graph) |> push_graph(graph)}
@@ -823,20 +828,61 @@ defmodule ScenicWidgets.SideNav do
     finish_rename(scene)
   end
 
+  # While the rename box is open it owns the keyboard: these clauses sit above
+  # the tree's own arrow-key navigation, so Left/Right move the caret through
+  # the name instead of moving the selection out from under it.
   def handle_input(
         {:key, {:key_backspace, 1, _}},
         _context,
         %{assigns: %{state: %State{renaming_id: id}}} = scene
       )
       when not is_nil(id) do
-    state = scene.assigns.state
+    update_rename(scene, &Reducer.rename_backspace/1)
+  end
 
-    value =
-      if state.rename_replace_on_input,
-        do: "",
-        else: String.slice(state.rename_value, 0, max(String.length(state.rename_value) - 1, 0))
+  def handle_input(
+        {:key, {:key_delete, 1, _}},
+        _context,
+        %{assigns: %{state: %State{renaming_id: id}}} = scene
+      )
+      when not is_nil(id) do
+    update_rename(scene, &Reducer.rename_delete/1)
+  end
 
-    update_rename(scene, value)
+  def handle_input(
+        {:key, {:key_left, 1, _}},
+        _context,
+        %{assigns: %{state: %State{renaming_id: id}}} = scene
+      )
+      when not is_nil(id) do
+    update_rename(scene, &Reducer.rename_caret_left/1)
+  end
+
+  def handle_input(
+        {:key, {:key_right, 1, _}},
+        _context,
+        %{assigns: %{state: %State{renaming_id: id}}} = scene
+      )
+      when not is_nil(id) do
+    update_rename(scene, &Reducer.rename_caret_right/1)
+  end
+
+  def handle_input(
+        {:key, {:key_home, 1, _}},
+        _context,
+        %{assigns: %{state: %State{renaming_id: id}}} = scene
+      )
+      when not is_nil(id) do
+    update_rename(scene, &Reducer.rename_caret_home/1)
+  end
+
+  def handle_input(
+        {:key, {:key_end, 1, _}},
+        _context,
+        %{assigns: %{state: %State{renaming_id: id}}} = scene
+      )
+      when not is_nil(id) do
+    update_rename(scene, &Reducer.rename_caret_end/1)
   end
 
   def handle_input(
@@ -845,9 +891,7 @@ defmodule ScenicWidgets.SideNav do
         %{assigns: %{state: %State{renaming_id: id}}} = scene
       )
       when not is_nil(id) and is_binary(codepoint) do
-    state = scene.assigns.state
-    value = if state.rename_replace_on_input, do: codepoint, else: state.rename_value <> codepoint
-    update_rename(scene, value)
+    update_rename(scene, &Reducer.rename_insert(&1, codepoint))
   end
 
   def handle_input({:key, _}, _context, %{assigns: %{state: %State{focused: false}}} = scene) do
@@ -1149,9 +1193,9 @@ defmodule ScenicWidgets.SideNav do
     {:noreply, scene |> assign(state: new_state, graph: graph) |> push_graph(graph)}
   end
 
-  defp update_rename(scene, value) do
+  defp update_rename(scene, edit_fn) do
     state = scene.assigns.state
-    new_state = %{state | rename_value: value, rename_replace_on_input: false}
+    new_state = edit_fn.(state)
     graph = Renderizer.update_render(scene.assigns.graph, state, new_state)
     {:noreply, scene |> assign(state: new_state, graph: graph) |> push_graph(graph)}
   end
@@ -1160,12 +1204,7 @@ defmodule ScenicWidgets.SideNav do
     state = scene.assigns.state
     :ok = release_input(scene, [:key, :codepoint])
 
-    new_state = %{
-      state
-      | renaming_id: nil,
-        rename_value: "",
-        rename_replace_on_input: false
-    }
+    new_state = %{state | renaming_id: nil, rename_value: "", rename_caret: 0}
 
     graph = Renderizer.update_render(scene.assigns.graph, state, new_state)
     {:noreply, scene |> assign(state: new_state, graph: graph) |> push_graph(graph)}

@@ -104,7 +104,8 @@ defmodule ScenicWidgets.SideNav.Renderizer do
       old_state.drag_target != new_state.drag_target ||
         old_state.drop_valid != new_state.drop_valid ||
         old_state.renaming_id != new_state.renaming_id ||
-          old_state.rename_value != new_state.rename_value ->
+        old_state.rename_value != new_state.rename_value ||
+          old_state.rename_caret != new_state.rename_caret ->
         initial_render(Graph.build(), new_state)
 
       # The pointer moved but nothing else did. Rebuilding the whole tree on
@@ -403,11 +404,19 @@ defmodule ScenicWidgets.SideNav.Renderizer do
                 stroke: {1, theme.focus_ring},
                 translate: {text_x, 3}
               )
-              |> Primitives.text(state.rename_value <> "|",
+              |> Primitives.text(state.rename_value,
                 fill: :white,
                 font: theme.font,
                 font_size: theme.font_size,
                 translate: {text_x + 5, v_center + theme.font_size / 3}
+              )
+              # The caret is drawn where the caret actually is. It used to be a
+              # literal "|" glued to the end of the string, which made it a
+              # picture of a text field rather than one.
+              |> Primitives.rect({1, theme.font_size},
+                fill: :white,
+                translate:
+                  {text_x + 5 + caret_offset(state, theme), v_center - theme.font_size / 2}
               )
             else
               Primitives.text(g2, Item.get_title(item),
@@ -544,6 +553,13 @@ defmodule ScenicWidgets.SideNav.Renderizer do
       end
 
     graph
+  end
+
+  # How far into the rename box the caret sits, in pixels: the width of the
+  # name up to the caret, measured in the same font the box is drawn with.
+  defp caret_offset(%{rename_value: value, rename_caret: caret}, theme) do
+    {:ok, {Scenic.Assets.Static.Font, metrics}} = Scenic.Assets.Static.meta(theme.font)
+    FontMetrics.width(String.slice(value, 0, caret), theme.font_size, metrics)
   end
 
   # Calculate vertical position for text (centering)

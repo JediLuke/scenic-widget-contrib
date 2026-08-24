@@ -53,9 +53,12 @@ defmodule ScenicWidgets.SideNav.State do
     # otherwise opaque to this component, so it cannot infer one.
     :root_id,
     :pending_path_moves,
+    # The inline rename box is an ordinary single-line text input: the name
+    # being edited, and where the caret sits inside it (a grapheme index, so
+    # 0 is before the first character and String.length/1 is past the last).
     :renaming_id,
     :rename_value,
-    :rename_replace_on_input,
+    :rename_caret,
     # Currently focused item (for keyboard nav)
     :focused_id,
     # Currently hovered item (for hover effects)
@@ -165,7 +168,7 @@ defmodule ScenicWidgets.SideNav.State do
       pending_path_moves: [],
       renaming_id: nil,
       rename_value: "",
-      rename_replace_on_input: false,
+      rename_caret: 0,
       focused_id: Map.get(data, :focused_id),
       expanded: initial_expanded,
       scroll:
