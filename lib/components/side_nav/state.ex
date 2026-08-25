@@ -73,6 +73,15 @@ defmodule ScenicWidgets.SideNav.State do
     :scrollbar_drag,
     :scrollbar_drag_start,
     :scrollbar_drag_offset,
+    # Set while a host is resizing the pane live: the size the pane is being
+    # CLIPPED to, which is smaller than the `frame` its content was rendered
+    # at. Nil at rest, and cleared by the real `{:update_frame, _}` on release.
+    # See `Renderizer.preview_frame/3`.
+    preview_frame: nil,
+    # Set while the host is still fetching the tree. The pane says so rather
+    # than drawing as an empty navigator, which is what a project with no files
+    # in it looks like and is a different thing entirely.
+    loading?: false,
     # Component-level keyboard focus — all key input is ignored while false
     focused: false
   ]
@@ -175,6 +184,7 @@ defmodule ScenicWidgets.SideNav.State do
           initially_visible: true
         ),
       theme: theme,
+      loading?: Map.get(data, :loading?, false),
       item_bounds: item_bounds,
       scrollbar_drag: nil,
       scrollbar_drag_start: nil,

@@ -75,6 +75,19 @@ defmodule ScenicWidgets.SideNav.Api do
   end
 
   @doc """
+  Fill in the children of one lazily loaded node.
+
+  Everything else about the tree — which folders are open, what is selected,
+  where it is scrolled — is left exactly as it was, because the tree that goes
+  back through `update_tree/2` differs from the current one in one node only.
+  """
+  def put_children(%State{} = state, item_id, children) when is_list(children) do
+    state
+    |> update_tree(Item.put_children(state.tree, item_id, children))
+    |> Map.put(:loading?, false)
+  end
+
+  @doc """
   Update the tree structure.
   Preserves expansion state for items that still exist.
   """

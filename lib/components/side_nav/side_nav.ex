@@ -168,8 +168,22 @@ defmodule ScenicWidgets.SideNav do
     {:noreply, scene}
   end
 
-  def handle_put({:update_tree, new_tree}, scene) do
+  # A lazily loaded node's children, arrived. Splices them into the tree
+  # without disturbing anything else about it — see `Api.put_children/3`.
+  def handle_put({:load_children, item_id, children}, scene) do
     state = scene.assigns.state
+    new_state = Api.put_children(state, item_id, children)
+    graph = Renderizer.initial_render(Graph.build(), new_state)
+
+    scene = scene |> assign(state: new_state, graph: graph) |> push_graph(graph)
+    register_semantic_elements(scene, new_state)
+
+    {:noreply, scene}
+  end
+
+  def handle_put({:update_tree, new_tree}, scene) do
+    # The tree is here, so the pane has nothing left to wait for.
+    state = %{scene.assigns.state | loading?: false}
     new_state = Api.update_tree(state, new_tree)
 
     # Full re-render for tree changes
@@ -220,8 +234,53 @@ defmodule ScenicWidgets.SideNav do
     {:noreply, scene}
   end
 
-  def handle_put({:update_frame, frame}, scene) do
+  @doc false
+  # Opens a live resize. Renders the content ONCE at `max_frame` — the widest
+  # and tallest the gesture can reach — and clips it straight back to the size
+  # the pane is at right now, in a single push. From here every interim size is
+  # a `{:preview_frame, _}` away, because the pixels for it are already drawn.
+  #
+  # The render and the clip are deliberately one message. Sent as two, the
+  # driver can paint between them, and the pane flashes out to its maximum
+  # width for a frame before snapping back.
+  def handle_put({:begin_resize, max_frame}, scene) do
     state = scene.assigns.state
+    clip = state.preview_frame || state.frame
+
+    resized_scroll =
+      state.scroll
+      |> ScrollState.update_viewport_size(max_frame)
+      |> State.sync_scrollbar_visibility()
+
+    new_state = %{state | frame: max_frame, scroll: resized_scroll, preview_frame: clip}
+
+    graph =
+      Graph.build()
+      |> Renderizer.initial_render(new_state)
+      |> Renderizer.preview_frame(new_state, clip)
+
+    {:noreply, scene |> assign(state: new_state, graph: graph) |> push_graph(graph)}
+  end
+
+  # Live resize, cheap half. Clips the pane to an interim size with a couple of
+  # `Graph.modify` calls and nothing else: no bounds recalculation, no tree
+  # walk, no semantic re-registration. Cheap enough to run on every pointer
+  # sample of a divider drag, where `{:update_frame, _}` — which rebuilds the
+  # entire row graph — is not.
+  #
+  # It can only reveal LESS than what is already drawn, so it is only
+  # meaningful between a `{:begin_resize, _}` and the `{:update_frame, _}` that
+  # commits the size the pointer settled on.
+  def handle_put({:preview_frame, frame}, scene) do
+    state = scene.assigns.state
+    new_state = %{state | preview_frame: frame}
+    graph = Renderizer.preview_frame(scene.assigns.graph, new_state, frame)
+
+    {:noreply, scene |> assign(state: new_state, graph: graph) |> push_graph(graph)}
+  end
+
+  def handle_put({:update_frame, frame}, scene) do
+    state = %{scene.assigns.state | preview_frame: nil}
 
     resized_scroll = ScrollState.update_viewport_size(state.scroll, frame)
 

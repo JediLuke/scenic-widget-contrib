@@ -7,9 +7,23 @@ defmodule ScenicWidgets.SideNav.Item do
   - title: Display text
   - type: :module | :page | :task | :group | :custom
   - url: Optional navigation target
-  - children: List of child items
+  - children: List of child items, or `:unloaded`
   - depth: Nesting level (calculated)
   - expanded: Expansion state (managed by State)
+
+  ## Lazy children
+
+  `children: :unloaded` means "this node has children, but nobody has looked
+  yet". It is how a host avoids materialising a whole tree up front: a file
+  navigator over a large project can hand over one directory level, mark every
+  directory in it `:unloaded`, and fill each one in as it is expanded.
+
+  Such a node still reports `has_children?/1` — it must, or it would draw
+  without a chevron and there would be no way to ask for its contents — while
+  `get_children/1` reports the nothing it currently holds. The distinction the
+  host cares about is `loaded?/1`.
+
+  `children: []` keeps its ordinary meaning: looked, and there is nothing there.
   """
 
   defstruct [
@@ -30,7 +44,7 @@ defmodule ScenicWidgets.SideNav.Item do
     type: item_type(),
     url: String.t() | nil,
     action: (-> any()) | nil,
-    children: [t()],
+    children: [t()] | :unloaded,
     depth: non_neg_integer(),
     expanded: boolean()
   }
@@ -53,14 +67,43 @@ defmodule ScenicWidgets.SideNav.Item do
   def get_title(%__MODULE__{title: title}), do: title
 
   @doc """
-  Get the children of an item.
+  Get the children of an item. A node whose children have not been fetched yet
+  holds none.
   """
+  def get_children(%__MODULE__{children: :unloaded}), do: []
   def get_children(%__MODULE__{children: children}), do: children
 
   @doc """
   Check if an item has children.
+
+  True for a node whose children have not been fetched yet: it is precisely
+  because it has them that somebody has to go and get them.
   """
+  def has_children?(%__MODULE__{children: :unloaded}), do: true
   def has_children?(%__MODULE__{children: children}), do: length(children) > 0
+
+  @doc """
+  Whether this item's children have been fetched. See the module docs.
+  """
+  def loaded?(%__MODULE__{children: :unloaded}), do: false
+  def loaded?(%__MODULE__{}), do: true
+
+  @doc """
+  Replace one item's children, in place, wherever it is in the tree.
+
+  How a lazily loaded node is filled in once its contents arrive. Every other
+  node is returned untouched, expansion state included — the tree the caller
+  gets back differs from the one it gave in exactly one place.
+  """
+  def put_children(tree, target_id, children) when is_list(tree) do
+    Enum.map(tree, fn %__MODULE__{} = item ->
+      cond do
+        item.id == target_id -> %{item | children: children}
+        loaded?(item) -> %{item | children: put_children(item.children, target_id, children)}
+        true -> item
+      end
+    end)
+  end
 
   @doc """
   Check if an item is marked as initially expanded.
@@ -379,7 +422,7 @@ defmodule ScenicWidgets.SideNav.Item do
         item
 
       has_children?(item) ->
-        case do_find_by_id(item.children, target_id) do
+        case do_find_by_id(get_children(item), target_id) do
           nil -> do_find_by_id(rest, target_id)
           found -> found
         end
@@ -403,7 +446,7 @@ defmodule ScenicWidgets.SideNav.Item do
 
     acc_with_children = if has_children?(item) do
       # Add children (reversed since we're building backwards)
-      do_flatten(item.children, new_acc)
+      do_flatten(get_children(item), new_acc)
     else
       new_acc
     end

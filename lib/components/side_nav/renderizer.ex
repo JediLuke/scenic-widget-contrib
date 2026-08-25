@@ -35,34 +35,51 @@ defmodule ScenicWidgets.SideNav.Renderizer do
     |> Primitives.group(
       fn g ->
         g
-        # Background and independently selectable edges. A SideNav placed
-        # directly beneath a breadcrumb/header must not draw a second seam;
-        # standalone navigators retain all four edges by default.
-        |> Primitives.rect(
-          state.frame.size.box,
-          id: :sidebar_background,
-          fill: state.theme.background
-        )
-        |> render_border(state.frame.size.box, border_color, Map.get(state.theme, :border_sides))
-        # Scrollable content area using Widgex.Scrollable macro
-        |> scrollable_group(
-          state.scroll,
-          state.frame,
-          fn scroll_g ->
-            scroll_g
-            |> render_tree(state.tree, state, 0)
+        |> Primitives.group(
+          fn body ->
+            body
+            # Background and independently selectable edges. A SideNav placed
+            # directly beneath a breadcrumb/header must not draw a second seam;
+            # standalone navigators retain all four edges by default.
+            |> Primitives.rect(
+              state.frame.size.box,
+              id: :sidebar_background,
+              fill: state.theme.background
+            )
+            |> render_border(
+              state.frame.size.box,
+              border_color,
+              Map.get(state.theme, :border_sides)
+            )
+            # Scrollable content area using Widgex.Scrollable macro
+            |> scrollable_group(
+              state.scroll,
+              state.frame,
+              fn scroll_g ->
+                scroll_g
+                |> render_content(state)
+              end,
+              id: :sidebar_scroll_group,
+              overlay_scrollbars: true
+            )
+            # Scrollbars on top
+            |> render_scrollbars(state.scroll, state.frame,
+              color: Map.get(state.theme, :scrollbar_color, {160, 160, 160})
+            )
           end,
-          id: :sidebar_scroll_group,
-          overlay_scrollbars: true
-        )
-        # Scrollbars on top
-        |> render_scrollbars(state.scroll, state.frame,
-          color: Map.get(state.theme, :scrollbar_color, {160, 160, 160})
+          # Everything that is BOUNDED BY the pane is scissored to it, so that
+          # a host resizing the pane live can clip it to an interim size with a
+          # single `Graph.modify` (see `preview_frame/3`) instead of asking for
+          # a fresh render on every pointer sample.
+          id: :side_nav_body,
+          scissor: clip_box(state)
         )
         |> render_context_menu(state)
-        # Both sit outside the scrollable group: the pane outline frames the
-        # viewport, and the ghost tracks the pointer in screen space. Scrolling
-        # either of them with the content would be wrong.
+        # These three sit outside the scissor as well as outside the scrollable
+        # group. The menu opens past the bottom edge on the last row, the pane
+        # outline frames the viewport, and the ghost follows the pointer out of
+        # the pane entirely — which is the whole point of dragging a file into
+        # the editor. Clipping any of them to the pane would break it.
         |> render_root_drop_target(state)
         |> render_drag_ghost(state)
       end,
@@ -71,17 +88,71 @@ defmodule ScenicWidgets.SideNav.Renderizer do
     )
   end
 
-  defp render_border(graph, {width, height}, color, sides) do
+  @doc """
+  Clip the pane to `frame` without re-rendering anything.
+
+  This is the cheap half of a live resize. The content, the rows, the bounds
+  and the scrollbars all keep the geometry they were last rendered with; only
+  the scissor that clips the pane and the two moving edges are touched. It is
+  a handful of `Graph.modify` calls, no tree walk, and so it can run on every
+  pointer sample of a divider drag.
+
+  It can only ever *reveal less* than what is already drawn, so a host must
+  render once at the widest size the gesture can reach before previewing
+  within it — otherwise growing past the rendered width shows empty pane.
+  `{:update_frame, frame}` puts the real geometry back on release.
+  """
+  def preview_frame(graph, %State{} = state, %{size: %{box: {width, height}}}) do
+    border_color = Map.get(state.theme, :border, {220, 220, 220})
+    sides = Map.get(state.theme, :border_sides) || [:top, :right, :bottom, :left]
+
+    graph
+    |> Graph.modify(:side_nav_body, &Scenic.Primitive.put_style(&1, :scissor, {width, height}))
+    |> preview_border(:right, sides, {width, height}, border_color)
+    |> preview_border(:bottom, sides, {width, height}, border_color)
+  end
+
+  # The moving edges. Both are inset by a pixel so the scissor above, which
+  # clips at exactly {width, height}, does not eat the stroke it is meant to
+  # be showing.
+  defp preview_border(graph, side, sides, box, color) do
+    if side in sides do
+      Graph.modify(graph, {:side_nav_border, side}, fn primitive ->
+        primitive
+        |> Scenic.Primitive.put(border_line(side, box))
+        |> Scenic.Primitive.put_style(:stroke, {1, color})
+      end)
+    else
+      graph
+    end
+  end
+
+  defp render_border(graph, box, color, sides) do
     sides = sides || [:top, :right, :bottom, :left]
 
-    Enum.reduce(sides, graph, fn
-      :top, g -> Primitives.line(g, {{0, 0}, {width, 0}}, stroke: {1, color})
-      :right, g -> Primitives.line(g, {{width, 0}, {width, height}}, stroke: {1, color})
-      :bottom, g -> Primitives.line(g, {{0, height}, {width, height}}, stroke: {1, color})
-      :left, g -> Primitives.line(g, {{0, 0}, {0, height}}, stroke: {1, color})
-      _other, g -> g
+    Enum.reduce([:top, :right, :bottom, :left], graph, fn side, g ->
+      if side in sides do
+        Primitives.line(g, border_line(side, box), id: {:side_nav_border, side}, stroke: {1, color})
+      else
+        g
+      end
     end)
   end
+
+  # What the pane body is clipped to. A live resize is clipped to the interim
+  # size; everything else is clipped to the frame it was rendered at, which
+  # clips nothing.
+  defp clip_box(%State{preview_frame: nil} = state), do: state.frame.size.box
+  defp clip_box(%State{preview_frame: frame}), do: frame.size.box
+
+  # Inset by a pixel on the two edges the pane's own scissor clips, so that a
+  # previewed resize does not clip away the very stroke it is drawing.
+  defp border_line(:top, {width, _height}), do: {{0, 0}, {width, 0}}
+  defp border_line(:left, {_width, height}), do: {{0, 0}, {0, height}}
+
+  defp border_line(:right, {width, height}), do: {{width - 1, 0}, {width - 1, height}}
+
+  defp border_line(:bottom, {width, height}), do: {{0, height - 1}, {width, height - 1}}
 
   @doc """
   Update render - only modifies changed elements.
@@ -267,6 +338,25 @@ defmodule ScenicWidgets.SideNav.Renderizer do
       translate: {left, top}
     )
   end
+
+  # A tree that has not arrived yet says so. Drawn instead of the tree rather
+  # than above it, because an empty navigator is what a project with no files in
+  # it looks like, and the two should not be confusable.
+  defp render_content(graph, %State{loading?: true, tree: []} = state) do
+    {width, height} = state.frame.size.box
+    theme = state.theme
+
+    Primitives.text(graph, "Loading…",
+      id: :sidebar_loading,
+      font: theme.font,
+      font_size: theme.font_size,
+      fill: Map.get(theme, :dim_text, Map.get(theme, :chevron, {128, 128, 128})),
+      text_align: :center,
+      translate: {width / 2, min(height / 3, 120)}
+    )
+  end
+
+  defp render_content(graph, %State{} = state), do: render_tree(graph, state.tree, state, 0)
 
   # Recursively render tree structure
   defp render_tree(graph, items, state, depth) when is_list(items) do
