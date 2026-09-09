@@ -567,13 +567,7 @@ defmodule ScenicWidgets.ScenicEventsDefinitions do
         #      around that - which is the actual source of robust programs -
         #      good design. So should we fail here? The choice is yours~
 
-        take_the_red_pill? = true
-
-        if take_the_red_pill? do
-          raise "Unable to convert #{inspect(x)} to a valid string."
-        else
-          "X"
-        end
+        raise "Unable to convert #{inspect(x)} to a valid string."
       end
     end
   end

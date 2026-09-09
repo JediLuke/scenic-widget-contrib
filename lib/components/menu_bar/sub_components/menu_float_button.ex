@@ -1,6 +1,5 @@
 defmodule ScenicWidgets.MenuBar.FloatButton do
   use Scenic.Component
-  require Logger
 
   @moduledoc """
   This module is really not that different from a normal Scenic Button,

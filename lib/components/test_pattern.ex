@@ -1,6 +1,5 @@
 defmodule ScenicWidgets.TestPattern do
   use Scenic.Component, has_children: false
-  require Logger
 
   def validate(data) do
     # Logger.debug("#{__MODULE__} accepted params: #{inspect(data)}")

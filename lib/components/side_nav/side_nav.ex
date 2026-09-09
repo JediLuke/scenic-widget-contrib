@@ -74,15 +74,10 @@ defmodule ScenicWidgets.SideNav do
   @drag_scroll_min_step 3
   @drag_scroll_max_step 18
 
-  # Override add_to_graph for custom initialization
-  def add_to_graph(graph, data, opts \\ []) do
-    # Call the default implementation provided by `use Scenic.Component`
-    super(graph, data, opts)
-  end
-
   @doc """
   Validate initialization data.
   """
+  @impl Scenic.Component
   def validate(data) when is_map(data) do
     case {Map.get(data, :frame), Map.get(data, :tree)} do
       {%{pin: _, size: _}, tree} when is_list(tree) ->
@@ -97,7 +92,7 @@ defmodule ScenicWidgets.SideNav do
     end
   end
 
-  @impl Scenic.Component
+  @impl Scenic.Scene
   def init(scene, data, _opts) do
     Logger.debug("🎯 SideNav component initializing!")
 

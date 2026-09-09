@@ -93,6 +93,7 @@ defmodule ScenicWidgets.MenuBar do
   alias Scenic.Graph
 
 
+  @impl Scenic.Component
   def validate(data) when is_map(data) do
     # Required: frame and menu_map
     case {Map.get(data, :frame), Map.get(data, :menu_map)} do
@@ -165,7 +166,7 @@ defmodule ScenicWidgets.MenuBar do
     end)
   end
 
-  @impl Scenic.Component
+  @impl Scenic.Scene
   def init(scene, data, _opts) do
     # Logger.debug("🎯 ScenicWidgets.MenuBar component initializing (regular MenuBar, NOT Enhanced)")
     # Logger.debug("MenuBar init called with data: #{inspect(data)}")
@@ -244,6 +245,7 @@ defmodule ScenicWidgets.MenuBar do
   #   {:noreply, scene}
   # end
 
+  @impl Scenic.Scene
   def handle_put(:close_all_menus, scene) do
     # Logger.debug("MenuBar received :close_all_menus via handle_put")
     state = scene.assigns.state
@@ -286,6 +288,7 @@ defmodule ScenicWidgets.MenuBar do
     {:noreply, scene}
   end
 
+  @impl Scenic.Scene
   def handle_input({:cursor_pos, coords}, _context, scene) do
     state = scene.assigns.state
     new_state = Reducer.handle_cursor_pos(state, coords)
@@ -408,7 +411,7 @@ defmodule ScenicWidgets.MenuBar do
       # Register each menu header button as a clickable semantic element
       state.menu_map
       |> Enum.with_index()
-      |> Enum.each(fn {{menu_id, {label, items}}, index} ->
+      |> Enum.each(fn {{_menu_id, {label, items}}, index} ->
         # Calculate bounds for this menu header
         local_x = index * item_width
         local_y = 0

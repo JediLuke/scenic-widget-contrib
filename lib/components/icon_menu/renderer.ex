@@ -11,7 +11,6 @@ defmodule ScenicWidgets.IconMenu.Renderer do
   alias Scenic.Graph
   alias Scenic.Primitives
   alias ScenicWidgets.IconMenu.State
-  alias ScenicWidgets.MenuBar.TextHelper
   alias ScenicWidgets.Menu.Dropdown
 
   @doc """

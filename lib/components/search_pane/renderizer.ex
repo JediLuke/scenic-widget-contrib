@@ -36,7 +36,6 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
 
   # IconMenu's dropdown corner, and the slightly tighter one it gives the rows
   # inside it.
-  @panel_radius 4
   @panel_row_radius 3
 
   @doc "The whole pane, from nothing. Used on init and nowhere else."
@@ -970,9 +969,6 @@ defmodule ScenicWidgets.SearchPane.Renderizer do
       "…" <> String.slice(text, (String.length(text) - max(limit - 1, 0))..-1//1)
     end
   end
-
-  defp plural(1, word), do: word
-  defp plural(_n, word), do: word <> "s"
 
   # ── Body ──────────────────────────────────────────────────────────────────
 

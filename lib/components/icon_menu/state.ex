@@ -253,14 +253,6 @@ defmodule ScenicWidgets.IconMenu.State do
     |> Enum.into(%{})
   end
 
-  defp max_dropdown_height(theme, content_height) do
-    case Map.get(theme, :max_dropdown_height) do
-      nil -> content_height
-      max when is_number(max) and max > 0 -> max
-      _ -> content_height
-    end
-  end
-
   @doc "How far the open dropdown can be scrolled; 0 when it all fits."
   def max_dropdown_scroll(%__MODULE__{active_menu: nil}), do: 0
 
@@ -450,9 +442,6 @@ defmodule ScenicWidgets.IconMenu.State do
     end
   end
 
-  @doc """
-  Extract options from a menu item. Returns empty map for simple items.
-  """
   @doc "Returns optional explanatory text for a dropdown row."
   def item_tooltip({_id, _label, opts}) when is_map(opts), do: Map.get(opts, :tooltip)
   def item_tooltip(%{tooltip: tooltip}) when is_binary(tooltip), do: tooltip

@@ -34,8 +34,8 @@ defmodule ScenicWidgets.Clipboard.System do
          {text, 0} <- System.cmd(executable, args) do
       {:ok, text}
     else
+      {:error, _} = error -> error
       {message, status} -> {:error, {status, message}}
-      error -> error
     end
   rescue
     error -> {:error, error}

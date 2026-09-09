@@ -7,8 +7,6 @@ defmodule ScenicWidgets.SpareParts.LukesMultiSelect do
   import Scenic.Primitives
   alias Scenic.Assets.Static
 
-  require Logger
-
   @default_direction :down
   @default_font :roboto_mono
   @default_font_size 20
@@ -23,7 +21,6 @@ defmodule ScenicWidgets.SpareParts.LukesMultiSelect do
   @rotate_neutral :math.pi() / 2
   @rotate_down 0
   @rotate_up :math.pi()
-  @drop_click_window_ms 400
 
   # --------------------------------------------------------
   @impl Scenic.Component
@@ -190,6 +187,7 @@ defmodule ScenicWidgets.SpareParts.LukesMultiSelect do
   end
 
   # Handle input when the dropdown is closed and button is pressed
+  @impl Scenic.Scene
   def handle_input(
         {:cursor_button, {:btn_left, 1, _, _}},
         @button_id,
@@ -222,7 +220,7 @@ defmodule ScenicWidgets.SpareParts.LukesMultiSelect do
         %Scene{
           assigns: %{
             down: true,
-            theme: theme,
+            theme: _theme,
             graph: graph
           }
         } = scene
@@ -303,6 +301,7 @@ defmodule ScenicWidgets.SpareParts.LukesMultiSelect do
 
   def handle_input(_, _, scene), do: {:noreply, scene}
 
+  @impl GenServer
   def handle_cast({:set_scroll, _coords}, scene) do
     {:noreply, scene}
   end

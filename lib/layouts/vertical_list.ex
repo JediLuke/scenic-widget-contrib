@@ -1,6 +1,5 @@
 defmodule ScenicWidgets.VerticalList do
   use Scenic.Component
-  require Logger
   alias Widgex.Frame
 
   def validate(
@@ -19,7 +18,7 @@ defmodule ScenicWidgets.VerticalList do
   #   {:ok, data}
   # end
 
-  def init(scene, args, opts) do
+  def init(scene, args, _opts) do
     # Logger.debug "#{__MODULE__} initializing..."
 
     # TODO here we break the frame down into sub-frames and pass those
@@ -133,7 +132,7 @@ defmodule ScenicWidgets.VerticalList do
   # end
 
   def handle_input(
-        {:cursor_scroll, {{_x_scroll, _y_scroll}, coords}},
+        {:cursor_scroll, {{x_scroll, y_scroll}, coords}},
         _context,
         scene
       ) do
@@ -166,7 +165,7 @@ defmodule ScenicWidgets.VerticalList do
     if coords |> ScenicWidgets.Utils.inside?(bounds) do
       cast_parent(
         scene,
-        {:cursor_scroll, scene.assigns.id, {{_x_scroll, _y_scroll}, coords}}
+        {:cursor_scroll, scene.assigns.id, {{x_scroll, y_scroll}, coords}}
       )
     end
 

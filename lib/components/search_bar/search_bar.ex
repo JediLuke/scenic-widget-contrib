@@ -53,8 +53,6 @@ defmodule ScenicWidgets.SearchBar do
   use Scenic.Component, has_children: true
   use ScenicWidgets.ScenicEventsDefinitions
 
-  require Logger
-
   alias ScenicWidgets.SearchBar.State
   alias ScenicWidgets.SearchBar.Renderer
   alias Widgex.Frame
@@ -63,6 +61,7 @@ defmodule ScenicWidgets.SearchBar do
   @key_pressed 1
 
   # Validate component data
+  @impl Scenic.Component
   def validate(%{id: id, frame: %Frame{}} = data) when is_atom(id) do
     {:ok, data}
   end
@@ -75,15 +74,8 @@ defmodule ScenicWidgets.SearchBar do
     {:error, "SearchBar requires :id (atom) and :frame (Widgex.Frame), got: #{inspect(data)}"}
   end
 
-  @doc """
-  Add the SearchBar to a graph.
-  """
-  def add_to_graph(graph, data, opts \\ []) do
-    # Use the default implementation provided by Scenic.Component
-    super(graph, data, opts)
-  end
-
   # Initialize the component
+  @impl Scenic.Scene
   def init(scene, data, opts) do
     id = opts[:id] || data[:id] || :search_bar
 
@@ -118,6 +110,7 @@ defmodule ScenicWidgets.SearchBar do
   end
 
   # Handle external updates (e.g., set match count)
+  @impl Scenic.Scene
   def handle_put({:set_matches, current, total}, scene) do
     state = State.set_matches(scene.assigns.state, current, total)
     graph = Renderer.update_match_count(scene.assigns.graph, state)
@@ -193,6 +186,7 @@ defmodule ScenicWidgets.SearchBar do
   # Scenic delivers every keystroke here. On a Mac the command key arrives as
   # :meta, so it is rewritten to :ctrl once, at the door — the clauses below
   # then say what they mean on both platforms.
+  @impl Scenic.Scene
   def handle_input({:key, {key, action, mods}}, context, scene),
     do:
       route_input(

@@ -76,7 +76,7 @@ defmodule Widgex.Scroll.ScrollRenderer do
           keyword()
         ) ::
           Graph.t()
-  def scrollable_group(graph, %ScrollState{} = scroll, %Frame{} = frame, content_fn, opts \\ []) do
+  def scrollable_group(graph, %ScrollState{} = scroll, %Frame{} = _frame, content_fn, opts \\ []) do
     overlay_scrollbars? = Keyword.get(opts, :overlay_scrollbars, false)
 
     content_width =

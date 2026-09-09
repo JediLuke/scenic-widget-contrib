@@ -58,7 +58,6 @@ defmodule ScenicWidgets.TabBar do
   """
 
   use Scenic.Component, has_children: false
-  require Logger
 
   alias ScenicWidgets.TabBar.{State, Reducer, Renderer}
   alias Scenic.Graph
@@ -200,14 +199,6 @@ defmodule ScenicWidgets.TabBar do
   end
 
   @doc """
-  Replace the whole tab set (and selection) in place.
-
-  This is the update path for hosts that treat the tab list as derived
-  state (e.g. published store snapshots): message the surviving component
-  instead of delete+recreating it — recreation churn under rapid successive
-  updates can kill a TabBar instance mid-init.
-  """
-  @doc """
   Repaint with new theme keys, merged over the current theme.
   """
   def handle_put({:set_theme, theme}, scene) when is_map(theme) do
@@ -221,6 +212,12 @@ defmodule ScenicWidgets.TabBar do
     {:noreply, scene}
   end
 
+  # Replace the whole tab set (and selection) in place.
+  #
+  # This is the update path for hosts that treat the tab list as derived
+  # state (e.g. published store snapshots): message the surviving component
+  # instead of delete+recreating it — recreation churn under rapid successive
+  # updates can kill a TabBar instance mid-init.
   def handle_put({:set_tabs, tabs, selected_id}, scene) do
     state = scene.assigns.state
     new_state = %{state | tabs: State.normalize_tabs(tabs), selected_id: selected_id}

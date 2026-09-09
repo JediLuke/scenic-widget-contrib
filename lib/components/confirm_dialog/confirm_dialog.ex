@@ -36,7 +36,6 @@ defmodule ScenicWidgets.ConfirmDialog do
   """
 
   use Scenic.Component, has_children: false
-  require Logger
 
   import Scenic.Primitives
 

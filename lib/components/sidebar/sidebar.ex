@@ -1,6 +1,5 @@
 defmodule ScenicWidgets.Sidebar do
   use Scenic.Component
-  require Logger
   alias Scenic.{Graph, Primitives}
 
   @impl Scenic.Component
@@ -184,7 +183,7 @@ defmodule ScenicWidgets.Sidebar do
     end
   end
   
-  defp handle_input_internal(input, ctx, scene) do
+  defp handle_input_internal(_input, _ctx, scene) do
     {:noreply, scene}
   end
   

@@ -43,7 +43,6 @@ defmodule ScenicWidgets.TidbitTile do
   """
 
   use Scenic.Component, has_children: false
-  require Logger
 
   alias ScenicWidgets.TidbitTile.{State, Renderer}
   alias Scenic.Graph

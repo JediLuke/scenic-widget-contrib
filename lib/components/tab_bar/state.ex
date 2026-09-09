@@ -315,7 +315,6 @@ defmodule ScenicWidgets.TabBar.State do
     px >= 0 and px <= frame.size.width and py >= 0 and py <= theme.height
   end
 
-  @doc "Clamp scroll so the selected tab is fully visible."
   @doc """
   Is this tab actually on screen right now?
 
@@ -339,6 +338,7 @@ defmodule ScenicWidgets.TabBar.State do
     end
   end
 
+  @doc "Clamp scroll so the selected tab is fully visible."
   def ensure_selected_visible(%__MODULE__{selected_id: nil} = state), do: state
 
   def ensure_selected_visible(state) do

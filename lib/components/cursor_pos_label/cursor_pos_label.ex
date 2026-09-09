@@ -29,7 +29,6 @@ defmodule ScenicWidgets.CursorPosLabel do
   failed. An unrecognised snapshot shape should crash here instead.
   """
   use Scenic.Component, has_children: false
-  require Logger
 
   alias Scenic.Graph
   import Scenic.Primitives
@@ -76,6 +75,7 @@ defmodule ScenicWidgets.CursorPosLabel do
     {:ok, scene}
   end
 
+  @impl GenServer
   def handle_info({{Scenic.PubSub, :data}, {_source, buf_state, _ts}}, scene) do
     cursor =
       case buf_state do
@@ -100,6 +100,7 @@ defmodule ScenicWidgets.CursorPosLabel do
   def handle_info({{Scenic.PubSub, :registered}, _}, scene), do: {:noreply, scene}
   def handle_info({{Scenic.PubSub, :unregistered}, _}, scene), do: {:noreply, scene}
 
+  @impl Scenic.Scene
   def handle_input(
         {:cursor_button, {:btn_left, 1, _mods, _coords}},
         :cursor_pos_background,
@@ -112,6 +113,7 @@ defmodule ScenicWidgets.CursorPosLabel do
   def handle_input(_input, _context, scene), do: {:noreply, scene}
 
   # Repaint: `%{color: _, background: _}`, either key optional.
+  @impl Scenic.Scene
   def handle_put({:set_theme, theme}, scene) when is_map(theme) do
     scene =
       assign(scene,

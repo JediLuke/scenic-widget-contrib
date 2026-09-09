@@ -724,6 +724,7 @@ defmodule ScenicWidgets.SpareParts.LukesDropDown do
     {:reply, {:ok, {items, selected_id}}, scene}
   end
 
+  @impl GenServer
   def handle_cast(_msg, scene) do
     {:noreply, scene}
   end

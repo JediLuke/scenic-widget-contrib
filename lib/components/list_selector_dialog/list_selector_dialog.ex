@@ -49,7 +49,6 @@ defmodule ScenicWidgets.ListSelectorDialog do
   """
 
   use Scenic.Component
-  require Logger
 
   alias ScenicWidgets.ListSelectorDialog.{State, Renderer}
 
@@ -57,14 +56,8 @@ defmodule ScenicWidgets.ListSelectorDialog do
   # Scenic Component Callbacks
   # ─────────────────────────────────────────────────────────────
 
-  @doc """
-  Adds a ListSelectorDialog to a graph.
-  """
-  def add_to_graph(graph, data, opts \\ []) do
-    super(graph, data, opts)
-  end
-
   @doc false
+  @impl Scenic.Component
   def validate(%{frame: frame} = data) when is_map(frame) do
     {:ok, data}
   end
@@ -73,7 +66,7 @@ defmodule ScenicWidgets.ListSelectorDialog do
     {:error, "ListSelectorDialog requires :frame, got: #{inspect(data)}"}
   end
 
-  @impl Scenic.Component
+  @impl Scenic.Scene
   def init(scene, data, opts) do
     id = opts[:id] || data[:id] || :list_selector_dialog
 
@@ -94,7 +87,7 @@ defmodule ScenicWidgets.ListSelectorDialog do
   # Keyboard Input
   # ─────────────────────────────────────────────────────────────
 
-  @impl Scenic.Component
+  @impl Scenic.Scene
   def handle_input({:key, {:key_esc, 1, _}}, _context, scene) do
     emit_cancel(scene)
     {:noreply, scene}
@@ -163,7 +156,7 @@ defmodule ScenicWidgets.ListSelectorDialog do
     state = scene.assigns.state
     {x, y} = coords
 
-    local_x = x - state.dialog_x
+    _local_x = x - state.dialog_x
     local_y = y - state.dialog_y
 
     hover_index = if State.in_list_area?(state, local_y) do

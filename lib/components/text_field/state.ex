@@ -7,7 +7,6 @@ defmodule ScenicWidgets.TextField.State do
   """
 
   use Widgex.Scrollable
-  require Logger
   alias ScenicWidgets.TextField.Wrapping
 
   defstruct [
@@ -743,7 +742,8 @@ defmodule ScenicWidgets.TextField.State do
   Calculate character width using FontMetrics.
   Raises if FontMetrics are not available - cursor positioning requires accurate metrics.
   """
-  def char_width(%__MODULE__{font: %{metrics: %FontMetrics{} = metrics, size: size}}, char \\ "W") do
+  def char_width(state, char \\ "W")
+  def char_width(%__MODULE__{font: %{metrics: %FontMetrics{} = metrics, size: size}}, char) do
     FontMetrics.width(char, size, metrics)
   end
 
@@ -833,11 +833,6 @@ defmodule ScenicWidgets.TextField.State do
   end
 
   @doc """
-  Convert a click position (x, y) relative to the component frame to cursor position (line, col).
-  Accounts for scroll offset, gutter, and text padding.
-  Returns {line, col} tuple (1-indexed).
-  """
-  @doc """
   Gutter (line-number column) width for a given line count and font.
   Shared by `new/1` and `recalculate_line_number_width/1` so the two can
   never drift apart.
@@ -883,6 +878,11 @@ defmodule ScenicWidgets.TextField.State do
     %{state | line_number_width: gutter_width(state.show_line_numbers, state.lines, state.font)}
   end
 
+  @doc """
+  Convert a click position (x, y) relative to the component frame to cursor position (line, col).
+  Accounts for scroll offset, gutter, and text padding.
+  Returns {line, col} tuple (1-indexed).
+  """
   def click_to_cursor(%__MODULE__{scroll: scroll} = state, {click_x, click_y}) do
     line_height = line_height(state)
     # Same as in renderer
@@ -919,8 +919,8 @@ defmodule ScenicWidgets.TextField.State do
 
   # Convert an X coordinate to a column position within a line of text
   # Uses binary search-like approach for efficiency with FontMetrics
-  defp x_to_column(state, line_text, x) when x <= 0, do: 1
-  defp x_to_column(state, "", _x), do: 1
+  defp x_to_column(_state, _line_text, x) when x <= 0, do: 1
+  defp x_to_column(_state, "", _x), do: 1
 
   defp x_to_column(state, line_text, x) do
     # Walk through characters and find where the click falls
@@ -1028,7 +1028,7 @@ defmodule ScenicWidgets.TextField.State do
     end
   end
 
-  defp find_word_start(graphemes, pos) when pos <= 0, do: 0
+  defp find_word_start(_graphemes, pos) when pos <= 0, do: 0
 
   defp find_word_start(graphemes, pos) do
     char = Enum.at(graphemes, pos - 1, "")

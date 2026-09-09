@@ -22,7 +22,6 @@ defmodule ScenicWidgets.DatePicker do
   """
 
   use Scenic.Component, has_children: false
-  require Logger
 
   import Scenic.Primitives
   alias Scenic.Graph

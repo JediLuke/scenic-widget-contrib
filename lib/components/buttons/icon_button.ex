@@ -1,6 +1,5 @@
 defmodule ScenicWidgets.IconButton do
     use Scenic.Component
-    require Logger
   
     def validate(data) do
         #TODO good validation

@@ -7,7 +7,6 @@ defmodule ScenicWidgets.FilePicker.Renderer do
 
   alias Scenic.Graph
   alias Scenic.Primitives
-  alias Scenic.Components
   alias Widgex.Frame
   alias ScenicWidgets.FilePicker.State
 
@@ -183,7 +182,7 @@ defmodule ScenicWidgets.FilePicker.Renderer do
 
   # Render the scrollable file list
   defp render_file_list(graph, %Frame{} = modal_frame, %Frame{} = list_frame, %State{} = state) do
-    {modal_width, modal_height} = modal_frame.size.box
+    {_modal_width, _modal_height} = modal_frame.size.box
     {modal_x, modal_y} = modal_frame.pin.point
     {list_width, list_height} = list_frame.size.box
 

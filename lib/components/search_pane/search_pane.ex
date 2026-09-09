@@ -66,14 +66,11 @@ defmodule ScenicWidgets.SearchPane do
   # simply never starts them — the fields appear in the graph, are never
   # instantiated, and every keystroke goes nowhere.
   use Scenic.Component, has_children: true
-  require Logger
 
   alias ScenicWidgets.SearchPane.{Renderizer, State}
   alias Widgex.Scroll.Drag
   alias ScenicWidgets.Menu.{Dropdown, Model}
   alias Widgex.Scroll.{ScrollReducer, ScrollState}
-
-  @key_pressed 1
 
   @impl Scenic.Component
   def validate(%{frame: %{pin: _, size: _}} = data), do: {:ok, data}
@@ -802,7 +799,7 @@ defmodule ScenicWidgets.SearchPane do
     assign(scene, settings_leave_timer: nil)
   end
 
-  @impl Scenic.Scene
+  @impl GenServer
   def handle_info(:close_settings_after_leave, scene) do
     state = scene.assigns.state
     scene = assign(scene, settings_leave_timer: nil)

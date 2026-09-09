@@ -10,7 +10,6 @@ defmodule ScenicWidgets.MenuBar.Reducer do
   Handle cursor position updates.
   """
   def handle_cursor_pos(%State{} = state, coords) do
-    require Logger
     # Logger.debug("Reducer.handle_cursor_pos: coords=#{inspect(coords)}, active_menu=#{inspect(state.active_menu)}, active_sub_menus=#{inspect(state.active_sub_menus)}")
 
     cond do
@@ -171,7 +170,6 @@ defmodule ScenicWidgets.MenuBar.Reducer do
   Handle click events.
   """
   def handle_click(%State{} = state, coords) do
-    require Logger
     # Logger.debug("Reducer.handle_click: coords=#{inspect(coords)}, frame=#{inspect(state.frame)}")
     
     cond do
@@ -246,7 +244,7 @@ defmodule ScenicWidgets.MenuBar.Reducer do
     end
   end
   
-  defp outside_menu_area?(%State{frame: frame, dropdown_bounds: bounds, active_menu: menu_id, active_sub_menus: sub_menus} = state, {x, y}) do
+  defp outside_menu_area?(%State{frame: frame, dropdown_bounds: bounds, active_menu: menu_id, active_sub_menus: sub_menus} = _state, {x, y}) do
     dropdown = Map.get(bounds, menu_id)
 
     # Check if outside menu bar (relative to component origin)
@@ -291,10 +289,8 @@ defmodule ScenicWidgets.MenuBar.Reducer do
     end
   end
 
-  @doc """
-  Get the action callback for a menu item by traversing the dropdown bounds.
-  Returns nil if no action is found.
-  """
+  # Get the action callback for a menu item by traversing the dropdown bounds.
+  # Returns nil if no action is found.
   defp get_item_action(%State{dropdown_bounds: bounds, active_menu: active_menu}, item_id) do
     case Map.get(bounds, active_menu) do
       nil -> nil
@@ -306,19 +302,16 @@ defmodule ScenicWidgets.MenuBar.Reducer do
     end
   end
 
-  @doc """
-  Check if an item within a sub-menu is itself a sub-menu (for nesting).
-  Returns true if the hovered_item is a sub-menu within the parent sub_menu.
-  """
+  # Check if an item within a sub-menu is itself a sub-menu (for nesting).
+  # Returns true if the hovered_item is a sub-menu within the parent sub_menu.
   defp is_sub_menu_item?(_state, _sub_menu_id, nil), do: false
   defp is_sub_menu_item?(state, sub_menu_id, hovered_item) do
-    require Logger
     # Find the sub-menu's items in dropdown bounds
     case find_sub_menu_items(state, sub_menu_id) do
       nil ->
         # Logger.debug("is_sub_menu_item?: find_sub_menu_items returned nil for sub_menu_id=#{inspect(sub_menu_id)}")
         false
-      items ->
+      _items ->
         # Check if this item has type :sub_menu or starts with "submenu_"
         result = String.starts_with?(to_string(hovered_item), "submenu_")
         # Logger.debug("is_sub_menu_item?: sub_menu_id=#{inspect(sub_menu_id)}, hovered_item=#{inspect(hovered_item)}, result=#{result}")
@@ -327,7 +320,6 @@ defmodule ScenicWidgets.MenuBar.Reducer do
   end
 
   defp find_sub_menu_items(%State{menu_map: menu_map, active_menu: active_menu}, sub_menu_id) do
-    require Logger
     # Search recursively through the menu structure starting from active menu
     case Map.get(menu_map, active_menu) do
       nil ->
@@ -358,10 +350,8 @@ defmodule ScenicWidgets.MenuBar.Reducer do
     end)
   end
 
-  @doc """
-  Recursively close a sub-menu and all its children.
-  Removes the sub_menu_id and any entries where sub_menu_id is a key (its children).
-  """
+  # Recursively close a sub-menu and all its children.
+  # Removes the sub_menu_id and any entries where sub_menu_id is a key (its children).
   defp close_sub_menu_and_children(active_sub_menus, sub_menu_id) do
     # Find all children of this sub-menu (entries where this sub_menu_id is a key)
     children = Map.get(active_sub_menus, sub_menu_id)

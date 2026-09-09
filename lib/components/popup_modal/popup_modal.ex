@@ -24,7 +24,6 @@ defmodule ScenicWidgets.PopupModal do
     response (same contract as ConfirmDialog).
   """
   use Scenic.Component, has_children: false
-  require Logger
 
   alias Scenic.Graph
   import Scenic.Primitives

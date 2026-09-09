@@ -197,7 +197,6 @@ defmodule ScenicWidgets.MenuBar.State do
   This checks ALL active sub-menus in the active_sub_menus map, supporting deep nesting.
   """
   def point_in_sub_menu?(%{active_sub_menus: sub_menus} = state, {x, y}) when map_size(sub_menus) > 0 do
-    require Logger
     # Check each active sub-menu (at any level)
     # The map contains parent_id => sub_menu_id pairs at all levels
     result = Enum.find_value(sub_menus, :not_in_sub_menu, fn {parent_id, sub_menu_id} ->
@@ -218,7 +217,6 @@ defmodule ScenicWidgets.MenuBar.State do
   def point_in_sub_menu?(_state, _coords), do: :not_in_sub_menu
 
   defp check_point_in_specific_sub_menu(state, parent_id, sub_menu_id, {x, y}, theme) do
-    require Logger
     # Calculate sub-menu position based on parent position
     # Sub-menus are positioned to the right of their parent item
 
@@ -394,7 +392,6 @@ defmodule ScenicWidgets.MenuBar.State do
   Find which menu header is being hovered.
   """
   def find_hovered_menu(%{menu_map: menu_map, theme: theme}, {x, _y}) do
-    require Logger
     item_width = Map.get(theme, :item_width, 150)
 
     # Logger.debug("find_hovered_menu: x=#{x}")

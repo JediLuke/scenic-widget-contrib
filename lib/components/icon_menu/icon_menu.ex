@@ -60,7 +60,6 @@ defmodule ScenicWidgets.IconMenu do
   """
 
   use Scenic.Component, has_children: false
-  require Logger
 
   alias ScenicWidgets.IconMenu.{State, Reducer, Renderer}
   alias Scenic.Graph

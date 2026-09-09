@@ -1,6 +1,5 @@
 defmodule ScenicWidgets.TextButton do
   use Scenic.Component
-  require Logger
 
   def validate(%{frame: _frame, text: _t, font: _font} = data) do
     # TODO good validation

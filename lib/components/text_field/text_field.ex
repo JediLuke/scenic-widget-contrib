@@ -149,7 +149,6 @@ defmodule ScenicWidgets.TextField do
   """
 
   use Scenic.Component, has_children: false
-  require Logger
 
   alias ScenicWidgets.TextField.{State, Renderer, Reducer}
   alias Scenic.Graph
@@ -163,6 +162,7 @@ defmodule ScenicWidgets.TextField do
   - Widgex.Frame directly (Widget Workbench passes this)
   - Map with :frame key containing Widgex.Frame
   """
+  @impl Scenic.Component
   def validate(%Widgex.Frame{} = frame) do
     # Widget Workbench passes frame directly - wrap it in a map
     {:ok, %{frame: frame}}
@@ -181,6 +181,7 @@ defmodule ScenicWidgets.TextField do
   @doc """
   Initialize the TextField component.
   """
+  @impl Scenic.Scene
   def init(scene, data, _opts) do
     # Create initial state
     state = State.new(data)
@@ -285,6 +286,7 @@ defmodule ScenicWidgets.TextField do
 
   # ===== INPUT HANDLING (Phase 2) =====
 
+  @impl Scenic.Scene
   def handle_input(input, _context, scene) do
     state = scene.assigns.state
 
@@ -639,6 +641,7 @@ defmodule ScenicWidgets.TextField do
   Actions are processed by the Reducer and may emit events.
   In store_backed mode, actions are forwarded to the store.
   """
+  @impl Scenic.Scene
   def handle_put({:action, action}, scene) do
     state = scene.assigns.state
 
@@ -801,33 +804,29 @@ defmodule ScenicWidgets.TextField do
     update_scene(scene, scene.assigns.state, state)
   end
 
-  @doc """
-  Apply editor settings (and/or a new frame) IN PLACE.
-
-  Rebuilds this component's graph from scratch while keeping the process
-  alive — so its input registration, focus and cursor survive. Hosts should
-  prefer this over delete-and-recreate: during a recreation there is a
-  window in which the old component has died and the new one has not yet
-  requested input, and any keystroke or click arriving in that window is
-  lost. (Symptom: a character vanishes if you type while toggling a setting.)
-
-  Recognised keys include line numbers, matching braces, current-line/current-column
-  highlights, wrapping, tab width, frame, colors, and font. Unknown keys are ignored.
-  """
-  @doc """
-  Set the "an overlay owns the pointer" flag.
-
-  Deliberately does NOT re-render: the flag only gates click handling, and
-  hosts toggle it on every menu open/close — including hover-switching
-  between menus. Routing it through `{:update_settings, ...}` rebuilds the
-  whole graph, which on a large document is slow enough to block the
-  component and time out the caller.
-  """
+  # Set the "an overlay owns the pointer" flag.
+  #
+  # Deliberately does NOT re-render: the flag only gates click handling, and
+  # hosts toggle it on every menu open/close — including hover-switching
+  # between menus. Routing it through `{:update_settings, ...}` rebuilds the
+  # whole graph, which on a large document is slow enough to block the
+  # component and time out the caller.
   def handle_put({:set_overlay_open, open?}, scene)
       when is_boolean(open?) or is_map(open?) or is_nil(open?) do
     {:noreply, assign(scene, state: State.set_overlay_open(scene.assigns.state, open?))}
   end
 
+  # Apply editor settings (and/or a new frame) IN PLACE.
+  #
+  # Rebuilds this component's graph from scratch while keeping the process
+  # alive — so its input registration, focus and cursor survive. Hosts should
+  # prefer this over delete-and-recreate: during a recreation there is a
+  # window in which the old component has died and the new one has not yet
+  # requested input, and any keystroke or click arriving in that window is
+  # lost. (Symptom: a character vanishes if you type while toggling a setting.)
+  #
+  # Recognised keys include line numbers, matching braces, current-line/current-column
+  # highlights, wrapping, tab width, frame, colors, and font. Unknown keys are ignored.
   def handle_put({:update_settings, settings}, scene) when is_map(settings) do
     old_state = scene.assigns.state
 
@@ -946,6 +945,7 @@ defmodule ScenicWidgets.TextField do
   @doc """
   Handle cursor blink timer message.
   """
+  @impl GenServer
   def handle_info(:blink, scene) do
     state = scene.assigns.state
 
@@ -963,10 +963,8 @@ defmodule ScenicWidgets.TextField do
     {:noreply, scene}
   end
 
-  @doc """
-  Handle buffer state snapshots pushed by the buffer's Scenic.PubSub source
-  (store_backed mode). Delegates to the :buf_state_changes update path.
-  """
+  # Handle buffer state snapshots pushed by the buffer's Scenic.PubSub source
+  # (store_backed mode). Delegates to the :buf_state_changes update path.
   # Highlight-source snapshots: token spans for one document. Applied only
   # when they describe the document currently shown; the per-row text guard
   # in the renderer covers any lag between typing and re-lexing.
@@ -995,10 +993,8 @@ defmodule ScenicWidgets.TextField do
   def handle_info({{Scenic.PubSub, :registered}, _}, scene), do: {:noreply, scene}
   def handle_info({{Scenic.PubSub, :unregistered}, _}, scene), do: {:noreply, scene}
 
-  @doc """
-  Handle buffer state updates (for store_backed mode).
-  When the store publishes a new snapshot, update TextField to match.
-  """
+  # Handle buffer state updates (for store_backed mode).
+  # When the store publishes a new snapshot, update TextField to match.
   def handle_info({:buf_state_changes, buf_state}, scene) do
     state = scene.assigns.state
 
@@ -1170,19 +1166,18 @@ defmodule ScenicWidgets.TextField do
   Handle input sent via GenServer.cast from Scenic.
   This is how Scenic delivers input when a component requests it.
   """
+  @impl GenServer
   def handle_cast({:user_input, input}, scene) do
     # Forward to handle_input
     handle_input(input, nil, scene)
   end
 
-  @doc """
-  Handle direct buffer state push from parent scene.
-  Delegates to handle_info to reuse the PubSub update path.
-
-  Called by `dispatch_to_active_buffer/2` in the root scene after a
-  synchronous buffer action — allows the root scene to push state
-  directly to the TextField without waiting for a PubSub broadcast.
-  """
+  # Handle direct buffer state push from parent scene.
+  # Delegates to handle_info to reuse the PubSub update path.
+  #
+  # Called by `dispatch_to_active_buffer/2` in the root scene after a
+  # synchronous buffer action — allows the root scene to push state
+  # directly to the TextField without waiting for a PubSub broadcast.
   def handle_cast({:state_change, buf_state}, scene) do
     handle_info({:buf_state_changes, buf_state}, scene)
   end
