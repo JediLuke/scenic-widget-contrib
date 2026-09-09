@@ -996,10 +996,6 @@ defmodule ScenicWidgets.TextField.Reducer do
             # Double-click: select word at click position
             case State.word_boundaries_at(state, click_pos) do
               {start_col, end_col} ->
-                # Select the word - start at word start, end at word end
-                start_pos = {line, start_col}
-                end_pos = {line, end_col}
-
                 new_state = %{
                   state
                   | focused: true,
@@ -1009,7 +1005,16 @@ defmodule ScenicWidgets.TextField.Reducer do
                     last_click_pos: nil
                 }
 
-                {:double_click_select, new_state, {:select_range, start_pos, end_pos}}
+                # The range is given END first. A store's cursor sits at the
+                # second position of a range — that is how a drag works, the
+                # cursor following the pointer — so a word given start-to-end
+                # left the cursor after the word, jumping it away from where
+                # the user had just clicked. Given end-to-start the whole word
+                # is still selected (stores normalise a reversed range, as
+                # they must for a right-to-left drag) and the cursor sits at
+                # the word's start, the nearer of its two ends to the click.
+                {:double_click_select, new_state,
+                 {:select_range, {line, end_col}, {line, start_col}}}
 
               nil ->
                 # No word at position - just move cursor (treat as single click)
