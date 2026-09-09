@@ -2045,9 +2045,11 @@ defmodule ScenicWidgets.TextField.Renderer do
     source_line = display_to_source_line(state, row)
     first_row = first_display_row(mapping, source_line) || row
 
-    segments_before =
-      display_lines
-      |> Enum.slice((first_row - 1)..(row - 2)//1)
+    # A count, not a range. On the very first row this used to be the range
+    # 0..-1//1, and a negative last index counts from the END: every row of
+    # the document was "before" row 1, and a click anywhere on line 1 landed
+    # the cursor at the end of the line.
+    segments_before = Enum.slice(display_lines, first_row - 1, max(row - first_row, 0))
 
     source_text = Enum.at(state.lines, source_line - 1, "")
     source_start = source_offset_after(segments_before, source_text)

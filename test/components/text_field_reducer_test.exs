@@ -21,23 +21,20 @@ defmodule ScenicWidgets.TextField.ReducerTest do
              Reducer.input_to_buffer_action(state, {:codepoint, {"s", []}})
   end
 
+  # A click on the FIRST row used to resolve to the end of the line: the
+  # rows "before" it were sliced as 0..-1//1, which is every row.
+  test "a click on the first row lands where it was aimed" do
+    state = store_backed_field("Hello world")
+
+    assert {1, 3} = ScenicWidgets.TextField.Renderer.display_to_source_cursor(state, {1, 3})
+    assert {1, col} = State.click_to_cursor(state, {30, 10})
+    assert col in 2..5, "x=30 is inside 'Hello', got column #{col}"
+  end
+
   # Double-click selects the word, cursor at the word's START: the range is
   # sent end-first because the store puts its cursor at the second position.
   test "store-backed double-click selects the word with the cursor at its start" do
-    state =
-      State.new(%{
-        id: :editor,
-        frame: Widgex.Frame.new(%{pin: {0, 0}, size: {400, 60}}),
-        initial_text: "Hello world",
-        input_mode: :store_backed,
-        focused: true,
-        font: %{
-          name: :ibm_plex_mono,
-          size: 16,
-          path: Path.expand("../../assets/fonts/IBMPlexMono-Regular.ttf", __DIR__)
-        }
-      })
-
+    state = store_backed_field("Hello world")
     click = {:cursor_button, {:btn_left, 1, [], {30, 10}}}
 
     assert {:click_move_cursor, clicked, {:set_cursor, {1, col}}} =
@@ -47,6 +44,21 @@ defmodule ScenicWidgets.TextField.ReducerTest do
 
     assert {:double_click_select, _, {:select_range, {1, 6}, {1, 1}}} =
              Reducer.input_to_buffer_action(clicked, click)
+  end
+
+  defp store_backed_field(text) do
+    State.new(%{
+      id: :editor,
+      frame: Widgex.Frame.new(%{pin: {0, 0}, size: {400, 60}}),
+      initial_text: text,
+      input_mode: :store_backed,
+      focused: true,
+      font: %{
+        name: :ibm_plex_mono,
+        size: 16,
+        path: Path.expand("../../assets/fonts/IBMPlexMono-Regular.ttf", __DIR__)
+      }
+    })
   end
 
   test "store-backed undo and redo use canonical bindings" do
