@@ -42,12 +42,39 @@ defmodule ScenicWidgets.Clipboard.System do
   end
 
   defp command(:copy, {:unix, :darwin}), do: executable("pbcopy", [])
-  defp command(:copy, {:unix, _}), do: executable("xclip", ["-selection", "clipboard"])
+  defp command(:copy, {:unix, _}), do: first_executable(unix_candidates(:copy))
   defp command(:copy, {:win32, _}), do: executable("clip", [])
   defp command(:paste, {:unix, :darwin}), do: executable("pbpaste", [])
-  defp command(:paste, {:unix, _}), do: executable("xclip", ["-selection", "clipboard", "-o"])
+  defp command(:paste, {:unix, _}), do: first_executable(unix_candidates(:paste))
   defp command(:paste, {:win32, _}), do: executable("powershell", ["-command", "Get-Clipboard"])
   defp command(_, _), do: {:error, :unsupported_os}
+
+  # Linux has no single clipboard tool. A Wayland session needs wl-clipboard —
+  # xclip may well be installed there too, but it only ever sees the X11
+  # clipboard, which under XWayland is not the one the user copied to — so the
+  # session decides the preference and the rest are fallbacks.
+  @x11_copy [{"xclip", ["-selection", "clipboard"]}, {"xsel", ["--clipboard", "--input"]}]
+  @x11_paste [{"xclip", ["-selection", "clipboard", "-o"]}, {"xsel", ["--clipboard", "--output"]}]
+  @wayland_copy [{"wl-copy", []}]
+  @wayland_paste [{"wl-paste", ["--no-newline"]}]
+
+  defp unix_candidates(:copy),
+    do: if(wayland?(), do: @wayland_copy ++ @x11_copy, else: @x11_copy ++ @wayland_copy)
+
+  defp unix_candidates(:paste),
+    do: if(wayland?(), do: @wayland_paste ++ @x11_paste, else: @x11_paste ++ @wayland_paste)
+
+  defp wayland?, do: System.get_env("WAYLAND_DISPLAY") not in [nil, ""]
+
+  defp first_executable(candidates) do
+    Enum.find_value(candidates, {:error, {:executable_not_found, Enum.map(candidates, &elem(&1, 0))}}, fn
+      {name, args} ->
+        case System.find_executable(name) do
+          nil -> nil
+          path -> {:ok, path, args}
+        end
+    end)
+  end
 
   defp executable(name, args) do
     case System.find_executable(name) do

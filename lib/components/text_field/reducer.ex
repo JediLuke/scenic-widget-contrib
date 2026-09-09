@@ -17,6 +17,15 @@ defmodule ScenicWidgets.TextField.Reducer do
   use ScenicWidgets.ScenicEventsDefinitions
   use Widgex.Scrollable
 
+  # The modifiers that turn a keystroke into a command rather than a
+  # character. Shift and the lock keys are text modifiers — the driver has
+  # already applied them by the time a codepoint exists — and :alt is
+  # deliberately absent because on macOS Option composes characters
+  # (Option+e -> é). See input_to_buffer_action/2 for the full account.
+  @command_mods [:ctrl, :meta, :super]
+
+  defp command_modified?(mods), do: Enum.any?(mods, &(&1 in @command_mods))
+
   # Debounce period (ms) to ignore keypresses right after gaining focus.
   # This prevents the key that triggered focus (e.g., "k" from space+k) from being inserted.
   @focus_debounce_ms 50
@@ -61,7 +70,21 @@ defmodule ScenicWidgets.TextField.Reducer do
     process_input_codepoint(state, input)
   end
 
-  defp process_input_codepoint(state, {:codepoint, {char, _mods}}) when is_bitstring(char) do
+  # A command chord is reported by the driver twice: as the :key the chord
+  # is bound to, and again as the codepoint of the letter under the finger.
+  # The chord is handled from the :key. Its codepoint is not text, so it is
+  # dropped here — otherwise Ctrl+V, having pasted, would also type a "v".
+  # This is the direct-mode twin of the same rule in input_to_buffer_action/2.
+  defp process_input_codepoint(state, {:codepoint, {char, mods}})
+       when is_bitstring(char) and is_list(mods) do
+    if command_modified?(mods) do
+      {:noop, state}
+    else
+      insert_codepoint(state, char)
+    end
+  end
+
+  defp insert_codepoint(state, char) do
     # Push undo before making changes
     state_with_undo = State.push_undo(state)
     # Delete selection first if any, then insert
@@ -695,11 +718,9 @@ defmodule ScenicWidgets.TextField.Reducer do
   # platform we are about to support. Known gap: AltGr on X11/Windows is
   # reported as ctrl+alt, so AltGr characters are still swallowed by the :ctrl
   # clause below.
-  @command_mods [:ctrl, :meta, :super]
-
   def input_to_buffer_action(%State{focused: true}, {:codepoint, {char, mods}})
       when is_bitstring(char) and is_list(mods) do
-    if Enum.any?(mods, &(&1 in @command_mods)) do
+    if command_modified?(mods) do
       nil
     else
       {:insert, char, :at_cursor}

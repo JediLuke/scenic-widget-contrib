@@ -7,7 +7,7 @@ defmodule ScenicWidgets.TextField.ReducerTest do
     state = %State{focused: true}
 
     for modifier <- [[:ctrl], [:meta], [:super], [:ctrl, :shift]] do
-      assert :ignore = Reducer.input_to_buffer_action(state, {:codepoint, {"s", modifier}})
+      assert nil == Reducer.input_to_buffer_action(state, {:codepoint, {"s", modifier}})
     end
 
     assert {:insert, "é", :at_cursor} =
@@ -59,6 +59,61 @@ defmodule ScenicWidgets.TextField.ReducerTest do
         path: Path.expand("../../assets/fonts/IBMPlexMono-Regular.ttf", __DIR__)
       }
     })
+  end
+
+  # The search pane's fields run in direct mode. Ctrl+V there used to paste
+  # AND type a "v", because the codepoint the driver reports alongside the
+  # chord was inserted as text.
+  test "direct-mode command codepoints are ignored" do
+    state = direct_field("ab")
+
+    for modifier <- [[:ctrl], [:meta], [:super], [:ctrl, :shift]] do
+      assert {:noop, ^state} = Reducer.process_input(state, {:codepoint, {"v", modifier}})
+    end
+  end
+
+  test "direct-mode text codepoints are inserted, shifted or not" do
+    state = direct_field("ab")
+
+    assert {:event, {:text_changed, _, "abc"}, _} =
+             Reducer.process_input(state, {:codepoint, {"c", []}})
+
+    assert {:event, {:text_changed, _, "abC"}, _} =
+             Reducer.process_input(state, {:codepoint, {"C", [:shift]}})
+
+    assert {:event, {:text_changed, _, "abé"}, _} =
+             Reducer.process_input(state, {:codepoint, {"é", [:alt]}})
+  end
+
+  test "direct-mode Ctrl+V asks the widget for the clipboard" do
+    state = direct_field("")
+
+    assert {:event, {:clipboard_paste_requested, :query}, _} =
+             Reducer.process_input(state, {:key, {:key_v, 1, [:ctrl]}})
+  end
+
+  # A focused single-line field with the cursor at the end of `text`, as the
+  # search pane builds its query field.
+  defp direct_field(text) do
+    state =
+      State.new(%{
+        id: :query,
+        frame: Widgex.Frame.new(%{pin: {0, 0}, size: {300, 30}}),
+        initial_text: text,
+        mode: :single_line,
+        input_mode: :direct,
+        focused: true,
+        font: %{
+          name: :ibm_plex_mono,
+          size: 16,
+          path: Path.expand("../../assets/fonts/IBMPlexMono-Regular.ttf", __DIR__)
+        }
+      })
+
+    # Focus is long settled: a fresh focus_time would make the reducer drop
+    # EVERY codepoint for a moment, and the ignore test would pass for the
+    # wrong reason.
+    %{state | cursor: {1, String.length(text) + 1}, focus_time: nil}
   end
 
   test "store-backed undo and redo use canonical bindings" do
