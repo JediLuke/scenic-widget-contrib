@@ -161,14 +161,14 @@ defmodule ScenicWidgets.IconMenu do
   @impl Scenic.Scene
   def handle_put({:open_menu, menu_id}, scene) do
     state = scene.assigns.state
-    new_state = %{state | active_menu: menu_id}
+    new_state = %{state | active_menu: menu_id, editing: nil}
     update_scene_tuple(scene, state, new_state)
   end
 
   def handle_put({:close_menu}, scene) do
     scene = cancel_tooltip_timer(scene)
     state = scene.assigns.state
-    new_state = %{state | active_menu: nil, hovered_item: nil, tooltip: nil}
+    new_state = %{state | active_menu: nil, hovered_item: nil, tooltip: nil, editing: nil}
     update_scene_tuple(scene, state, new_state)
   end
 

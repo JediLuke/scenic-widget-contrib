@@ -23,7 +23,8 @@ defmodule ScenicWidgets.IconMenu.ReducerTest do
   use ExUnit.Case, async: true
 
   alias ScenicWidgets.IconMenu.{Reducer, State}
-  alias ScenicWidgets.Menu.Model.{Slider, Toggle}
+  alias ScenicWidgets.Menu.Dropdown
+  alias ScenicWidgets.Menu.Model.{Slider, Stepper, Toggle}
   alias Widgex.Frame
 
   defp build_state do
@@ -136,6 +137,119 @@ defmodule ScenicWidgets.IconMenu.ReducerTest do
 
       assert updated.active_menu == :view
       refute State.find_item(updated, :shortcuts).checked?
+    end
+  end
+  describe "stepper rows" do
+    # A View menu holding only the zoom stepper, open, at a given chrome size.
+    defp zoom_menu(font_size) do
+      stepper = %Stepper{id: :zoom, label: "Zoom", value: 100, min: 50, max: 400, step: 10}
+
+      state =
+        State.new(%{
+          frame: Frame.new(pin: {0, 0}, size: {600, 35}),
+          align: :left,
+          menus: [%{id: :view, icon: :view, items: [stepper]}],
+          theme: %{
+            dropdown_font_size: font_size,
+            dropdown_item_height: round(font_size * 2.15)
+          }
+        })
+
+      %{state | active_menu: :view}
+    end
+
+    defp click(state, {left, width}) do
+      bounds = state.dropdown_bounds.view.items.zoom
+      at = {bounds.x + left + width / 2, bounds.y + bounds.height / 2}
+      Reducer.process_input(state, {:cursor_button, {:btn_left, 1, [], at}})
+    end
+
+    defp layout(state) do
+      bounds = state.dropdown_bounds.view.items.zoom
+      Dropdown.stepper_layout(state.theme, bounds.width)
+    end
+
+    # The buttons used to be hit-tested at fixed pixel offsets, which were
+    # only where the buttons were drawn at 100%.
+    test "plus and minus are where they are drawn, at any chrome size" do
+      for font_size <- [13, 26, 52] do
+        state = zoom_menu(font_size)
+        layout = layout(state)
+
+        assert {:menu_value_changed, :zoom, 110, _} = click(state, layout.plus)
+        assert {:menu_value_changed, :zoom, 90, _} = click(state, layout.minus)
+
+        # The controls grow with the type, and the row is still wide enough.
+        {plus_x, plus_w} = layout.plus
+        assert layout.button_height > font_size
+        assert plus_x + plus_w <= state.dropdown_bounds.view.items.zoom.width
+      end
+    end
+
+    test "a click on the value opens it for typing, showing the current value selected" do
+      state = zoom_menu(13)
+
+      assert {:noop, editing} = click(state, layout(state).value)
+      assert editing.editing == %{item_id: :zoom, text: "100", pristine?: true}
+      assert editing.active_menu == :view
+    end
+
+    test "typing replaces the selected value, Enter applies it clamped" do
+      {:noop, state} = click(zoom_menu(13), layout(zoom_menu(13)).value)
+
+      typed =
+        Enum.reduce(["4", "0", "0", "%"], state, fn char, acc ->
+          {:noop, acc} = Reducer.process_input(acc, {:codepoint, {char, []}})
+          acc
+        end)
+
+      assert typed.editing.text == "400", "digits land, a typed % does not"
+
+      assert {:menu_value_changed, :zoom, 400, applied} =
+               Reducer.process_input(typed, {:key, {:key_enter, 1, []}})
+
+      assert applied.editing == nil
+      assert applied.active_menu == :view
+      assert State.find_item(applied, :zoom).value == 400
+
+      # Past the top of the range is the top of the range.
+      {:noop, again} = click(applied, layout(applied).value)
+
+      big =
+        Enum.reduce(["9", "9", "9", "9"], again, fn char, acc ->
+          {:noop, acc} = Reducer.process_input(acc, {:codepoint, {char, []}})
+          acc
+        end)
+
+      assert {:menu_value_changed, :zoom, 400, _} =
+               Reducer.process_input(%{big | menus: state.menus}, {:key, {:key_enter, 1, []}})
+    end
+
+    test "Backspace on the fresh field clears it, and an empty Enter is a cancel" do
+      {:noop, state} = click(zoom_menu(13), layout(zoom_menu(13)).value)
+
+      {:noop, cleared} = Reducer.process_input(state, {:key, {:key_backspace, 1, []}})
+      assert cleared.editing.text == ""
+
+      assert {:noop, cancelled} = Reducer.process_input(cleared, {:key, {:key_enter, 1, []}})
+      assert cancelled.editing == nil
+      assert State.find_item(cancelled, :zoom).value == 100
+    end
+
+    test "Escape while typing closes the field and leaves the menu open" do
+      {:noop, state} = click(zoom_menu(13), layout(zoom_menu(13)).value)
+
+      assert {:noop, after_esc} = Reducer.process_input(state, {:key, {:key_esc, 1, []}})
+      assert after_esc.editing == nil
+      assert after_esc.active_menu == :view
+    end
+
+    test "a click anywhere ends the typing uncommitted" do
+      {:noop, state} = click(zoom_menu(13), layout(zoom_menu(13)).value)
+      {:noop, typed} = Reducer.process_input(state, {:codepoint, {"3", []}})
+
+      assert {:menu_value_changed, :zoom, 110, stepped} = click(typed, layout(typed).plus)
+      assert stepped.editing == nil
     end
   end
 end

@@ -196,9 +196,12 @@ defmodule ScenicWidgets.SideNav do
   and the scroll offset — the very thing that made the navigator feel broken
   when a status toast rebuilt it.
   """
+  # Through the API rather than a bare merge: a theme that changes the row
+  # height has to lay the rows out again, or the labels grow at the next zoom
+  # and the rows they sit in do not.
   def handle_put({:set_theme, theme}, scene) when is_map(theme) do
     state = scene.assigns.state
-    new_state = %{state | theme: Map.merge(state.theme, theme)}
+    new_state = Api.update_theme(state, theme)
     graph = Renderizer.initial_render(Graph.build(), new_state)
 
     scene = scene |> assign(state: new_state, graph: graph) |> push_graph(graph)

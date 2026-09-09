@@ -89,6 +89,10 @@ defmodule ScenicWidgets.IconMenu.State do
     # moment. Both, because a drag measured as a running total of pointer
     # samples drifts away from the thumb under the finger.
     dropdown_drag: nil,
+    # A stepper's value being typed, as `%{item_id: id, text: "150",
+    # pristine?: true}`. `pristine?` is on until the first keystroke: the
+    # field opens showing its current value selected, and typing replaces it.
+    editing: nil,
     # Default to right alignment (flush with right edge of frame)
     align: :right
   ]
@@ -419,6 +423,17 @@ defmodule ScenicWidgets.IconMenu.State do
     leading_space = if Enum.any?(items, &is_toggle_item?/1), do: 28, else: 8
     shortcut_space = if shortcut_width > 0, do: gap + shortcut_width, else: 0
 
+    # A stepper draws its label at the left and its controls at the right, so
+    # its row needs the widest label PLUS a full set of controls — otherwise
+    # the buttons are laid out past the menu's edge and cannot be clicked. The
+    # controls scale with the chrome, so this is measured, not a constant.
+    stepper_space =
+      if Enum.any?(items, &match?(%ScenicWidgets.Menu.Model.Stepper{}, &1)) do
+        gap + ScenicWidgets.Menu.Dropdown.stepper_controls_width(theme)
+      else
+        0
+      end
+
     # And room for the scrollbar, on a menu long enough to need one. Without
     # this the bar is drawn INTO the width that was measured for the labels, so
     # a menu truncates its own text at exactly the size that makes it scroll —
@@ -427,7 +442,8 @@ defmodule ScenicWidgets.IconMenu.State do
 
     chrome = 2 * theme.dropdown_padding + leading_space + 8 + bar
 
-    min(max(minimum, ceil(label_width + shortcut_space + chrome)), max(minimum, maximum))
+    content = label_width + max(shortcut_space, stepper_space) + chrome
+    min(max(minimum, ceil(content)), max(minimum, maximum))
   end
 
   # A dropdown hangs BELOW the icon bar and extends leftward from it; the bar's

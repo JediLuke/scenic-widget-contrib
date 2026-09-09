@@ -30,8 +30,11 @@ defmodule ScenicWidgets.IconMenu.Reducer do
     scroll_open_select(state, dy, {x, y})
   end
 
+  # Any click ends the typing of a stepper's value, uncommitted — a click on
+  # the value box itself starts it afresh, and a click on its plus or minus
+  # is a step from the value the field opened on.
   def process_input(%State{} = state, {:cursor_button, {:btn_left, 1, _mods, coords}}) do
-    handle_click(state, coords)
+    handle_click(%{state | editing: nil}, coords)
   end
 
   def process_input(
@@ -50,6 +53,45 @@ defmodule ScenicWidgets.IconMenu.Reducer do
       )
       when not is_nil(drag) do
     {:noop, %{state | dropdown_drag: nil}}
+  end
+
+  # ── A stepper's value being typed ─────────────────────────────────────────
+  #
+  # Digits only, and four of them at most: the box is sized for a percentage,
+  # and a stepper's range is clamped on commit anyway. A "%" typed out of
+  # habit is simply not a digit, so it never lands in the field.
+  def process_input(
+        %State{editing: %{text: text, pristine?: pristine?} = editing} = state,
+        {:codepoint, {char, _mods}}
+      )
+      when char in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"] do
+    text = if pristine?, do: "", else: text
+
+    if String.length(text) >= 4 do
+      {:noop, state}
+    else
+      {:noop, %{state | editing: %{editing | text: text <> char, pristine?: false}}}
+    end
+  end
+
+  def process_input(
+        %State{editing: %{text: text, pristine?: pristine?} = editing} = state,
+        {:key, {:key_backspace, key_state, _mods}}
+      )
+      when key_state > 0 do
+    text = if pristine?, do: "", else: String.slice(text, 0..-2//1)
+    {:noop, %{state | editing: %{editing | text: text, pristine?: false}}}
+  end
+
+  def process_input(%State{editing: %{}} = state, {:key, {key, 1, _mods}})
+      when key in [:key_enter, :key_kp_enter] do
+    commit_edit(state)
+  end
+
+  # Escape while typing puts the field away and nothing else: the menu the
+  # person is looking at stays open.
+  def process_input(%State{editing: %{}} = state, {:key, {:key_esc, 1, _mods}}) do
+    {:noop, %{state | editing: nil}}
   end
 
   def process_input(%State{} = state, {:key, {:key_esc, key_state, _mods}})
@@ -353,23 +395,27 @@ defmodule ScenicWidgets.IconMenu.Reducer do
     end
   end
 
+  # The three hit zones are the three things drawn, from the one layout the
+  # renderer draws them with — hard-coded pixel offsets here were only right
+  # at 100%, and at any other zoom the buttons had moved out from under them.
   defp activate_item(state, %ScenicWidgets.Menu.Model.Stepper{} = stepper, item_id, {x, _y}) do
     bounds = state.dropdown_bounds[state.active_menu].items[item_id]
     local_x = x - bounds.x
+    layout = ScenicWidgets.Menu.Dropdown.stepper_layout(state.theme, bounds.width)
 
-    delta =
-      cond do
-        local_x >= bounds.width - 40 -> stepper.step
-        local_x >= bounds.width - 128 and local_x <= bounds.width - 92 -> -stepper.step
-        true -> 0
-      end
+    cond do
+      within?(local_x, layout.plus) ->
+        set_stepper(state, stepper, item_id, stepper.value + stepper.step)
 
-    if delta == 0 do
-      {:noop, state}
-    else
-      value = min(stepper.max, max(stepper.min, stepper.value + delta))
-      updated = %{stepper | value: value}
-      {:menu_value_changed, item_id, value, replace_and_recalculate(state, item_id, updated)}
+      within?(local_x, layout.minus) ->
+        set_stepper(state, stepper, item_id, stepper.value - stepper.step)
+
+      within?(local_x, layout.value) ->
+        edit = %{item_id: item_id, text: Integer.to_string(stepper.value), pristine?: true}
+        {:noop, %{state | editing: edit}}
+
+      true ->
+        {:noop, state}
     end
   end
 
@@ -440,6 +486,35 @@ defmodule ScenicWidgets.IconMenu.Reducer do
 
   defp recalculate(state), do: %{state | dropdown_bounds: State.calculate_dropdown_bounds(state)}
 
+  defp within?(x, {left, width}), do: x >= left and x <= left + width
+
+  # Clamp to the stepper's range and tell the host — unless it is the value
+  # the stepper already shows, in which case there is nothing to tell.
+  defp set_stepper(state, %ScenicWidgets.Menu.Model.Stepper{} = stepper, item_id, wanted) do
+    value = min(stepper.max, max(stepper.min, wanted))
+
+    if value == stepper.value do
+      {:noop, state}
+    else
+      updated = %{stepper | value: value}
+      {:menu_value_changed, item_id, value, replace_and_recalculate(state, item_id, updated)}
+    end
+  end
+
+  # Enter on a typed value. Empty or unparseable means "never mind", the same
+  # as Escape; anything else is clamped into range and applied.
+  defp commit_edit(%State{editing: %{item_id: item_id, text: text}} = state) do
+    state = %{state | editing: nil}
+
+    case {Integer.parse(text), State.find_item(state, item_id)} do
+      {{wanted, ""}, %ScenicWidgets.Menu.Model.Stepper{} = stepper} ->
+        set_stepper(state, stepper, item_id, wanted)
+
+      _ ->
+        {:noop, state}
+    end
+  end
+
   defp replace_and_recalculate(state, item_id, updated) do
     state = %{state | menus: replace_active_item(state, item_id, updated), hovered_item: item_id}
     %{state | dropdown_bounds: State.calculate_dropdown_bounds(state)}
@@ -460,7 +535,8 @@ defmodule ScenicWidgets.IconMenu.Reducer do
          hovered_menu: nil,
          hovered_item: nil,
          dragging_slider: nil,
-         dropdown_drag: nil
+         dropdown_drag: nil,
+         editing: nil
      }}
   end
 end

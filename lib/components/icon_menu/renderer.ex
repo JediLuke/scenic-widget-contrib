@@ -28,6 +28,10 @@ defmodule ScenicWidgets.IconMenu.Renderer do
   @doc """
   Update render - only modify elements that changed.
   """
+  # The size the drawn glyphs below were laid out for: their pixel measures
+  # are exact at this `icon_font_size` and scaled from it at any other.
+  @drawn_icon_font_size 16
+
   def update_render(graph, %State{} = old_state, %State{} = new_state) do
     if old_state.tooltip != new_state.tooltip do
       initial_render(Graph.build(), new_state)
@@ -106,7 +110,15 @@ defmodule ScenicWidgets.IconMenu.Renderer do
           id: {:icon_bg, menu.id},
           fill: bg_color
         )
-        |> render_icon(menu.icon, menu.id, icon_color, theme, width, height)
+        # Scaled about the button's centre, so a glyph drawn for the default
+        # 16pt grows with the chrome the way a typed one would. Every drawn
+        # icon is laid out around the centre, which is what makes one pin
+        # right for all of them.
+        |> Primitives.group(
+          fn icon -> render_icon(icon, menu.icon, menu.id, icon_color, theme, width, height) end,
+          scale: theme.icon_font_size / @drawn_icon_font_size,
+          pin: {width / 2, height / 2}
+        )
       end,
       id: {:icon_button, menu.id},
       translate: {x, y}
@@ -305,6 +317,7 @@ defmodule ScenicWidgets.IconMenu.Renderer do
         theme: state.theme,
         hovered: state.hovered_item,
         hovered_select_option: state.hovered_select_option,
+        editing: state.editing,
         show_shortcuts: state.show_shortcuts,
         id: :dropdown_group
       )
@@ -428,7 +441,8 @@ defmodule ScenicWidgets.IconMenu.Renderer do
       # Interactive controls (notably sliders) update their model while the
       # dropdown remains open. Rebuild that small overlay so thumb and value
       # feedback track the pointer in real time.
-      new_state.active_menu && old_state.menus != new_state.menus ->
+      new_state.active_menu &&
+          (old_state.menus != new_state.menus or old_state.editing != new_state.editing) ->
         graph
         |> Graph.delete(:dropdown_group)
         |> render_dropdown(new_state)
