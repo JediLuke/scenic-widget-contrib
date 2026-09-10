@@ -104,6 +104,14 @@ defmodule ScenicWidgets.IconMenu do
     # Register semantic elements for MCP automation
     register_semantic_elements(scene, state)
 
+    # A host that rebuilds this component while a menu is open (quillex does,
+    # on every chrome zoom) hands the open menu back in `data`. The menu was
+    # drawn open, and clicks still reached it, but the keyboard did not: the
+    # old process took its captures to the grave and the new one only ever
+    # captured on an open TRANSITION. Typing into a stepper's value box then
+    # went to whatever else held :codepoint — the document, silently.
+    scene = notify_dropdown_state(scene, %{active_menu: nil, dropdown_bounds: nil}, state)
+
     {:ok, scene}
   end
 
