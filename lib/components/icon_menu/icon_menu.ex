@@ -110,7 +110,10 @@ defmodule ScenicWidgets.IconMenu do
     # old process took its captures to the grave and the new one only ever
     # captured on an open TRANSITION. Typing into a stepper's value box then
     # went to whatever else held :codepoint — the document, silently.
-    scene = notify_dropdown_state(scene, %{active_menu: nil, dropdown_bounds: nil}, state)
+    scene =
+      if state.active_menu,
+        do: notify_dropdown_state(scene, %{active_menu: nil, dropdown_bounds: nil}, state),
+        else: scene
 
     {:ok, scene}
   end
