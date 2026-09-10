@@ -902,14 +902,29 @@ defmodule ScenicWidgets.TextField.State do
 
     # Calculate DISPLAY row from Y coordinate
     display_line = max(1, div(max(trunc(content_y), 0), line_height) + 1)
+    row_count = ScenicWidgets.TextField.Renderer.display_row_count(state)
 
+    # A click in the empty space below the document lands at the END of the
+    # last line, not at its start. That empty space is where you click to
+    # "go to the bottom and carry on typing": the next thing you do there is
+    # press Enter for a fresh line, which only works from the end. Measuring
+    # the click's X against the (empty) phantom row it fell on gave column 1,
+    # and a click that came to rest at the start of the last line reads as
+    # a mis-click.
+    #
     # X is measured against the row that was actually clicked, which under word
     # wrap is a segment of a source line rather than the whole of it. Measuring
     # against the source line from its first character put every click on the
     # second visual row of a wrapped line at the column it would have had on
     # the first.
-    display_text = ScenicWidgets.TextField.Renderer.display_row_text(state, display_line)
-    display_col = x_to_column(state, display_text, content_x)
+    {display_line, display_col} =
+      if display_line > row_count do
+        last_row = ScenicWidgets.TextField.Renderer.display_row_text(state, row_count)
+        {row_count, String.length(last_row) + 1}
+      else
+        display_text = ScenicWidgets.TextField.Renderer.display_row_text(state, display_line)
+        {display_line, x_to_column(state, display_text, content_x)}
+      end
 
     ScenicWidgets.TextField.Renderer.display_to_source_cursor(
       state,
