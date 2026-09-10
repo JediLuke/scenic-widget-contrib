@@ -450,7 +450,8 @@ defmodule ScenicWidgets.Menu.Dropdown do
     padding = theme.dropdown_padding
 
     # Space reserved for checkmark on the left
-    checkmark_width = 28
+    scale = ui_scale(theme)
+    checkmark_width = 28 * scale
 
     Enum.reduce(items, graph, fn item, acc ->
       item_id = Model.get_item_id(item)
@@ -519,7 +520,7 @@ defmodule ScenicWidgets.Menu.Dropdown do
             # not nothing either, so it reads as part of the label.
             g =
               if is_toggle,
-                do: toggle_box(g, 8, row_height / 2, is_checked, text_color),
+                do: toggle_box(g, 8 * scale, row_height / 2, is_checked, text_color, scale),
                 else: g
 
             cond do
@@ -641,6 +642,20 @@ defmodule ScenicWidgets.Menu.Dropdown do
   the two agreeing is what puts the buttons where they look like they are at
   every zoom.
   """
+  @base_dropdown_font_size 13
+
+  @doc """
+  How much bigger than its default the dropdown is drawn: the ratio of the
+  theme's font size to the default 13pt. Everything drawn from fixed pixel
+  values — tick boxes, the slider's track and thumb, the label inset beside a
+  toggle — takes this, so zooming the chrome grows the controls with the
+  text instead of leaving 11px boxes beside 40px labels.
+  """
+  def ui_scale(theme), do: theme.dropdown_font_size / @base_dropdown_font_size
+
+  @doc "Where a slider's track starts inside its row; the reducer's drag math reads the same value."
+  def slider_track_inset(theme), do: 10 * ui_scale(theme)
+
   def stepper_layout(theme, row_width) do
     {button, value_width, gap} = stepper_control_sizes(theme)
     x = row_width - stepper_controls_width(theme) - 8
@@ -855,35 +870,43 @@ defmodule ScenicWidgets.Menu.Dropdown do
 
   # A tick, drawn for the same reason. `x, y` is its top-left-ish anchor, the
   # same place the box below puts one.
-  defp check_mark(graph, x, y, colour) do
+  defp check_mark(graph, x, y, colour, s) do
     graph
-    |> Primitives.line({{x + 2.5, y}, {x + 4.5, y + 3}}, stroke: {1.6, colour}, cap: :round)
-    |> Primitives.line({{x + 4.5, y + 3}, {x + 8.5, y - 3.5}}, stroke: {1.6, colour}, cap: :round)
+    |> Primitives.line({{x + 2.5 * s, y}, {x + 4.5 * s, y + 3 * s}},
+      stroke: {1.6 * s, colour},
+      cap: :round
+    )
+    |> Primitives.line({{x + 4.5 * s, y + 3 * s}, {x + 8.5 * s, y - 3.5 * s}},
+      stroke: {1.6 * s, colour},
+      cap: :round
+    )
   end
 
   # A tick box, drawn for the same reason.
-  defp tick_box(graph, x, y, checked?, colour, _theme) do
+  defp tick_box(graph, x, y, checked?, colour, theme) do
+    s = ui_scale(theme)
+
     graph
-    |> Primitives.rrect({11, 11, 2},
+    |> Primitives.rrect({11 * s, 11 * s, 2 * s},
       fill: :clear,
-      stroke: {1, colour},
-      translate: {x, y - 5.5}
+      stroke: {1 * s, colour},
+      translate: {x, y - 5.5 * s}
     )
-    |> then(fn g -> if checked?, do: check_mark(g, x, y, colour), else: g end)
+    |> then(fn g -> if checked?, do: check_mark(g, x, y, colour, s), else: g end)
   end
 
   # Boolean menu rows always reserve and draw the same box. The mark says
   # which state is in force; the label no longer jumps sideways when toggled.
-  defp toggle_box(graph, x, y, checked?, colour) do
+  defp toggle_box(graph, x, y, checked?, colour, s) do
     graph =
-      Primitives.rrect(graph, {11, 11, 2},
+      Primitives.rrect(graph, {11 * s, 11 * s, 2 * s},
         fill: :clear,
-        stroke: {1, colour},
-        translate: {x, y - 5.5}
+        stroke: {1 * s, colour},
+        translate: {x, y - 5.5 * s}
       )
 
     if checked? do
-      check_mark(graph, x, y, colour)
+      check_mark(graph, x, y, colour, s)
     else
       graph
     end
@@ -1127,9 +1150,10 @@ defmodule ScenicWidgets.Menu.Dropdown do
   end
 
   defp render_slider(graph, slider, row_width, text_color, hovered?, theme) do
-    track_x = 10
-    track_width = max(1, row_width - 20)
-    track_y = Map.get(theme, :dropdown_slider_height, 52) - 13
+    s = ui_scale(theme)
+    track_x = slider_track_inset(theme)
+    track_width = max(1, row_width - 2 * track_x)
+    track_y = Map.get(theme, :dropdown_slider_height, 52) - 13 * s
     ratio = (slider.value - slider.min) / max(slider.max - slider.min, 1)
     thumb_x = track_x + ratio * track_width
     font_y = theme.dropdown_font_size + 5
@@ -1165,20 +1189,20 @@ defmodule ScenicWidgets.Menu.Dropdown do
       text_align: :right,
       translate: {row_width - 8, font_y}
     )
-    |> Primitives.rrect({track_width, 4, 2},
+    |> Primitives.rrect({track_width, 4 * s, 2 * s},
       id: {:slider_track, slider.id},
       fill: track_color,
       translate: {track_x, track_y}
     )
-    |> Primitives.rrect({max(0, thumb_x - track_x), 4, 2},
+    |> Primitives.rrect({max(0, thumb_x - track_x), 4 * s, 2 * s},
       id: {:slider_fill, slider.id},
       fill: fill_color,
       translate: {track_x, track_y}
     )
-    |> Primitives.circle(6,
+    |> Primitives.circle(6 * s,
       id: {:slider_thumb, slider.id},
       fill: thumb_color,
-      translate: {thumb_x, track_y + 2}
+      translate: {thumb_x, track_y + 2 * s}
     )
   end
 

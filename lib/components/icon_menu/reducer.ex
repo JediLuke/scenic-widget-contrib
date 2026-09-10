@@ -452,7 +452,7 @@ defmodule ScenicWidgets.IconMenu.Reducer do
   defp update_slider(state, item_id, {x, _y}, dragging?) do
     slider = State.find_item(state, item_id)
     bounds = state.dropdown_bounds[state.active_menu].items[item_id]
-    track_inset = 10
+    track_inset = ScenicWidgets.Menu.Dropdown.slider_track_inset(state.theme)
     ratio = (x - bounds.x - track_inset) / max(bounds.width - 2 * track_inset, 1)
     raw = slider.min + min(1.0, max(0.0, ratio)) * (slider.max - slider.min)
     steps = round((raw - slider.min) / slider.step)

@@ -207,14 +207,32 @@ defmodule ScenicWidgets.SideNav.Api do
   def update_theme(%State{} = state, theme_updates) do
     new_theme = Map.merge(state.theme, theme_updates)
 
-    # Check if dimension-related properties changed
-    dimension_keys = [:item_height, :indent]
+    # Check if dimension-related properties changed. The font size is one:
+    # wider text is wider content, and a title that fit at 13pt scrolls at 26.
+    dimension_keys = [:item_height, :indent, :font_size, :chevron_margin]
     dimensions_changed? = Enum.any?(dimension_keys, &Map.has_key?(theme_updates, &1))
 
     if dimensions_changed? do
-      # Recalculate bounds with new dimensions
+      # Recalculate bounds with new dimensions, and tell the scroll state the
+      # content is a different size now. Bounds alone used to be recomputed
+      # here, so a zoom that made the tree taller than its frame drew every
+      # row at the new height and no scrollbar: the scroll state still
+      # believed the content fit.
       new_bounds = State.calculate_item_bounds(state.tree, new_theme, state.expanded)
-      %{state | theme: new_theme, item_bounds: new_bounds}
+
+      content_width =
+        state.tree
+        |> State.calculate_content_width(new_theme, state.expanded)
+        |> State.scroll_content_width(new_bounds, state.frame)
+
+      content_height = State.scroll_content_height(new_bounds, content_width, state.frame)
+
+      new_scroll =
+        state.scroll
+        |> State.update_content_size(content_width, content_height)
+        |> State.sync_scrollbar_visibility()
+
+      %{state | theme: new_theme, item_bounds: new_bounds, scroll: new_scroll}
     else
       # Just update colors, no need to recalculate bounds
       %{state | theme: new_theme}
