@@ -5,7 +5,7 @@ defmodule ScenicWidgets.FrameBox do
   """
   use Scenic.Component
   require Logger
-  alias ScenicWidgets.Core.Structs.Frame
+  alias Widgex.Frame
 
   @border_colors [
     :light_green,
@@ -24,10 +24,13 @@ defmodule ScenicWidgets.FrameBox do
 
     init_graph =
       Scenic.Graph.build()
-      |> Scenic.Primitives.rect(args.frame.size, fill: args.color, translate: args.frame.pin)
-      |> Scenic.Primitives.rect(args.frame.size,
+      |> Scenic.Primitives.rect(args.frame.size.box,
+        fill: args.color,
+        translate: args.frame.pin.point
+      )
+      |> Scenic.Primitives.rect(args.frame.size.box,
         stroke: {10, Enum.random(@border_colors)},
-        translate: args.frame.pin
+        translate: args.frame.pin.point
       )
 
     init_scene =

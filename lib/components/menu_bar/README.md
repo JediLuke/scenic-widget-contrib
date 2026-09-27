@@ -15,7 +15,7 @@ vp_width = 800 # need to pass in the ViewPort width
 
 Scenic.Graph.build()
 |> ScenicWidgets.MenuBar.add_to_graph(%{
-  frame: ScenicWidgets.Core.Structs.Frame.new(
+  frame: Widgex.Frame.new(
     pin: {0, 0},
     size: {vp_width, _menu_bar_height = 60}
   ),
@@ -34,8 +34,10 @@ Scenic.Graph.build()
 })
 ```
 
-`ScenicWidgets.Core.Structs.Frame` is a struct also defined inside
-ScenicContrib, it is just a fancy definition for a rectangular box.
+`Widgex.Frame` is a struct also defined inside ScenicContrib: a
+rectangle given by its top-left `pin` and its `size`. `Widgex.Frame`
+also splits a frame into rows or columns (`v_split/2`, `h_split/2`,
+`col_split/2`), which is how a whole window gets laid out.
 
 ### Defining the MenuMap
 
@@ -166,7 +168,7 @@ sub_menu_options = %{
 
 Scenic.Graph.build()
 |> ScenicWidgets.MenuBar.add_to_graph( %{
-  frame: ScenicWidgets.Core.Structs.Frame.new(
+  frame: Widgex.Frame.new(
     pin: {0, 0},
     size: {vp_width, menu_bar_height}
   ),
@@ -183,7 +185,7 @@ keep the default size, is to pass in the font's name (as an atom):
 ```elixir
 Scenic.Graph.build()
 |> ScenicWidgets.MenuBar.add_to_graph(%{
-  frame: ScenicWidgets.Core.Structs.Frame.new(
+  frame: Widgex.Frame.new(
     pin: {0, 0},
     size: {vp_width, menu_bar_height}
   ),
