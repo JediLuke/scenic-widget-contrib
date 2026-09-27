@@ -313,7 +313,12 @@ defmodule ScenicWidgets.ScenicEventsDefinitions do
       @shift_up_arrow {:key, {:key_up, @key_pressed, [:shift]}}
       @shift_down_arrow {:key, {:key_down, @key_pressed, [:shift]}}
 
-      @shift_arrow_keys [@shift_left_arrow, @shift_right_arrow, @shift_up_arrow, @shift_down_arrow]
+      @shift_arrow_keys [
+        @shift_left_arrow,
+        @shift_right_arrow,
+        @shift_up_arrow,
+        @shift_down_arrow
+      ]
 
       @home_key {:key, {:key_home, @key_pressed, []}}
       @end_key {:key, {:key_end, @key_pressed, []}}

@@ -30,9 +30,9 @@ defmodule ScenicWidgets.TextField.MatchingBraceTest do
         initial_cursor: {1, 5},
         show_matching_brace: true,
         font: %{
-          name: :ibm_plex_mono,
+          name: :roboto_mono,
           size: 16,
-          path: Path.expand("../../assets/fonts/IBMPlexMono-Regular.ttf", __DIR__)
+          path: Path.join(Mix.Project.deps_paths()[:scenic], "assets/fonts/roboto_mono.ttf")
         }
       })
 
@@ -54,9 +54,9 @@ defmodule ScenicWidgets.TextField.MatchingBraceTest do
         highlight_current_line: true,
         highlight_current_column: false,
         font: %{
-          name: :ibm_plex_mono,
+          name: :roboto_mono,
           size: 16,
-          path: Path.expand("../../assets/fonts/IBMPlexMono-Regular.ttf", __DIR__)
+          path: Path.join(Mix.Project.deps_paths()[:scenic], "assets/fonts/roboto_mono.ttf")
         }
       })
 

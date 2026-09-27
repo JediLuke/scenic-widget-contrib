@@ -26,9 +26,9 @@ defmodule ScenicWidgets.TextFieldScrollPerformanceTest do
       show_line_numbers: true,
       viewport_buffer_lines: 96,
       font: %{
-        name: :ibm_plex_mono,
+        name: :roboto_mono,
         size: 16,
-        path: Path.expand("../assets/fonts/IBMPlexMono-Regular.ttf", __DIR__)
+        path: Path.join(Mix.Project.deps_paths()[:scenic], "assets/fonts/roboto_mono.ttf")
       }
     })
     |> Renderer.prepare_display_cache()

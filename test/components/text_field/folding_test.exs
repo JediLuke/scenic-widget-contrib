@@ -109,9 +109,9 @@ defmodule ScenicWidgets.TextField.FoldingTest do
         wrap_mode: :none,
         tab_width: 2,
         font: %{
-          name: :ibm_plex_mono,
+          name: :roboto_mono,
           size: 16,
-          path: Path.expand("../../assets/fonts/IBMPlexMono-Regular.ttf", __DIR__)
+          path: Path.join(Mix.Project.deps_paths()[:scenic], "assets/fonts/roboto_mono.ttf")
         }
       })
 
@@ -143,9 +143,9 @@ defmodule ScenicWidgets.TextField.FoldingTest do
         wrap_mode: :word,
         show_line_numbers: true,
         font: %{
-          name: :ibm_plex_mono,
+          name: :roboto_mono,
           size: 16,
-          path: Path.expand("../../assets/fonts/IBMPlexMono-Regular.ttf", __DIR__)
+          path: Path.join(Mix.Project.deps_paths()[:scenic], "assets/fonts/roboto_mono.ttf")
         }
       })
       |> Map.put(:fold_hover_line, 2)
@@ -179,9 +179,9 @@ defmodule ScenicWidgets.TextField.FoldingTest do
         initial_text: Enum.join(@lines, "\n"),
         show_line_numbers: true,
         font: %{
-          name: :ibm_plex_mono,
+          name: :roboto_mono,
           size: 16,
-          path: Path.expand("../../assets/fonts/IBMPlexMono-Regular.ttf", __DIR__)
+          path: Path.join(Mix.Project.deps_paths()[:scenic], "assets/fonts/roboto_mono.ttf")
         }
       })
 

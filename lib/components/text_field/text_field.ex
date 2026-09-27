@@ -4,10 +4,12 @@ defmodule ScenicWidgets.TextField do
 
   ## Features
   - Multi-line and single-line modes
-  - Optional line numbers
-  - Blinking cursor
+  - Optional line numbers, with code folding from the gutter
+  - Word wrap, and horizontal scrolling when it is off
+  - Blinking cursor, current-line and current-column highlights
+  - Matching-brace and search-match highlighting
+  - Per-span text styles (`highlight_styles`) for syntax highlighting
   - Configurable fonts and colors
-  - Transparent background support
   - Undo/redo support
   - Text selection and clipboard operations
 
@@ -161,20 +163,18 @@ defmodule ScenicWidgets.TextField do
   """
 
   use Scenic.Component, has_children: false
-  require Logger
 
   alias ScenicWidgets.TextField.{State, Renderer, Reducer}
   alias Scenic.Graph
 
   # ===== VALIDATION =====
 
-  @doc """
-  Validate TextField initialization data.
-
-  Accepts:
-  - Widgex.Frame directly (Widget Workbench passes this)
-  - Map with :frame key containing Widgex.Frame
-  """
+  # Validate TextField initialization data.
+  #
+  # Accepts:
+  # - Widgex.Frame directly (Widget Workbench passes this)
+  # - Map with :frame key containing Widgex.Frame
+  @impl Scenic.Component
   def validate(%Widgex.Frame{} = frame) do
     # Widget Workbench passes frame directly - wrap it in a map
     {:ok, %{frame: frame}}
@@ -190,9 +190,8 @@ defmodule ScenicWidgets.TextField do
 
   # ===== LIFECYCLE =====
 
-  @doc """
-  Initialize the TextField component.
-  """
+  # Initialize the TextField component.
+  @impl Scenic.Scene
   def init(scene, data, _opts) do
     # Create initial state
     state = State.new(data)
@@ -297,6 +296,7 @@ defmodule ScenicWidgets.TextField do
 
   # ===== INPUT HANDLING (Phase 2) =====
 
+  @impl Scenic.Scene
   def handle_input(input, _context, scene) do
     state = scene.assigns.state
 
@@ -600,11 +600,10 @@ defmodule ScenicWidgets.TextField do
 
   # ===== EXTERNAL CONTROL (Phase 3) =====
 
-  @doc """
-  Handle action messages from parent scene.
-  Actions are processed by the Reducer and may emit events.
-  In store_backed mode, actions are forwarded to the store.
-  """
+  # Handle action messages from parent scene.
+  # Actions are processed by the Reducer and may emit events.
+  # In store_backed mode, actions are forwarded to the store.
+  @impl Scenic.Scene
   def handle_put({:action, action}, scene) do
     state = scene.assigns.state
 
@@ -637,30 +636,6 @@ defmodule ScenicWidgets.TextField do
     end
   end
 
-  defp fold_action?({:toggle_fold, line}) when is_integer(line), do: true
-  defp fold_action?({:fold_to_level, level}) when level in 1..5, do: true
-  defp fold_action?(:unfold_all), do: true
-  defp fold_action?(_), do: false
-
-  defp handle_fold_hover(input, scene, state, x, y) do
-    hover_line =
-      if x >= 0 and x <= state.line_number_width do
-        local_y = y + state.scroll.offset_y
-        display_line = max(1, div(max(trunc(local_y), 0), State.line_height(state)) + 1)
-        source_line = Renderer.display_to_source_line(state, display_line)
-        if ScenicWidgets.TextField.Folding.foldable?(state.lines, source_line), do: source_line
-      end
-
-    if hover_line == state.fold_hover_line do
-      if is_nil(hover_line), do: do_handle_input(input, scene), else: {:noreply, scene}
-    else
-      new_state = %{state | fold_hover_line: hover_line}
-      graph = Renderer.update_render(scene.assigns.graph, state, new_state)
-      new_scene = scene |> assign(state: new_state, graph: graph) |> push_graph(graph)
-      if is_nil(hover_line), do: do_handle_input(input, new_scene), else: {:noreply, new_scene}
-    end
-  end
-
   # Seed the field with text and show it SELECTED, so the next character typed
   # replaces it. A field seeded with a guess — the word under the cursor, the
   # last thing searched for — otherwise makes you notice the guess and delete
@@ -676,9 +651,6 @@ defmodule ScenicWidgets.TextField do
     send_parent_event(scene, {:text_changed, scene.assigns.state.id, text})
     update_scene(scene, scene.assigns.state, state)
   end
-
-  defp selection_over(""), do: nil
-  defp selection_over(text), do: {{1, 1}, {1, String.length(text) + 1}}
 
   def handle_put(text, scene) when is_bitstring(text) do
     # Text replacement - also move cursor to end of text
@@ -706,13 +678,6 @@ defmodule ScenicWidgets.TextField do
   # that handles it can blur whatever was focused before. Without this, two
   # panes can hold the keyboard at once and every keystroke is typed twice —
   # once into the document, once into a search field.
-  defp announce_focus_taken(scene, %State{focused: false}, %State{focused: true} = new_state) do
-    if new_state.editable, do: capture_input(scene, :codepoint)
-    send_parent_event(scene, {:focus_taken, new_state.id})
-  end
-
-  defp announce_focus_taken(_scene, _old_state, _new_state), do: :ok
-
   def handle_put(:focus, scene) do
     # Focus the text field
     state = State.focus(scene.assigns.state)
@@ -727,33 +692,29 @@ defmodule ScenicWidgets.TextField do
     update_scene(scene, scene.assigns.state, state)
   end
 
-  @doc """
-  Apply editor settings (and/or a new frame) IN PLACE.
-
-  Rebuilds this component's graph from scratch while keeping the process
-  alive — so its input registration, focus and cursor survive. Hosts should
-  prefer this over delete-and-recreate: during a recreation there is a
-  window in which the old component has died and the new one has not yet
-  requested input, and any keystroke or click arriving in that window is
-  lost. (Symptom: a character vanishes if you type while toggling a setting.)
-
-  Recognised keys include line numbers, matching braces, current-line/current-column
-  highlights, wrapping, tab width, frame, colors, and font. Unknown keys are ignored.
-  """
-  @doc """
-  Set the "an overlay owns the pointer" flag.
-
-  Deliberately does NOT re-render: the flag only gates click handling, and
-  hosts toggle it on every menu open/close — including hover-switching
-  between menus. Routing it through `{:update_settings, ...}` rebuilds the
-  whole graph, which on a large document is slow enough to block the
-  component and time out the caller.
-  """
+  # Set the "an overlay owns the pointer" flag.
+  #
+  # Deliberately does NOT re-render: the flag only gates click handling, and
+  # hosts toggle it on every menu open/close — including hover-switching
+  # between menus. Routing it through `{:update_settings, ...}` rebuilds the
+  # whole graph, which on a large document is slow enough to block the
+  # component and time out the caller.
   def handle_put({:set_overlay_open, open?}, scene)
       when is_boolean(open?) or is_map(open?) or is_nil(open?) do
     {:noreply, assign(scene, state: State.set_overlay_open(scene.assigns.state, open?))}
   end
 
+  # Apply editor settings (and/or a new frame) IN PLACE.
+  #
+  # Rebuilds this component's graph from scratch while keeping the process
+  # alive — so its input registration, focus and cursor survive. Hosts should
+  # prefer this over delete-and-recreate: during a recreation there is a
+  # window in which the old component has died and the new one has not yet
+  # requested input, and any keystroke or click arriving in that window is
+  # lost. (Symptom: a character vanishes if you type while toggling a setting.)
+  #
+  # Recognised keys include line numbers, matching braces, current-line/current-column
+  # highlights, wrapping, tab width, frame, colors, and font. Unknown keys are ignored.
   def handle_put({:update_settings, settings}, scene) when is_map(settings) do
     old_state = scene.assigns.state
 
@@ -867,9 +828,8 @@ defmodule ScenicWidgets.TextField do
 
   # ===== CURSOR BLINK TIMER =====
 
-  @doc """
-  Handle cursor blink timer message.
-  """
+  # Handle cursor blink timer message.
+  @impl GenServer
   def handle_info(:blink, scene) do
     state = scene.assigns.state
 
@@ -919,10 +879,8 @@ defmodule ScenicWidgets.TextField do
   def handle_info({{Scenic.PubSub, :registered}, _}, scene), do: {:noreply, scene}
   def handle_info({{Scenic.PubSub, :unregistered}, _}, scene), do: {:noreply, scene}
 
-  @doc """
-  Handle buffer state updates (for store_backed mode).
-  When the store publishes a new snapshot, update TextField to match.
-  """
+  # Handle buffer state updates (for store_backed mode).
+  # When the store publishes a new snapshot, update TextField to match.
   def handle_info({:buf_state_changes, buf_state}, scene) do
     state = scene.assigns.state
 
@@ -1090,28 +1048,59 @@ defmodule ScenicWidgets.TextField do
 
   # ===== HANDLE CAST (for Scenic input routing) =====
 
-  @doc """
-  Handle input sent via GenServer.cast from Scenic.
-  This is how Scenic delivers input when a component requests it.
-  """
+  # Handle input sent via GenServer.cast from Scenic.
+  # This is how Scenic delivers input when a component requests it.
+  @impl GenServer
   def handle_cast({:user_input, input}, scene) do
     # Forward to handle_input
     handle_input(input, nil, scene)
   end
 
-  @doc """
-  Handle direct buffer state push from parent scene.
-  Delegates to handle_info to reuse the PubSub update path.
-
-  Called by `dispatch_to_active_buffer/2` in the root scene after a
-  synchronous buffer action — allows the root scene to push state
-  directly to the TextField without waiting for a PubSub broadcast.
-  """
+  # Handle direct buffer state push from parent scene.
+  # Delegates to handle_info to reuse the PubSub update path.
+  #
+  # Called by `dispatch_to_active_buffer/2` in the root scene after a
+  # synchronous buffer action — allows the root scene to push state
+  # directly to the TextField without waiting for a PubSub broadcast.
   def handle_cast({:state_change, buf_state}, scene) do
     handle_info({:buf_state_changes, buf_state}, scene)
   end
 
   # ===== HELPER FUNCTIONS =====
+
+  defp fold_action?({:toggle_fold, line}) when is_integer(line), do: true
+  defp fold_action?({:fold_to_level, level}) when level in 1..5, do: true
+  defp fold_action?(:unfold_all), do: true
+  defp fold_action?(_), do: false
+
+  defp handle_fold_hover(input, scene, state, x, y) do
+    hover_line =
+      if x >= 0 and x <= state.line_number_width do
+        local_y = y + state.scroll.offset_y
+        display_line = max(1, div(max(trunc(local_y), 0), State.line_height(state)) + 1)
+        source_line = Renderer.display_to_source_line(state, display_line)
+        if ScenicWidgets.TextField.Folding.foldable?(state.lines, source_line), do: source_line
+      end
+
+    if hover_line == state.fold_hover_line do
+      if is_nil(hover_line), do: do_handle_input(input, scene), else: {:noreply, scene}
+    else
+      new_state = %{state | fold_hover_line: hover_line}
+      graph = Renderer.update_render(scene.assigns.graph, state, new_state)
+      new_scene = scene |> assign(state: new_state, graph: graph) |> push_graph(graph)
+      if is_nil(hover_line), do: do_handle_input(input, new_scene), else: {:noreply, new_scene}
+    end
+  end
+
+  defp selection_over(""), do: nil
+  defp selection_over(text), do: {{1, 1}, {1, String.length(text) + 1}}
+
+  defp announce_focus_taken(scene, %State{focused: false}, %State{focused: true} = new_state) do
+    if new_state.editable, do: capture_input(scene, :codepoint)
+    send_parent_event(scene, {:focus_taken, new_state.id})
+  end
+
+  defp announce_focus_taken(_scene, _old_state, _new_state), do: :ok
 
   defp update_scene(scene, old_state, new_state) do
     old_state = Renderer.prepare_display_cache(old_state)
