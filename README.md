@@ -26,6 +26,16 @@ A nested menu at the top of the screen:
 
 ![MenuBar Screenshot](./lib/components/menu_bar/extra/menu_bar_screenshot.png)
 
+### TextField
+
+- [TextField](./lib/components/text_field/)
+- Status: Polished
+
+A text field, from a one-line input to a code editor: line numbers,
+folding, word wrap, selection, undo, search and syntax styling. It can
+own its text, or render a store your app keeps it in. Quillex's editor
+pane is one.
+
 ### FrameBox
 
 - [FrameBox](./lib/components/frame_box/)
