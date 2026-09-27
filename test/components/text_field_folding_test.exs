@@ -171,72 +171,34 @@ defmodule ScenicWidgets.TextField.FoldingTest do
     assert_in_delta triangle_anchor_y, expected_anchor_y, 0.01
   end
 
-  test "line-number context menu is layered over both panes and opens its select on demand" do
-    menu_theme = %{
-      dropdown_bg: {31, 32, 33},
-      dropdown_border: {41, 42, 43},
-      item_text_color: {51, 52, 53},
-      item_hover_bg: {61, 62, 63},
-      item_hover_text_color: {71, 72, 73},
-      font: :ibm_plex_mono,
-      dropdown_font_size: 13,
-      dropdown_item_height: 28
-    }
-
+  test "a right-click on the gutter reports the source line and where it landed" do
     state =
       State.new(%{
         id: :editor,
-        frame: Frame.new(%{pin: {0, 0}, size: {500, 300}}),
+        frame: Frame.new(%{pin: {40, 100}, size: {500, 300}}),
         initial_text: Enum.join(@lines, "\n"),
         show_line_numbers: true,
-        fold_level: 2,
-        gutter_menu_theme: menu_theme,
         font: %{
           name: :ibm_plex_mono,
           size: 16,
           path: Path.expand("../../assets/fonts/IBMPlexMono-Regular.ttf", __DIR__)
         }
       })
-      |> Map.put(:gutter_menu, %{
-        x: 24,
-        y: 30,
-        hovered: :gutter_clear_folds,
-        hovered_option: nil,
-        select_expanded?: false
-      })
 
-    bounds = Renderer.gutter_menu_bounds(state)
-    assert bounds.x == state.line_number_width
-    assert bounds.y == 30
+    row = State.line_height(state)
 
-    graph = Renderer.initial_render(Graph.build(), state)
-    assert Graph.get!(graph, :gutter_context_menu_gutter)
-    assert Graph.get!(graph, :gutter_context_menu_content)
+    assert Renderer.gutter_context(state, 12, row * 2.5) ==
+             %{line: 3, at: {52, 100 + row * 2.5}}
 
-    assert Scenic.Primitive.get_style(hd(Graph.get(graph, :dropdown_bg)), :fill) ==
-             {:color, {:color_rgba, {31, 32, 33, 255}}}
+    # Folding line 2 hides its body, line 3, behind a summary row that
+    # belongs to line 2. Its closing `end`, line 4, is the fourth row.
+    {:event, _event, folded} = Reducer.process_action(state, {:toggle_fold, 2})
+    folded = Renderer.prepare_display_cache(folded)
+    assert Renderer.gutter_context(folded, 12, row * 2.5).line == 2
+    assert Renderer.gutter_context(folded, 12, row * 3.5).line == 4
 
-    clear_bg = hd(Graph.get(graph, {:item_bg, :gutter_clear_folds}))
-    clear_text = hd(Graph.get(graph, {:item_text, :gutter_clear_folds}))
-
-    assert Scenic.Primitive.get_style(clear_bg, :fill) ==
-             {:color, {:color_rgba, {61, 62, 63, 255}}}
-
-    assert Scenic.Primitive.get_style(clear_text, :fill) ==
-             {:color, {:color_rgba, {71, 72, 73, 255}}}
-
-    assert Scenic.Primitive.get_style(clear_text, :font_size) == 13
-    assert Graph.get(graph, {:select_option, :gutter_fold_level, 1}) == []
-
-    expanded = put_in(state.gutter_menu.select_expanded?, true)
-    expanded_graph = Renderer.initial_render(Graph.build(), expanded)
-    assert Graph.get(expanded_graph, {:select_option, :gutter_fold_level, 1}) != []
-    assert Graph.get(expanded_graph, {:select_option, :gutter_fold_level, 5}) != []
-    assert Renderer.gutter_menu_bounds(state).width == 240
-    assert Renderer.gutter_menu_bounds(state).x >= state.line_number_width
-    assert clear_text.data == "Clear All Folds"
-
-    assert {:event, _event, folded} = Reducer.process_action(state, {:fold_to_level, 1})
-    assert folded.fold_level == 1
+    # The pointer is in the frame; the line is in the document.
+    scrolled = put_in(state.scroll.offset_y, row * 2)
+    assert Renderer.gutter_context(scrolled, 12, row * 0.5).line == 3
   end
 end

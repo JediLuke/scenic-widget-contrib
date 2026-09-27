@@ -67,9 +67,6 @@ defmodule ScenicWidgets.TextField.State do
     # Host says an overlay (menu/dialog) owns the pointer — ignore clicks
     :overlay_open,
     # Right-click menu anchored in the line-number gutter.
-    :gutter_menu,
-    :gutter_menu_theme,
-    :fold_level,
 
     # Buffer-backed mode (when input_mode == :store_backed)
     # Buffer store process: pid or via-tuple (GenServer.cast target)
@@ -294,9 +291,6 @@ defmodule ScenicWidgets.TextField.State do
       placeholder: Map.get(data, :placeholder),
       border_sides: Map.get(data, :border_sides, [:top, :right, :bottom, :left]),
       overlay_open: Map.get(data, :overlay_open, false),
-      gutter_menu: nil,
-      gutter_menu_theme: Map.get(data, :gutter_menu_theme),
-      fold_level: Map.get(data, :fold_level, 1),
 
       # Buffer-backed mode
       dispatch: Map.get(data, :dispatch),

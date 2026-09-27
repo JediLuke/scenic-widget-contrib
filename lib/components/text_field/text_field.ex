@@ -146,6 +146,18 @@ defmodule ScenicWidgets.TextField do
   - `{:enter_pressed, id, text}` - Enter pressed (single-line mode only)
   - `{:escape_pressed, id}` - Escape pressed
   - `{:save_requested, id, text}` - Ctrl+S pressed
+  - `{:folds_changed, id, folded_lines}` - Folds opened or closed
+  - `{:gutter_context_menu, id, %{line: line, at: {x, y}}}` - The line-number
+    gutter was right-clicked. `line` is the source line under the pointer and
+    `{x, y}` is the click in the parent's coordinates. The TextField draws no
+    menu of its own: the host decides what, if anything, to show there.
+
+  ## Commands
+
+  Hosts drive folding (and the rest of the reducer's vocabulary) with
+  `Scenic.Scene.put_child(scene, id, {:action, action})`, e.g.
+  `{:action, {:fold_to_level, 2}}`, `{:action, {:toggle_fold, line}}` or
+  `{:action, :unfold_all}`.
   """
 
   use Scenic.Component, has_children: false
@@ -301,58 +313,12 @@ defmodule ScenicWidgets.TextField do
     case input do
       {:cursor_button, {:btn_right, 1, _mods, {x, y}}}
       when state.show_line_numbers == true and x >= 0 and x <= state.line_number_width ->
-        update_scene(scene, state, %{
-          state
-          | gutter_menu: %{
-              x: x,
-              y: y,
-              hovered: nil,
-              hovered_option: nil,
-              select_expanded?: false
-            }
-        })
+        send_parent_event(
+          scene,
+          {:gutter_context_menu, state.id, Renderer.gutter_context(state, x, y)}
+        )
 
-      {:cursor_pos, coords} when not is_nil(state.gutter_menu) ->
-        bounds = Renderer.gutter_menu_bounds(state)
-
-        {hovered, hovered_option} =
-          case ScenicWidgets.Menu.Dropdown.row_at(bounds, coords) do
-            {:gutter_fold_level, {_x, local_y}} ->
-              row_height = Renderer.gutter_menu_theme(state).dropdown_item_height
-
-              option =
-                if state.gutter_menu.select_expanded? and local_y >= row_height,
-                  do: floor(local_y / row_height),
-                  else: nil
-
-              {:gutter_fold_level, if(option in 1..5, do: option)}
-
-            {id, _local} ->
-              {id, nil}
-
-            _ ->
-              {nil, nil}
-          end
-
-        if {hovered, hovered_option} ==
-             {Map.get(state.gutter_menu, :hovered), Map.get(state.gutter_menu, :hovered_option)} do
-          {:noreply, scene}
-        else
-          update_scene(scene, state, %{
-            state
-            | gutter_menu: %{
-                state.gutter_menu
-                | hovered: hovered,
-                  hovered_option: hovered_option
-              }
-          })
-        end
-
-      {:cursor_button, {:btn_left, 1, _mods, coords}} when not is_nil(state.gutter_menu) ->
-        handle_gutter_menu_click(scene, state, coords)
-
-      {:key, {:key_esc, 1, _mods}} when not is_nil(state.gutter_menu) ->
-        update_scene(scene, state, %{state | gutter_menu: nil})
+        {:noreply, scene}
 
       {:cursor_pos, {x, y}} when state.show_line_numbers == true ->
         handle_fold_hover(input, scene, state, x, y)
@@ -676,46 +642,6 @@ defmodule ScenicWidgets.TextField do
   defp fold_action?(:unfold_all), do: true
   defp fold_action?(_), do: false
 
-  defp handle_gutter_menu_click(scene, state, coords) do
-    bounds = Renderer.gutter_menu_bounds(state)
-
-    case ScenicWidgets.Menu.Dropdown.row_at(bounds, coords) do
-      {:gutter_fold_level, {_x, local_y}} ->
-        row_height = Renderer.gutter_menu_theme(state).dropdown_item_height
-        option = floor(local_y / row_height)
-
-        if state.gutter_menu.select_expanded? and option in 1..5 do
-          apply_gutter_fold_action(scene, state, {:fold_to_level, option})
-        else
-          menu = %{state.gutter_menu | select_expanded?: not state.gutter_menu.select_expanded?}
-          update_scene(scene, state, %{state | gutter_menu: menu})
-        end
-
-      {:gutter_clear_folds, _local} ->
-        apply_gutter_fold_action(scene, state, :unfold_all)
-
-      _outside_or_panel ->
-        update_scene(scene, state, %{state | gutter_menu: nil})
-    end
-  end
-
-  defp apply_gutter_fold_action(scene, state, action) do
-    case action do
-      {:fold_to_level, level} -> send_parent_event(scene, {:fold_level_changed, state.id, level})
-      _ -> :ok
-    end
-
-    case Reducer.process_action(%{state | gutter_menu: nil}, action) do
-      {:noop, new_state} ->
-        update_scene(scene, state, new_state)
-
-      {:event, event, new_state} ->
-        send_parent_event(scene, event)
-        maybe_persist_view(state, new_state)
-        update_scene(scene, state, Reducer.update_scroll_content_size(new_state))
-    end
-  end
-
   defp handle_fold_hover(input, scene, state, x, y) do
     hover_line =
       if x >= 0 and x <= state.line_number_width do
@@ -841,12 +767,10 @@ defmodule ScenicWidgets.TextField do
           :wrap_mode,
           :auto_indent,
           :tab_width,
-          :fold_level,
           :frame,
           :colors,
           :font,
           :overlay_open,
-          :gutter_menu_theme,
           :highlight_styles,
           :placeholder
         ],
@@ -1201,17 +1125,7 @@ defmodule ScenicWidgets.TextField do
       |> State.advance_render_window()
       |> Renderer.prepare_display_cache()
 
-    # A context menu is an overlay. Rebuild the complete graph when it opens,
-    # closes, or changes hover so its group is emitted after every gutter and
-    # content primitive. Incrementally deleting/re-adding just the menu left
-    # Scenic's compiled content script above it: the panel background covered
-    # the gutter while buffer glyphs still painted across the panel.
-    graph =
-      if old_state.gutter_menu || new_state.gutter_menu do
-        Renderer.initial_render(Graph.build(), new_state)
-      else
-        Renderer.update_render(scene.assigns.graph, old_state, new_state)
-      end
+    graph = Renderer.update_render(scene.assigns.graph, old_state, new_state)
 
     scene =
       scene

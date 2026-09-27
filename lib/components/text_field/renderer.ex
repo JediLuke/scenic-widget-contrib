@@ -135,88 +135,6 @@ defmodule ScenicWidgets.TextField.Renderer do
     graph
   end
 
-  defp render_gutter_menu_layer(graph, %State{gutter_menu: nil}, _x_shift, _id), do: graph
-
-  defp render_gutter_menu_layer(graph, %State{} = state, x_shift, id) do
-    rows = gutter_menu_rows(state)
-    theme = gutter_menu_theme(state)
-    bounds = gutter_menu_bounds(state, rows, theme)
-    bounds = %{bounds | x: bounds.x + x_shift}
-
-    ScenicWidgets.Menu.Dropdown.render(graph, rows, bounds,
-      theme: theme,
-      hovered: Map.get(state.gutter_menu, :hovered),
-      hovered_select_option: Map.get(state.gutter_menu, :hovered_option),
-      show_shortcuts: false,
-      id: id
-    )
-  end
-
-  @doc false
-  def gutter_menu_rows(%State{} = state) do
-    alias ScenicWidgets.Menu.Model.{Item, Select}
-
-    [
-      %Select{
-        id: :gutter_fold_level,
-        label: "Set Fold Level",
-        value: state.fold_level,
-        options: Enum.map(1..5, &{&1, "Level #{&1}"}),
-        option_width: 90,
-        closed_caret: :left,
-        expanded?: Map.get(state.gutter_menu, :select_expanded?, false)
-      },
-      %Item{id: :gutter_clear_folds, label: "Clear All Folds"}
-    ]
-  end
-
-  @doc false
-  def gutter_menu_theme(%State{} = state) do
-    c = state.colors
-
-    Map.merge(
-      %{
-        dropdown_bg: c.background,
-        dropdown_border: c.border,
-        item_text_color: c.text,
-        item_hover_bg: c.selection,
-        item_hover_text_color: c.background,
-        font: state.font.name,
-        dropdown_font_size: 14,
-        dropdown_item_height: 30,
-        dropdown_divider_height: 10,
-        dropdown_padding: 4,
-        dropdown_width: 240,
-        dropdown_column_gap: 16
-      },
-      state.gutter_menu_theme || %{}
-    )
-  end
-
-  @doc false
-  def gutter_menu_bounds(%State{} = state, rows \\ nil, theme \\ nil) do
-    rows = rows || gutter_menu_rows(state)
-    theme = theme || gutter_menu_theme(state)
-    %{x: click_x, y: click_y} = state.gutter_menu
-    width = theme.dropdown_width
-    height = ScenicWidgets.Menu.Dropdown.content_height(rows, theme)
-    max_x = max(state.frame.size.width - width, 0)
-
-    # Keep the popup wholly in the document layer whenever the pane has room.
-    # The gutter and document are independently clipped Scenic scripts; a
-    # glyph crossing their seam is rasterised twice and its two clipped halves
-    # can have visibly different hinting/weight.
-    x = min(max(click_x, state.line_number_width), max_x)
-    y = min(click_y, max(state.frame.size.height - height, 0))
-
-    ScenicWidgets.Menu.Dropdown.layout(rows, theme,
-      x: x,
-      y: y,
-      width: width,
-      max_height: state.frame.size.height - y
-    )
-  end
-
   # Rebuild both gutter and content when gutter width changes
   defp rebuild_gutter_and_content(graph, %State{show_line_numbers: true} = state) do
     graph
@@ -348,7 +266,6 @@ defmodule ScenicWidgets.TextField.Renderer do
           # Only vertical scroll
           translate: {0, -scroll.offset_y}
         )
-        |> render_gutter_menu_layer(state, 0, :gutter_context_menu_gutter)
       end,
       id: :gutter_group,
       scissor: {gutter_width, frame_height}
@@ -442,10 +359,6 @@ defmodule ScenicWidgets.TextField.Renderer do
         )
         # Render scrollbars INSIDE content_group, after text, so they're on top
         |> render_scrollbars_in_content(state, content_width, frame_height)
-        # The menu is repeated into each independently clipped layer. Scenic
-        # compiles the gutter and document into separate scripts; a root-level
-        # overlay could cover the gutter yet still sit beneath document glyphs.
-        |> render_gutter_menu_layer(state, -x_offset, :gutter_context_menu_content)
       end,
       id: :content_group,
       translate: {x_offset, 0},
@@ -2101,6 +2014,19 @@ defmodule ScenicWidgets.TextField.Renderer do
 
   defp swallowed_spaces(source, offset, true),
     do: source |> Enum.drop(offset) |> Enum.take_while(&(&1 == " ")) |> length()
+
+  @doc false
+  # What a host needs to put its own menu beside a right-click on the gutter:
+  # the source line under the pointer, and where the click landed in the
+  # coordinates of the TextField's parent, which is where `frame.pin` is
+  # measured too. `x` and `y` are the click in the TextField's own frame.
+  def gutter_context(%State{} = state, x, y) do
+    local_y = y + state.scroll.offset_y
+    display_line = max(1, div(max(trunc(local_y), 0), State.line_height(state)) + 1)
+    %{x: pin_x, y: pin_y} = state.frame.pin
+
+    %{line: display_to_source_line(state, display_line), at: {pin_x + x, pin_y + y}}
+  end
 
   @doc "Map a display row to its source line, accounting for folds and wrapping."
   def display_to_source_line(%State{} = state, display_line) do

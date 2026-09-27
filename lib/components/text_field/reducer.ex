@@ -588,8 +588,7 @@ defmodule ScenicWidgets.TextField.Reducer do
   def process_action(%State{} = state, {:fold_to_level, level}) when level in 1..5 do
     folds = ScenicWidgets.TextField.Folding.fold_to_level(state.lines, level)
 
-    {:event, {:folds_changed, state.id, MapSet.to_list(folds)},
-     %{state | folds: folds, fold_level: level}}
+    {:event, {:folds_changed, state.id, MapSet.to_list(folds)}, %{state | folds: folds}}
   end
 
   # Perform search across all lines.
