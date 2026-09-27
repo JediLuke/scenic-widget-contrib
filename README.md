@@ -36,6 +36,33 @@ A nested menu at the top of the screen:
 - [TestPattern](./lib/components/test_pattern/)
 - Status: In Development
 
+## Building blocks
+
+Not components themselves, but what components are built from.
+
+### Widgex.Frame
+
+- [Widgex.Frame](./lib/widgex/structs/frame.ex)
+
+A rectangle: its top-left `pin` and its `size`. Components take one to know
+where they sit and how much room they have. Frames split into rows and
+columns, which is how a whole window gets laid out:
+
+```elixir
+frame = Widgex.Frame.new(viewport)
+[menu_bar, rest] = Widgex.Frame.v_split(frame, px: 40)
+[sidebar, editor] = Widgex.Frame.h_split(rest, px: 240)
+```
+
+### Widgex.Scrollable
+
+- [Widgex.Scrollable](./lib/widgex/scroll/scrollable.ex)
+
+Scrolling for any component whose content outgrows its frame: scroll state,
+wheel handling, a clipped content group and scrollbars, with the arithmetic
+in pure functions (`Widgex.Scroll.ScrollReducer`,
+`Widgex.Scroll.ScrollController`) that test without a viewport.
+
 ## Getting Involved
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for info on contributing your own
