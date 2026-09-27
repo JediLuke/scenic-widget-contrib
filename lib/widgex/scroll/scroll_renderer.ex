@@ -32,7 +32,21 @@ defmodule Widgex.Scroll.ScrollRenderer do
   @scrollbar_padding 2
   @scrollbar_track_opacity 0x80
   # @scrollbar_thumb_opacity 0x80  # Currently using scroll state opacity
-  @scrollbar_color {160, 160, 160}  # Gray scrollbar color
+  # Gray scrollbar color
+  @scrollbar_color {160, 160, 160}
+  @scrollbar_inset @scrollbar_width + @scrollbar_padding * 2
+
+  @doc """
+  How much width a vertical bar takes out of the content beside it.
+
+  Published because anything laying content out next to these bars needs the
+  same number, and a second copy of it is how content ends up drawn under a
+  scrollbar or short of one.
+  """
+  def inset, do: @scrollbar_inset
+
+  @doc "The gap between a bar and the edges of the box it is drawn in."
+  def padding, do: @scrollbar_padding
 
   @doc """
   Create a scrollable group with scissor clipping.
@@ -54,10 +68,27 @@ defmodule Widgex.Scroll.ScrollRenderer do
         |> Primitives.text("Item 2", translate: {0, 40})
       end, id: :content_group)
   """
-  @spec scrollable_group(Graph.t(), ScrollState.t(), Frame.t(), (Graph.t() -> Graph.t()), keyword()) ::
+  @spec scrollable_group(
+          Graph.t(),
+          ScrollState.t(),
+          Frame.t(),
+          (Graph.t() -> Graph.t()),
+          keyword()
+        ) ::
           Graph.t()
   def scrollable_group(graph, %ScrollState{} = scroll, %Frame{} = frame, content_fn, opts \\ []) do
-    {width, height} = frame.size.box
+    overlay_scrollbars? = Keyword.get(opts, :overlay_scrollbars, false)
+
+    content_width =
+      if ScrollState.scrollable_y?(scroll) and not overlay_scrollbars?,
+        do: scroll.viewport_width - @scrollbar_inset,
+        else: scroll.viewport_width
+
+    content_height =
+      if ScrollState.scrollable_x?(scroll) and not overlay_scrollbars?,
+        do: scroll.viewport_height - @scrollbar_inset,
+        else: scroll.viewport_height
+
     {tx, ty} = ScrollState.translate_offset(scroll)
 
     # Get the ID for the inner scrolling group
@@ -66,7 +97,8 @@ defmodule Widgex.Scroll.ScrollRenderer do
 
     # Outer group: fixed position with scissor (clips content)
     # Inner group: translates for scrolling (content moves)
-    Primitives.group(graph,
+    Primitives.group(
+      graph,
       fn outer_g ->
         Primitives.group(outer_g, content_fn,
           id: inner_id,
@@ -74,7 +106,11 @@ defmodule Widgex.Scroll.ScrollRenderer do
         )
       end,
       id: outer_id,
-      scissor: {width, height}
+      # Keep content (and, importantly, its pointer hit areas) out from under
+      # the scrollbar lanes. After an incremental scroll transform Scenic can
+      # compile the moved content above the unchanged bars in its input list;
+      # this clip guarantees the scrollbar remains the owner of that space.
+      scissor: {max(content_width, 0), max(content_height, 0)}
     )
   end
 
@@ -85,7 +121,12 @@ defmodule Widgex.Scroll.ScrollRenderer do
   Only updates if the offset actually changed.
   """
   @spec update_scroll_transform(Graph.t(), atom(), ScrollState.t(), ScrollState.t()) :: Graph.t()
-  def update_scroll_transform(graph, group_id, %ScrollState{} = old_scroll, %ScrollState{} = new_scroll) do
+  def update_scroll_transform(
+        graph,
+        group_id,
+        %ScrollState{} = old_scroll,
+        %ScrollState{} = new_scroll
+      ) do
     if old_scroll.offset_x != new_scroll.offset_x || old_scroll.offset_y != new_scroll.offset_y do
       {tx, ty} = ScrollState.translate_offset(new_scroll)
 
@@ -109,11 +150,18 @@ defmodule Widgex.Scroll.ScrollRenderer do
     {r, g, b} = Keyword.get(opts, :color, @scrollbar_color)
     opacity = scroll.scrollbar_opacity
 
-    # IO.puts("📜 render_scrollbars: frame=#{width}x#{height}, opacity=#{opacity}, scrollable_y=#{ScrollState.scrollable_y?(scroll)}, scrollable_x=#{ScrollState.scrollable_x?(scroll)}")
+    group_id = Keyword.get(opts, :group_id, :default)
+
+    # `input: false` for a host that hit-tests these bars by coordinate rather
+    # than by Scenic's routing. A host which has already asked for pointer
+    # input globally gets every press on them TWICE otherwise — the double
+    # delivery this codebase has been bitten by before — and a track click
+    # that pages twice moves two screens for one press.
+    input = if Keyword.get(opts, :input, true), do: [input: [:cursor_button, :cursor_pos]], else: []
 
     graph
-    |> maybe_render_scrollbar_y(scroll, width, height, {r, g, b}, opacity)
-    |> maybe_render_scrollbar_x(scroll, width, height, {r, g, b}, opacity)
+    |> maybe_render_scrollbar_y(scroll, width, height, {r, g, b}, opacity, group_id, input)
+    |> maybe_render_scrollbar_x(scroll, width, height, {r, g, b}, opacity, group_id, input)
   end
 
   @doc """
@@ -121,32 +169,52 @@ defmodule Widgex.Scroll.ScrollRenderer do
 
   Efficiently updates scrollbar primitives when scroll state changes.
   """
-  @spec update_scrollbars(Graph.t(), ScrollState.t(), ScrollState.t(), Frame.t()) :: Graph.t()
-  def update_scrollbars(graph, %ScrollState{} = old_scroll, %ScrollState{} = new_scroll, %Frame{} = frame) do
+  @spec update_scrollbars(Graph.t(), ScrollState.t(), ScrollState.t(), Frame.t(), keyword()) ::
+          Graph.t()
+  def update_scrollbars(
+        graph,
+        %ScrollState{} = old_scroll,
+        %ScrollState{} = new_scroll,
+        %Frame{} = frame,
+        opts \\ []
+      ) do
+    group_id = Keyword.get(opts, :group_id, :default)
+    color = Keyword.get(opts, :color, @scrollbar_color)
+
     graph
-    |> update_scrollbar_y(old_scroll, new_scroll, frame)
-    |> update_scrollbar_x(old_scroll, new_scroll, frame)
+    |> update_scrollbar_y(old_scroll, new_scroll, frame, group_id, color)
+    |> update_scrollbar_x(old_scroll, new_scroll, frame, group_id, color)
   end
 
   @doc """
   Update only the scrollbar visibility/opacity.
   """
-  @spec update_scrollbar_visibility(Graph.t(), ScrollState.t()) :: Graph.t()
-  def update_scrollbar_visibility(graph, %ScrollState{} = scroll) do
+  @spec update_scrollbar_visibility(Graph.t(), ScrollState.t(), keyword()) :: Graph.t()
+  def update_scrollbar_visibility(graph, %ScrollState{} = scroll, opts \\ []) do
+    group_id = Keyword.get(opts, :group_id, :default)
     {r, g, b} = @scrollbar_color
     opacity = scroll.scrollbar_opacity
 
     graph
-    |> try_modify(:scrollbar_y_thumb, fn primitive ->
+    |> try_modify({:scrollbar_y_thumb, group_id}, fn primitive ->
       Scenic.Primitive.put_style(primitive, :fill, {r, g, b, opacity})
     end)
-    |> try_modify(:scrollbar_x_thumb, fn primitive ->
+    |> try_modify({:scrollbar_x_thumb, group_id}, fn primitive ->
       Scenic.Primitive.put_style(primitive, :fill, {r, g, b, opacity})
     end)
   end
 
   # Render vertical scrollbar if needed
-  defp maybe_render_scrollbar_y(graph, %ScrollState{} = scroll, width, height, color, opacity) do
+  defp maybe_render_scrollbar_y(
+         graph,
+         %ScrollState{} = scroll,
+         width,
+         height,
+         color,
+         opacity,
+         group_id,
+         input
+       ) do
     if ScrollState.scrollable_y?(scroll) do
       # Calculate actual track height (accounting for padding)
       track_height = height - @scrollbar_padding * 2
@@ -161,8 +229,6 @@ defmodule Widgex.Scroll.ScrollRenderer do
       track_opacity = if opacity > 0, do: @scrollbar_track_opacity, else: 0
       {r, g, b} = color
 
-      # IO.puts("📜 RENDERING scrollbar_y: track_x=#{track_x}, track_height=#{track_height}, thumb_height=#{thumb_height}, thumb_y=#{thumb_y}, color={#{r},#{g},#{b},#{opacity}}")
-
       graph
       |> Primitives.group(
         fn grp ->
@@ -170,18 +236,16 @@ defmodule Widgex.Scroll.ScrollRenderer do
           # Track background
           |> Primitives.rrect(
             {@scrollbar_width, track_height, 4},
-            id: :scrollbar_y_track,
-            fill: {r, g, b, track_opacity}
+            [id: {:scrollbar_y_track, group_id}, fill: {r, g, b, track_opacity}] ++ input
           )
           # Thumb
           |> Primitives.rrect(
             {@scrollbar_width, thumb_height, 4},
-            id: :scrollbar_y_thumb,
-            fill: {r, g, b, opacity},
-            translate: {0, thumb_y}
+            [id: {:scrollbar_y_thumb, group_id}, fill: {r, g, b, opacity}, translate: {0, thumb_y}] ++
+              input
           )
         end,
-        id: :scrollbar_y_group,
+        id: {:scrollbar_y_group, group_id},
         translate: {track_x, @scrollbar_padding}
       )
     else
@@ -190,14 +254,24 @@ defmodule Widgex.Scroll.ScrollRenderer do
   end
 
   # Render horizontal scrollbar if needed
-  defp maybe_render_scrollbar_x(graph, %ScrollState{} = scroll, width, height, color, opacity) do
+  defp maybe_render_scrollbar_x(
+         graph,
+         %ScrollState{} = scroll,
+         width,
+         height,
+         color,
+         opacity,
+         group_id,
+         input
+       ) do
     if ScrollState.scrollable_x?(scroll) do
       # Account for vertical scrollbar if present
-      track_width = if ScrollState.scrollable_y?(scroll) do
-        width - @scrollbar_width - @scrollbar_padding * 3
-      else
-        width - @scrollbar_padding * 2
-      end
+      track_width =
+        if ScrollState.scrollable_y?(scroll) do
+          width - @scrollbar_width - @scrollbar_padding * 3
+        else
+          width - @scrollbar_padding * 2
+        end
 
       # Get thumb size ratio and scale to actual track
       {thumb_x_ratio, thumb_width_ratio} = ScrollState.scrollbar_thumb(scroll, :x)
@@ -216,18 +290,16 @@ defmodule Widgex.Scroll.ScrollRenderer do
           # Track background
           |> Primitives.rrect(
             {track_width, @scrollbar_width, 4},
-            id: :scrollbar_x_track,
-            fill: {r, g, b, track_opacity}
+            [id: {:scrollbar_x_track, group_id}, fill: {r, g, b, track_opacity}] ++ input
           )
           # Thumb
           |> Primitives.rrect(
             {thumb_width, @scrollbar_width, 4},
-            id: :scrollbar_x_thumb,
-            fill: {r, g, b, opacity},
-            translate: {thumb_x, 0}
+            [id: {:scrollbar_x_thumb, group_id}, fill: {r, g, b, opacity}, translate: {thumb_x, 0}] ++
+              input
           )
         end,
-        id: :scrollbar_x_group,
+        id: {:scrollbar_x_group, group_id},
         translate: {@scrollbar_padding, track_y}
       )
     else
@@ -236,7 +308,7 @@ defmodule Widgex.Scroll.ScrollRenderer do
   end
 
   # Update vertical scrollbar
-  defp update_scrollbar_y(graph, old_scroll, new_scroll, frame) do
+  defp update_scrollbar_y(graph, old_scroll, new_scroll, frame, group_id, color) do
     if ScrollState.scrollable_y?(new_scroll) do
       {old_thumb_y, _} = ScrollState.scrollbar_thumb(old_scroll, :y)
       {new_thumb_y_ratio, _new_thumb_height} = ScrollState.scrollbar_thumb(new_scroll, :y)
@@ -247,17 +319,20 @@ defmodule Widgex.Scroll.ScrollRenderer do
       scale = track_height / new_scroll.viewport_height
       new_thumb_y = new_thumb_y_ratio * scale
 
-      if old_thumb_y != new_thumb_y_ratio || old_scroll.scrollbar_opacity != new_scroll.scrollbar_opacity do
-        {r, g, b} = @scrollbar_color
+      if old_thumb_y != new_thumb_y_ratio ||
+           old_scroll.scrollbar_opacity != new_scroll.scrollbar_opacity do
+        {r, g, b} = color
 
         graph
-        |> try_modify(:scrollbar_y_thumb, fn primitive ->
+        |> try_modify({:scrollbar_y_thumb, group_id}, fn primitive ->
           primitive
           |> Scenic.Primitive.put_style(:translate, {0, new_thumb_y})
           |> Scenic.Primitive.put_style(:fill, {r, g, b, new_scroll.scrollbar_opacity})
         end)
-        |> try_modify(:scrollbar_y_track, fn primitive ->
-          track_opacity = if new_scroll.scrollbar_opacity > 0, do: @scrollbar_track_opacity, else: 0
+        |> try_modify({:scrollbar_y_track, group_id}, fn primitive ->
+          track_opacity =
+            if new_scroll.scrollbar_opacity > 0, do: @scrollbar_track_opacity, else: 0
+
           Scenic.Primitive.put_style(primitive, :fill, {r, g, b, track_opacity})
         end)
       else
@@ -269,32 +344,38 @@ defmodule Widgex.Scroll.ScrollRenderer do
   end
 
   # Update horizontal scrollbar
-  defp update_scrollbar_x(graph, old_scroll, new_scroll, frame) do
+  defp update_scrollbar_x(graph, old_scroll, new_scroll, frame, group_id, color) do
     if ScrollState.scrollable_x?(new_scroll) do
       {old_thumb_x, _} = ScrollState.scrollbar_thumb(old_scroll, :x)
       {new_thumb_x_ratio, _new_thumb_width} = ScrollState.scrollbar_thumb(new_scroll, :x)
 
       # Scale to actual track width
       {width, _height} = frame.size.box
-      track_width = if ScrollState.scrollable_y?(new_scroll) do
-        width - @scrollbar_width - @scrollbar_padding * 3
-      else
-        width - @scrollbar_padding * 2
-      end
+
+      track_width =
+        if ScrollState.scrollable_y?(new_scroll) do
+          width - @scrollbar_width - @scrollbar_padding * 3
+        else
+          width - @scrollbar_padding * 2
+        end
+
       scale = track_width / new_scroll.viewport_width
       new_thumb_x = new_thumb_x_ratio * scale
 
-      if old_thumb_x != new_thumb_x_ratio || old_scroll.scrollbar_opacity != new_scroll.scrollbar_opacity do
-        {r, g, b} = @scrollbar_color
+      if old_thumb_x != new_thumb_x_ratio ||
+           old_scroll.scrollbar_opacity != new_scroll.scrollbar_opacity do
+        {r, g, b} = color
 
         graph
-        |> try_modify(:scrollbar_x_thumb, fn primitive ->
+        |> try_modify({:scrollbar_x_thumb, group_id}, fn primitive ->
           primitive
           |> Scenic.Primitive.put_style(:translate, {new_thumb_x, 0})
           |> Scenic.Primitive.put_style(:fill, {r, g, b, new_scroll.scrollbar_opacity})
         end)
-        |> try_modify(:scrollbar_x_track, fn primitive ->
-          track_opacity = if new_scroll.scrollbar_opacity > 0, do: @scrollbar_track_opacity, else: 0
+        |> try_modify({:scrollbar_x_track, group_id}, fn primitive ->
+          track_opacity =
+            if new_scroll.scrollbar_opacity > 0, do: @scrollbar_track_opacity, else: 0
+
           Scenic.Primitive.put_style(primitive, :fill, {r, g, b, track_opacity})
         end)
       else

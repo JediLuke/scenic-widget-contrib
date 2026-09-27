@@ -212,9 +212,6 @@ defmodule WidgetWorkbench.Scene do
         raise "Component must define add_to_graph to be compatible (checked #{inspect(component_module)})"
       end
 
-      IO.puts("🔧 Widget Workbench calling #{inspect(component_module)}.add_to_graph")
-      IO.puts("   component_opts: #{inspect(component_opts)}")
-
       graph
       |> component_module.add_to_graph(
         component_opts,
@@ -866,8 +863,6 @@ defmodule WidgetWorkbench.Scene do
 
   @spec select_component(Scene.t(), component_spec()) :: Scene.t()
   defp select_component(scene, component_spec) do
-    IO.puts("🔧🔧🔧 select_component called with: #{inspect(component_spec)}")
-
     new_graph =
       render(scene.assigns.frame, component_spec, false, nil, 0)
       |> apply_click_visualizations(scene)
@@ -1645,9 +1640,16 @@ defmodule WidgetWorkbench.Scene do
   end
 
   def handle_event({:click, :close_workbench_button}, _from, scene) do
-    # Logger.info("Close Workbench button clicked!")
-    # switch back to Flamelex
-    {:ok, _} = ViewPort.set_root(scene.viewport, Flamelex.GUI.RootScene, nil)
+    # Return to the host app's root scene, if one was configured, e.g.
+    #   config :scenic_widget_contrib, :workbench_return_scene, MyApp.RootScene
+    case Application.get_env(:scenic_widget_contrib, :workbench_return_scene) do
+      nil ->
+        Logger.info("close_workbench: no :workbench_return_scene configured, staying put")
+
+      return_scene ->
+        {:ok, _} = ViewPort.set_root(scene.viewport, return_scene, nil)
+    end
+
     {:noreply, scene}
   end
 
@@ -1663,8 +1665,7 @@ defmodule WidgetWorkbench.Scene do
     {:noreply, scene}
   end
 
-  def handle_cast({:open_widget, component}, scene) do
-    IO.puts("Attempting to open #{inspect(component)}")
+  def handle_cast({:open_widget, _component}, scene) do
     {:noreply, scene}
   end
 
@@ -1843,15 +1844,12 @@ defmodule WidgetWorkbench.Scene do
   end
 
   def handle_event({:click, {:select_component, component_module}}, _from, scene) do
-    IO.puts("🔥🔥🔥 handle_event for select_component! Module: #{inspect(component_module)}")
-
     # Find the component info from our discovered list
     components = discover_components()
 
     {component_name, component_module} =
       Enum.find(components, fn {_name, module} -> module == component_module end)
 
-    IO.puts("   Component name: #{component_name}")
     Logger.info("Component selected: #{component_name}")
 
     # Calculate component frame for click-outside detection
@@ -2034,7 +2032,6 @@ defmodule WidgetWorkbench.Scene do
   end
 
   def handle_info(msg, scene) do
-    Logger.debug("🔍 Unhandled message in WidgetWorkbench: #{inspect(msg)}")
     {:noreply, scene}
   end
 

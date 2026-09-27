@@ -8,7 +8,15 @@ defmodule ScenicWidgets.TabBar.Reducer do
 
   alias ScenicWidgets.TabBar.State
 
-  @scroll_amount 50  # Pixels to scroll per wheel tick
+  # Pixels to scroll per wheel tick
+  @scroll_amount 50
+
+  # Horizontal travel, in pixels, before a press on a tab becomes a reorder drag.
+  @drag_threshold 5
+
+  # How long after a press a second press on the same tab still counts as a
+  # double click.
+  @double_click_ms 450
 
   @doc """
   Process user input and return state transitions.
@@ -19,19 +27,52 @@ defmodule ScenicWidgets.TabBar.Reducer do
   - `{:tab_closed, tab_id, state}` - Tab was closed
   """
   def process_input(%State{} = state, {:cursor_pos, coords}) do
-    handle_hover(state, coords)
+    if state.dragging_tab_id, do: handle_drag(state, coords), else: handle_hover(state, coords)
   end
 
-  def process_input(%State{} = state, {:cursor_button, {:btn_left, 1, [], coords}}) do
-    handle_click(state, coords)
+  def process_input(%State{} = state, {:cursor_button, {:btn_left, 1, _mods, coords}}) do
+    handle_press(state, coords)
   end
 
-  def process_input(%State{} = state, {:cursor_scroll, {_dx, dy, _x, _y}}) do
+  def process_input(
+        %State{dragging_tab_id: id} = state,
+        {:cursor_button, {:btn_left, 0, _mods, _coords}}
+      )
+      when not is_nil(id) do
+    new_state = %{
+      state
+      | dragging_tab_id: nil,
+        drag_reordered?: false,
+        drag_origin_x: nil,
+        drag_active?: false
+    }
+
+    if state.drag_reordered?,
+      do: {:tabs_reordered, Enum.map(state.tabs, & &1.id), new_state},
+      else: select_tab(new_state, id)
+  end
+
+  def process_input(%State{} = state, {:cursor_scroll, {_dx, dy, x, y}}) do
+    maybe_scroll(state, dy, {x, y})
+  end
+
+  def process_input(%State{} = state, {:cursor_scroll, {{dx, dy}, coords}}) do
+    delta = if dx == 0, do: dy, else: dx
+    maybe_scroll(state, delta, coords)
+  end
+
+  def process_input(%State{} = state, {:cursor_scroll, {_dx, dy}}) do
     handle_scroll(state, dy)
   end
 
   def process_input(state, _input) do
     {:noop, state}
+  end
+
+  defp maybe_scroll(state, delta, coords) do
+    if State.point_inside?(state, coords),
+      do: handle_scroll(state, delta),
+      else: {:noop, state}
   end
 
   @doc """
@@ -82,12 +123,86 @@ defmodule ScenicWidgets.TabBar.Reducer do
     end
   end
 
+  defp handle_press(state, {x, _y} = coords) do
+    case if(State.point_inside?(state, coords), do: State.hit_test(state, coords), else: :none) do
+      {:close, _id} ->
+        handle_click(state, coords)
+
+      {:tab, id} ->
+        now = System.monotonic_time(:millisecond)
+
+        pressed = %{
+          state
+          | dragging_tab_id: id,
+            drag_reordered?: false,
+            drag_origin_x: x,
+            drag_active?: false,
+            last_press: {id, now}
+        }
+
+        if double_click?(state.last_press, id, now),
+          do: {:tab_double_clicked, id, %{pressed | last_press: nil}},
+          else: {:noop, pressed}
+
+      :none ->
+        {:noop, state}
+    end
+  end
+
+  # Two presses on the same tab inside the window are a double click. The
+  # window is generous: the gesture promotes a preview tab to a permanent one,
+  # and a missed promotion is far more annoying than a late one.
+  defp double_click?({id, at}, id, now), do: now - at <= @double_click_ms
+  defp double_click?(_last_press, _id, _now), do: false
+
+  defp handle_drag(state, {x, _y} = coords) do
+    index = Enum.find_index(state.tabs, &(&1.id == state.dragging_tab_id))
+    left = index > 0 && Enum.at(state.tabs, index - 1)
+    right = index < length(state.tabs) - 1 && Enum.at(state.tabs, index + 1)
+
+    # A press is not yet a drag. Showing the drop line the instant the button
+    # goes down would flash it on every ordinary tab click.
+    active? = state.drag_active? or abs(x - state.drag_origin_x) >= @drag_threshold
+
+    target_index =
+      cond do
+        left && x < tab_center(state, left.id) -> index - 1
+        right && x > tab_center(state, right.id) -> index + 1
+        true -> index
+      end
+
+    if target_index == index do
+      handle_hover(state, coords)
+      |> then(fn {:noop, hovered} ->
+        {:noop,
+         %{
+           hovered
+           | dragging_tab_id: state.dragging_tab_id,
+             drag_reordered?: state.drag_reordered?,
+             drag_origin_x: state.drag_origin_x,
+             drag_active?: active?
+         }}
+      end)
+    else
+      tab = Enum.at(state.tabs, index)
+      tabs = state.tabs |> List.delete_at(index) |> List.insert_at(target_index, tab)
+      new_state = %{state | tabs: tabs, drag_reordered?: true, drag_active?: active?}
+      new_state = %{new_state | tab_widths: State.calculate_tab_widths(new_state)}
+      {:tabs_dragged, new_state}
+    end
+  end
+
+  defp tab_center(state, id) do
+    {x, _y, width, _height} = State.get_tab_bounds(state, id)
+    x + width / 2
+  end
+
   @doc """
   Handle horizontal scrolling.
   """
   def handle_scroll(%State{} = state, delta_y) do
     # Negative delta = scroll right, positive = scroll left (natural scrolling)
-    new_offset = state.scroll_offset - (delta_y * @scroll_amount)
+    new_offset = state.scroll_offset - delta_y * @scroll_amount
 
     # Clamp to valid range
     max_offset = State.max_scroll_offset(state)
@@ -109,7 +224,7 @@ defmodule ScenicWidgets.TabBar.Reducer do
   end
 
   def select_tab(%State{} = state, tab_id) do
-    new_state = %{state | selected_id: tab_id}
+    new_state = State.ensure_selected_visible(%{state | selected_id: tab_id})
     {:tab_selected, tab_id, new_state}
   end
 
@@ -133,19 +248,22 @@ defmodule ScenicWidgets.TabBar.Reducer do
         new_tabs = Enum.reject(tabs, &(&1.id == tab_id))
 
         # If we closed the selected tab, select an adjacent one
-        new_selected = if state.selected_id == tab_id do
-          select_adjacent_tab(tabs, tab_id)
-        else
-          state.selected_id
-        end
+        new_selected =
+          if state.selected_id == tab_id do
+            select_adjacent_tab(tabs, tab_id)
+          else
+            state.selected_id
+          end
 
         # Recalculate tab widths
-        new_state = %{state |
-          tabs: new_tabs,
-          selected_id: new_selected,
-          hovered_tab_id: nil,
-          hovered_close_id: nil
+        new_state = %{
+          state
+          | tabs: new_tabs,
+            selected_id: new_selected,
+            hovered_tab_id: nil,
+            hovered_close_id: nil
         }
+
         new_state = %{new_state | tab_widths: State.calculate_tab_widths(new_state)}
 
         # Adjust scroll if needed

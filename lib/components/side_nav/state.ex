@@ -10,48 +10,121 @@ defmodule ScenicWidgets.SideNav.State do
   - Scroll state via Widgex.Scrollable
   """
 
-  use Widgex.Scrollable, direction: :vertical
+  use Widgex.Scrollable, direction: :both
 
   alias ScenicWidgets.SideNav.Item
 
+  # The horizontal bar occupies 16px (12px bar + 2px padding on each side).
+  # Keep a little breathing room so the final row never shares its hit strip.
+  @horizontal_scrollbar_clearance 20
+  @vertical_scrollbar_clearance 16
+
   defstruct [
-    :frame,              # Component frame
-    :tree,               # Hierarchical tree of Sidebar.Item structs
-    :active_id,          # Currently active/selected item ID
-    :focused_id,         # Currently focused item (for keyboard nav)
-    :hovered_id,         # Currently hovered item (for hover effects)
-    :expanded,           # MapSet of expanded node IDs
-    :scroll,             # Widgex.Scroll.ScrollState for scrolling
-    :theme,              # Visual theme configuration
-    :item_bounds         # Pre-calculated bounds for hit-testing
+    # Component frame
+    :frame,
+    # Hierarchical tree of Sidebar.Item structs
+    :tree,
+    # Currently active/selected item ID
+    :active_id,
+    # Filesystem-operation selection, distinct from the active editor buffer.
+    :selected_ids,
+    :selection_anchor,
+    :context_menu,
+    :drag_source,
+    :drag_start,
+    :drag_mods,
+    :dragging,
+    :drag_target,
+    :drop_valid,
+    # Live cursor position during a drag, in component-local coordinates. Drives
+    # the ghost that follows the pointer, so it updates on every cursor_pos.
+    :drag_pos,
+    # Directory the pointer is resting over, and the timer that will spring it
+    # open. A drag can only reach what is on screen, so hovering a collapsed
+    # folder has to open it — otherwise nothing nested is ever a drop target.
+    :drag_hover_id,
+    :drag_hover_timer,
+    # Repeating tick while the pointer sits in the top or bottom edge strip,
+    # so a drag can reach past one screenful of tree.
+    :drag_scroll_timer,
+    # The container every top-level item belongs to, supplied by the parent
+    # (Quillex passes the navigator root). Optional: without it, dropping on
+    # empty space below the tree has nowhere to go and is ignored. Item ids are
+    # otherwise opaque to this component, so it cannot infer one.
+    :root_id,
+    :pending_path_moves,
+    # The inline rename box is an ordinary single-line text input: the name
+    # being edited, and where the caret sits inside it (a grapheme index, so
+    # 0 is before the first character and String.length/1 is past the last).
+    :renaming_id,
+    :rename_value,
+    :rename_caret,
+    # Currently focused item (for keyboard nav)
+    :focused_id,
+    # Currently hovered item (for hover effects)
+    :hovered_id,
+    # MapSet of expanded node IDs
+    :expanded,
+    # Widgex.Scroll.ScrollState for scrolling
+    :scroll,
+    # Visual theme configuration
+    :theme,
+    # Pre-calculated bounds for hit-testing
+    :item_bounds,
+    # Active scrollbar-thumb drag (:x | :y | nil), pointer origin, and the
+    # corresponding content offset at grab time.
+    :scrollbar_drag,
+    :scrollbar_drag_start,
+    :scrollbar_drag_offset,
+    # Component-level keyboard focus — all key input is ignored while false
+    focused: false
   ]
 
   @default_theme %{
     # Colors - HexDocs light theme (with visible background)
-    background: :white,                    # Solid white background
-    text: {34, 34, 34},                    # #222222
-    active_bg: {229, 242, 255},            # #E5F2FF
-    active_bar: {76, 86, 106},             # Darker slate blue for active bar
-    hover_bg: {240, 240, 240},             # Slightly darker hover
-    chevron: {80, 80, 80},                 # Dark gray for chevrons
-    focus_ring: {0, 112, 214},             # #0070D6
-    border: {200, 200, 200},               # Visible border
+    # Solid white background
+    background: :white,
+    # #222222
+    text: {34, 34, 34},
+    # #E5F2FF
+    active_bg: {229, 242, 255},
+    # Darker slate blue for active bar
+    active_bar: {76, 86, 106},
+    # Slightly darker hover
+    hover_bg: {240, 240, 240},
+    # Neutral operation selection; blue is reserved for the active buffer.
+    selection_bg: {214, 218, 224},
+    # Dark gray for chevrons
+    chevron: {80, 80, 80},
+    # #0070D6
+    focus_ring: {0, 112, 214},
+    # Visible border
+    border: {200, 200, 200},
 
     # Dimensions
-    item_height: 28,                        # Slightly smaller item height
-    indent: 16,                            # Indentation per level
-    font: :roboto,                         # Use Roboto (standard Scenic font)
-    font_size: 14,                         # Font size
+    # Slightly smaller item height
+    item_height: 28,
+    # Indentation per level
+    indent: 16,
+    # Use Roboto (standard Scenic font)
+    font: :roboto,
+    # Font size
+    font_size: 14,
     line_height: 20,
 
     # Spacing
-    padding_left: 12,                      # Left padding for top-level items
-    padding_right: 12,                     # Right padding
-    item_spacing: 0,                       # No spacing between items
+    # Left padding for top-level items
+    padding_left: 12,
+    # Right padding
+    padding_right: 12,
+    # No spacing between items
+    item_spacing: 0,
 
     # Chevron - LARGER for visibility
-    chevron_size: 16,                      # Larger chevron
-    chevron_margin: 6                      # Space between chevron and text
+    # Larger chevron
+    chevron_size: 16,
+    # Space between chevron and text
+    chevron_margin: 6
   }
 
   @doc """
@@ -66,17 +139,49 @@ defmodule ScenicWidgets.SideNav.State do
 
     # Calculate item bounds to determine content height
     item_bounds = calculate_item_bounds(tree, theme, initial_expanded)
-    content_height = calculate_content_height(item_bounds)
+
+    content_width =
+      tree
+      |> calculate_content_width(theme, initial_expanded)
+      |> scroll_content_width(item_bounds, data.frame)
+
+    content_height = scroll_content_height(item_bounds, content_width, data.frame)
 
     %__MODULE__{
       frame: data.frame,
       tree: tree,
       active_id: Map.get(data, :active_id),
+      selected_ids: MapSet.new(Map.get(data, :selected_ids, [])),
+      selection_anchor: nil,
+      context_menu: nil,
+      drag_source: nil,
+      drag_start: nil,
+      drag_mods: [],
+      dragging: false,
+      drag_target: nil,
+      drop_valid: false,
+      drag_pos: nil,
+      drag_hover_id: nil,
+      drag_hover_timer: nil,
+      drag_scroll_timer: nil,
+      root_id: Map.get(data, :root_id),
+      pending_path_moves: [],
+      renaming_id: nil,
+      rename_value: "",
+      rename_caret: 0,
       focused_id: Map.get(data, :focused_id),
       expanded: initial_expanded,
-      scroll: init_scroll(data.frame, content_height: content_height),
+      scroll:
+        init_scroll(data.frame,
+          content_width: content_width,
+          content_height: content_height,
+          initially_visible: true
+        ),
       theme: theme,
-      item_bounds: item_bounds
+      item_bounds: item_bounds,
+      scrollbar_drag: nil,
+      scrollbar_drag_start: nil,
+      scrollbar_drag_offset: nil
     }
   end
 
@@ -84,11 +189,52 @@ defmodule ScenicWidgets.SideNav.State do
   Calculate total content height from item bounds.
   """
   def calculate_content_height(item_bounds) when map_size(item_bounds) == 0, do: 0
+
   def calculate_content_height(item_bounds) do
     item_bounds
     |> Map.values()
     |> Enum.map(fn bounds -> bounds.y + bounds.height end)
     |> Enum.max()
+  end
+
+  def calculate_content_width(tree, theme), do: calculate_content_width(tree, theme, :all)
+
+  def calculate_content_width(tree, theme, expanded) do
+    tree
+    |> item_widths(theme, 0, expanded)
+    |> Enum.max(fn -> 0 end)
+  end
+
+  defp item_widths(items, theme, depth, expanded) do
+    Enum.flat_map(items, fn item ->
+      item_id = Item.get_id(item)
+
+      own =
+        theme.padding_left + depth * theme.indent + theme.chevron_size +
+          theme.chevron_margin + String.length(Item.get_title(item)) * theme.font_size * 0.6 +
+          theme.padding_right
+
+      children =
+        if expanded == :all or MapSet.member?(expanded, item_id) do
+          item_widths(Item.get_children(item) || [], theme, depth + 1, expanded)
+        else
+          []
+        end
+
+      [own | children]
+    end)
+  end
+
+  @doc false
+  def scroll_content_width(content_width, item_bounds, frame) do
+    vertical_overflow? = calculate_content_height(item_bounds) > frame.size.height
+    horizontal_overflow? = content_width > frame.size.width
+
+    if vertical_overflow? and horizontal_overflow? do
+      content_width + @vertical_scrollbar_clearance
+    else
+      content_width
+    end
   end
 
   # Build expanded set from items that have expanded: true
@@ -97,22 +243,25 @@ defmodule ScenicWidgets.SideNav.State do
   end
 
   defp collect_expanded_items([], acc), do: acc
+
   defp collect_expanded_items([item | rest], acc) do
     item_id = Item.get_id(item)
 
     # Add this item to expanded set if it's marked as expanded
-    acc = if Item.is_expanded?(item) do
-      MapSet.put(acc, item_id)
-    else
-      acc
-    end
+    acc =
+      if Item.is_expanded?(item) do
+        MapSet.put(acc, item_id)
+      else
+        acc
+      end
 
     # Recursively check children
-    acc = if Item.has_children?(item) do
-      collect_expanded_items(Item.get_children(item), acc)
-    else
-      acc
-    end
+    acc =
+      if Item.has_children?(item) do
+        collect_expanded_items(Item.get_children(item), acc)
+      else
+        acc
+      end
 
     collect_expanded_items(rest, acc)
   end
@@ -143,10 +292,12 @@ defmodule ScenicWidgets.SideNav.State do
     # Note: x is the INDENT position, not including padding_left
     # The full row starts at 0, but content starts at padding_left + indent
     x = depth * indent
+
     bounds = %{
       x: x,
       y: y_offset,
-      width: 280 - x,  # Sidebar width minus indent
+      # Sidebar width minus indent
+      width: 280 - x,
       height: item_height,
       depth: depth,
       has_children: Item.has_children?(item),
@@ -157,12 +308,13 @@ defmodule ScenicWidgets.SideNav.State do
     next_y = y_offset + item_height
 
     # If this item has children and is expanded, process them
-    {final_acc, final_y} = if Item.has_children?(item) and MapSet.member?(expanded, item_id) do
-      children = Item.get_children(item)
-      do_calculate_bounds(children, depth + 1, next_y, item_height, indent, expanded, new_acc)
-    else
-      {new_acc, next_y}
-    end
+    {final_acc, final_y} =
+      if Item.has_children?(item) and MapSet.member?(expanded, item_id) do
+        children = Item.get_children(item)
+        do_calculate_bounds(children, depth + 1, next_y, item_height, indent, expanded, new_acc)
+      else
+        {new_acc, next_y}
+      end
 
     # Process remaining siblings
     do_calculate_bounds(rest, depth, final_y, item_height, indent, expanded, final_acc)
@@ -172,16 +324,30 @@ defmodule ScenicWidgets.SideNav.State do
   Toggle expansion state of a node.
   """
   def toggle_expanded(%__MODULE__{} = state, item_id) do
-    new_expanded = if MapSet.member?(state.expanded, item_id) do
-      MapSet.delete(state.expanded, item_id)
-    else
-      MapSet.put(state.expanded, item_id)
-    end
+    new_expanded =
+      if MapSet.member?(state.expanded, item_id) do
+        MapSet.delete(state.expanded, item_id)
+      else
+        MapSet.put(state.expanded, item_id)
+      end
 
     # Recalculate bounds with new expansion state
     new_bounds = calculate_item_bounds(state.tree, state.theme, new_expanded)
-    content_height = calculate_content_height(new_bounds)
-    new_scroll = update_content_size(state.scroll, state.frame.size.width, content_height)
+
+    content_width =
+      state.tree
+      |> calculate_content_width(state.theme, new_expanded)
+      |> scroll_content_width(new_bounds, state.frame)
+
+    content_height = scroll_content_height(new_bounds, content_width, state.frame)
+
+    new_scroll =
+      update_content_size(
+        state.scroll,
+        content_width,
+        content_height
+      )
+      |> sync_scrollbar_visibility()
 
     %{state | expanded: new_expanded, item_bounds: new_bounds, scroll: new_scroll}
   end
@@ -195,8 +361,22 @@ defmodule ScenicWidgets.SideNav.State do
     else
       new_expanded = MapSet.put(state.expanded, item_id)
       new_bounds = calculate_item_bounds(state.tree, state.theme, new_expanded)
-      content_height = calculate_content_height(new_bounds)
-      new_scroll = update_content_size(state.scroll, state.frame.size.width, content_height)
+
+      content_width =
+        state.tree
+        |> calculate_content_width(state.theme, new_expanded)
+        |> scroll_content_width(new_bounds, state.frame)
+
+      content_height = scroll_content_height(new_bounds, content_width, state.frame)
+
+      new_scroll =
+        update_content_size(
+          state.scroll,
+          content_width,
+          content_height
+        )
+        |> sync_scrollbar_visibility()
+
       %{state | expanded: new_expanded, item_bounds: new_bounds, scroll: new_scroll}
     end
   end
@@ -208,8 +388,22 @@ defmodule ScenicWidgets.SideNav.State do
     if MapSet.member?(state.expanded, item_id) do
       new_expanded = MapSet.delete(state.expanded, item_id)
       new_bounds = calculate_item_bounds(state.tree, state.theme, new_expanded)
-      content_height = calculate_content_height(new_bounds)
-      new_scroll = update_content_size(state.scroll, state.frame.size.width, content_height)
+
+      content_width =
+        state.tree
+        |> calculate_content_width(state.theme, new_expanded)
+        |> scroll_content_width(new_bounds, state.frame)
+
+      content_height = scroll_content_height(new_bounds, content_width, state.frame)
+
+      new_scroll =
+        update_content_size(
+          state.scroll,
+          content_width,
+          content_height
+        )
+        |> sync_scrollbar_visibility()
+
       %{state | expanded: new_expanded, item_bounds: new_bounds, scroll: new_scroll}
     else
       state
@@ -220,18 +414,53 @@ defmodule ScenicWidgets.SideNav.State do
   Set the active (selected) item.
   Automatically expands ancestors to make it visible.
   """
+  def set_active(%__MODULE__{} = state, nil), do: %{state | active_id: nil}
+
   def set_active(%__MODULE__{} = state, item_id) do
     # Find all ancestors and expand them
-    ancestors = find_ancestors(state.tree, item_id, [])
-    new_expanded = Enum.reduce(ancestors, state.expanded, fn ancestor_id, acc ->
-      MapSet.put(acc, ancestor_id)
-    end)
+    # A move can publish the active buffer's new path just before the
+    # asynchronously refreshed tree contains it. That is a valid transient
+    # state, so retain the id without trying to enumerate nil ancestors.
+    ancestors = find_ancestors(state.tree, item_id, []) || []
+
+    new_expanded =
+      Enum.reduce(ancestors, state.expanded, fn ancestor_id, acc ->
+        MapSet.put(acc, ancestor_id)
+      end)
 
     new_bounds = calculate_item_bounds(state.tree, state.theme, new_expanded)
-    content_height = calculate_content_height(new_bounds)
-    new_scroll = update_content_size(state.scroll, state.frame.size.width, content_height)
 
-    %{state | active_id: item_id, expanded: new_expanded, item_bounds: new_bounds, scroll: new_scroll}
+    content_width =
+      state.tree
+      |> calculate_content_width(state.theme, new_expanded)
+      |> scroll_content_width(new_bounds, state.frame)
+
+    content_height = scroll_content_height(new_bounds, content_width, state.frame)
+
+    new_scroll =
+      update_content_size(
+        state.scroll,
+        content_width,
+        content_height
+      )
+      |> sync_scrollbar_visibility()
+
+    %{
+      state
+      | active_id: item_id,
+        expanded: new_expanded,
+        item_bounds: new_bounds,
+        scroll: new_scroll
+    }
+  end
+
+  @doc false
+  def sync_scrollbar_visibility(scroll) do
+    if Widgex.Scroll.ScrollState.scrollable?(scroll) do
+      %{scroll | scrollbar_visible: true, scrollbar_opacity: 255}
+    else
+      %{scroll | scrollbar_visible: false, scrollbar_opacity: 0}
+    end
   end
 
   @doc """
@@ -239,6 +468,57 @@ defmodule ScenicWidgets.SideNav.State do
   """
   def set_focused(%__MODULE__{} = state, item_id) do
     %{state | focused_id: item_id}
+  end
+
+  @doc "Apply conventional plain, Ctrl-toggle, or Shift-range selection."
+  def select(%__MODULE__{} = state, item_id, mods \\ []) do
+    mods = normalize_mods(mods)
+    visible_ids = visible_items(state)
+
+    cond do
+      :shift in mods and state.selection_anchor in visible_ids ->
+        range = selection_range(visible_ids, state.selection_anchor, item_id)
+        %{state | selected_ids: MapSet.new(range), focused_id: item_id}
+
+      :ctrl in mods ->
+        selected_ids =
+          if MapSet.member?(state.selected_ids, item_id),
+            do: MapSet.delete(state.selected_ids, item_id),
+            else: MapSet.put(state.selected_ids, item_id)
+
+        %{state | selected_ids: selected_ids, selection_anchor: item_id, focused_id: item_id}
+
+      true ->
+        %{
+          state
+          | selected_ids: MapSet.new([item_id]),
+            selection_anchor: item_id,
+            focused_id: item_id
+        }
+    end
+  end
+
+  defp normalize_mods(mods) do
+    Enum.map(mods, fn
+      mod when mod in [:key_left_control, :key_right_control, :control] -> :ctrl
+      mod when mod in [:key_left_shift, :key_right_shift] -> :shift
+      mod -> mod
+    end)
+  end
+
+  defp selection_range(ids, from, to) do
+    from_index = Enum.find_index(ids, &(&1 == from))
+    to_index = Enum.find_index(ids, &(&1 == to))
+    {first, last} = Enum.min_max([from_index, to_index])
+    Enum.slice(ids, first..last)
+  end
+
+  @doc false
+  def scroll_content_height(item_bounds, content_width, frame) do
+    clearance =
+      if content_width > frame.size.width, do: @horizontal_scrollbar_clearance, else: 0
+
+    calculate_content_height(item_bounds) + clearance
   end
 
   @doc """
@@ -257,23 +537,24 @@ defmodule ScenicWidgets.SideNav.State do
       row_right = state.frame.size.width
 
       if x >= row_left && x <= row_right &&
-         adjusted_y >= bounds.y && adjusted_y <= bounds.y + bounds.height do
-
+           adjusted_y >= bounds.y && adjusted_y <= bounds.y + bounds.height do
         # Calculate content positions (matching render_item)
-        indent_x = theme.padding_left + (bounds.depth * theme.indent)
+        indent_x = theme.padding_left + bounds.depth * theme.indent
         chevron_area_width = theme.chevron_size + theme.chevron_margin
 
         # Determine if click is on chevron or text
-        hit_region = if bounds.has_children do
-          chevron_right = indent_x + chevron_area_width
-          if x >= indent_x && x <= chevron_right do
-            :chevron
+        hit_region =
+          if bounds.has_children do
+            chevron_right = indent_x + chevron_area_width
+
+            if x >= indent_x && x <= chevron_right do
+              :chevron
+            else
+              :text
+            end
           else
             :text
           end
-        else
-          :text
-        end
 
         {item_id, hit_region}
       else
@@ -341,6 +622,7 @@ defmodule ScenicWidgets.SideNav.State do
       Item.has_children?(item) ->
         # Search in children, adding this item to the path
         children = Item.get_children(item)
+
         case do_find_ancestors(children, target_id, [item_id | path], [item_id | ancestors]) do
           nil -> do_find_ancestors(rest, target_id, path, ancestors)
           result -> result

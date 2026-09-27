@@ -10,7 +10,7 @@ defmodule ScenicWidgets.SpareParts.LukesMultiSelect do
   require Logger
 
   @default_direction :down
-  @default_font :ibm_plex_mono
+  @default_font :roboto_mono
   @default_font_size 20
   @border_width 2
   @checkbox_size 16
@@ -304,7 +304,6 @@ defmodule ScenicWidgets.SpareParts.LukesMultiSelect do
   def handle_input(_, _, scene), do: {:noreply, scene}
 
   def handle_cast({:set_scroll, _coords}, scene) do
-    IO.puts "GETTING SET SCROLL BUT ignoring it"
     {:noreply, scene}
   end
   # --------------------------------------------------------

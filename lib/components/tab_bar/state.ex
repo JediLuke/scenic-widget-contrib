@@ -17,21 +17,21 @@ defmodule ScenicWidgets.TabBar.State do
   """
 
   @type tab :: %{
-    id: atom() | String.t(),
-    label: String.t(),
-    closeable: boolean()
-  }
+          id: atom() | String.t(),
+          label: String.t(),
+          closeable: boolean()
+        }
 
   @type t :: %__MODULE__{
-    frame: map(),
-    tabs: [tab()],
-    selected_id: atom() | String.t() | nil,
-    scroll_offset: number(),
-    hovered_tab_id: atom() | String.t() | nil,
-    hovered_close_id: atom() | String.t() | nil,
-    theme: map(),
-    tab_widths: map()
-  }
+          frame: map(),
+          tabs: [tab()],
+          selected_id: atom() | String.t() | nil,
+          scroll_offset: number(),
+          hovered_tab_id: atom() | String.t() | nil,
+          hovered_close_id: atom() | String.t() | nil,
+          theme: map(),
+          tab_widths: map()
+        }
 
   defstruct [
     :frame,
@@ -40,34 +40,62 @@ defmodule ScenicWidgets.TabBar.State do
     scroll_offset: 0,
     hovered_tab_id: nil,
     hovered_close_id: nil,
+    dragging_tab_id: nil,
+    drag_reordered?: false,
+    # Pointer x when the tab was pressed, and whether it has since travelled far
+    # enough to count as a drag. A press alone must not show drop feedback —
+    # every ordinary tab click starts as one.
+    drag_origin_x: nil,
+    drag_active?: false,
+    # {tab_id, monotonic milliseconds} of the last press, so a second press on
+    # the same tab inside the double-click window can be recognised as one.
+    last_press: nil,
     theme: %{},
     tab_widths: %{}
   ]
 
   @default_theme %{
     # Colors
-    background: {45, 45, 45},           # Dark gray background
-    tab_background: {45, 45, 45},       # Same as bar
-    tab_hover_background: {60, 60, 60}, # Slightly lighter on hover
-    tab_selected_background: {30, 30, 30}, # Darker for selected
-    text_color: {180, 180, 180},        # Light gray text
-    text_selected_color: {255, 255, 255}, # White for selected
-    close_button_color: {150, 150, 150},  # Gray X
-    close_button_hover_color: {255, 255, 255}, # White X on hover
-    selection_indicator_color: {0, 150, 255}, # Bright blue stripe (VS Code style)
-    separator_color: {60, 60, 60},      # Subtle separator between tabs
+    # Dark gray background
+    background: {45, 45, 45},
+    # Same as bar
+    tab_background: {45, 45, 45},
+    # Slightly lighter on hover
+    tab_hover_background: {60, 60, 60},
+    # Darker for selected
+    tab_selected_background: {30, 30, 30},
+    # Light gray text
+    text_color: {180, 180, 180},
+    # White for selected
+    text_selected_color: {255, 255, 255},
+    # Gray X
+    close_button_color: {150, 150, 150},
+    # White X on hover
+    close_button_hover_color: {255, 255, 255},
+    # Bright blue stripe (VS Code style)
+    selection_indicator_color: {0, 150, 255},
+    # Subtle separator between tabs
+    separator_color: {60, 60, 60},
+    # The line marking where a dragged tab will land, and the lifted look the
+    # tab itself takes on while in flight. Same blue as the selection stripe by
+    # default: it reads as "this is the tab you are placing".
+    drop_indicator_color: {0, 150, 255},
+    drop_indicator_width: 3,
+    tab_drag_background: {70, 74, 84},
 
     # Dimensions
     height: 35,
     min_tab_width: 100,
     max_tab_width: 200,
-    tab_padding: 12,          # Horizontal padding inside tab
+    # Horizontal padding inside tab
+    tab_padding: 12,
     close_button_size: 16,
     close_button_margin: 8,
     selection_indicator_height: 3,
 
     # Typography
-    font: :ibm_plex_mono,
+    font: :roboto_mono,
+    italic_font: :roboto_mono,
     font_size: 13
   }
 
@@ -89,11 +117,12 @@ defmodule ScenicWidgets.TabBar.State do
     theme = Map.merge(@default_theme, Map.get(data, :theme, %{}))
 
     # Default to first tab selected if not specified
-    selected_id = Map.get(data, :selected_id) ||
-      case tabs do
-        [first | _] -> first.id
-        [] -> nil
-      end
+    selected_id =
+      Map.get(data, :selected_id) ||
+        case tabs do
+          [first | _] -> first.id
+          [] -> nil
+        end
 
     state = %__MODULE__{
       frame: frame,
@@ -102,12 +131,18 @@ defmodule ScenicWidgets.TabBar.State do
       scroll_offset: 0,
       hovered_tab_id: nil,
       hovered_close_id: nil,
+      dragging_tab_id: nil,
+      drag_reordered?: false,
+      drag_origin_x: nil,
+      drag_active?: false,
+      last_press: nil,
       theme: theme,
       tab_widths: %{}
     }
 
     # Calculate tab widths based on labels
-    %{state | tab_widths: calculate_tab_widths(state)}
+    state = %{state | tab_widths: calculate_tab_widths(state)}
+    ensure_selected_visible(state)
   end
 
   @doc """
@@ -118,7 +153,11 @@ defmodule ScenicWidgets.TabBar.State do
       %{
         id: Map.fetch!(tab, :id),
         label: Map.get(tab, :label, "Untitled"),
-        closeable: Map.get(tab, :closeable, true)
+        closeable: Map.get(tab, :closeable, true),
+        # `:italic` marks a tab as provisional — the reusable preview slot an
+        # editor gives to a file you are only looking at. Purely presentational
+        # here; what "provisional" means is the parent's business.
+        style: Map.get(tab, :style, :normal)
       }
     end)
   end
@@ -132,7 +171,8 @@ defmodule ScenicWidgets.TabBar.State do
     max_width = theme.max_tab_width
     padding = theme.tab_padding * 2
     close_size = theme.close_button_size + theme.close_button_margin
-    char_width = theme.font_size * 0.6  # Approximate character width
+    # Approximate character width
+    char_width = theme.font_size * 0.6
 
     tabs
     |> Enum.map(fn tab ->
@@ -140,7 +180,8 @@ defmodule ScenicWidgets.TabBar.State do
       close_width = if tab.closeable, do: close_size, else: 0
       raw_width = text_width + padding + close_width
 
-      width = raw_width
+      width =
+        raw_width
         |> max(min_width)
         |> min(max_width)
 
@@ -172,13 +213,14 @@ defmodule ScenicWidgets.TabBar.State do
   """
   def tab_x_position(%__MODULE__{tabs: tabs, tab_widths: widths, scroll_offset: offset}, tab_id) do
     # Sum widths of all tabs before this one
-    x = Enum.reduce_while(tabs, 0, fn tab, acc ->
-      if tab.id == tab_id do
-        {:halt, acc}
-      else
-        {:cont, acc + Map.get(widths, tab.id, 100)}
-      end
-    end)
+    x =
+      Enum.reduce_while(tabs, 0, fn tab, acc ->
+        if tab.id == tab_id do
+          {:halt, acc}
+        else
+          {:cont, acc + Map.get(widths, tab.id, 100)}
+        end
+      end)
 
     x - offset
   end
@@ -189,7 +231,9 @@ defmodule ScenicWidgets.TabBar.State do
   """
   def get_tab_bounds(%__MODULE__{tab_widths: widths, theme: theme} = state, tab_id) do
     case Map.get(widths, tab_id) do
-      nil -> nil
+      nil ->
+        nil
+
       width ->
         x = tab_x_position(state, tab_id)
         {x, 0, width, theme.height}
@@ -200,12 +244,19 @@ defmodule ScenicWidgets.TabBar.State do
   Get bounds for a tab's close button.
   Returns {x, y, width, height} or nil if tab not found or not closeable.
   """
-  def get_close_button_bounds(%__MODULE__{tabs: tabs, tab_widths: widths, theme: theme} = state, tab_id) do
+  def get_close_button_bounds(
+        %__MODULE__{tabs: tabs, tab_widths: widths, theme: theme} = state,
+        tab_id
+      ) do
     tab = Enum.find(tabs, &(&1.id == tab_id))
 
     case {tab, Map.get(widths, tab_id)} do
-      {nil, _} -> nil
-      {%{closeable: false}, _} -> nil
+      {nil, _} ->
+        nil
+
+      {%{closeable: false}, _} ->
+        nil
+
       {_tab, tab_width} ->
         tab_x = tab_x_position(state, tab_id)
         size = theme.close_button_size
@@ -225,27 +276,33 @@ defmodule ScenicWidgets.TabBar.State do
   """
   def hit_test(%__MODULE__{tabs: tabs} = state, {px, py}) do
     # First check close buttons (they're on top)
-    close_hit = Enum.find_value(tabs, fn tab ->
-      if tab.closeable do
-        case get_close_button_bounds(state, tab.id) do
-          {x, y, w, h} when px >= x and px <= x + w and py >= y and py <= y + h ->
-            {:close, tab.id}
-          _ -> nil
+    close_hit =
+      Enum.find_value(tabs, fn tab ->
+        if tab.closeable do
+          case get_close_button_bounds(state, tab.id) do
+            {x, y, w, h} when px >= x and px <= x + w and py >= y and py <= y + h ->
+              {:close, tab.id}
+
+            _ ->
+              nil
+          end
         end
-      end
-    end)
+      end)
 
     if close_hit do
       close_hit
     else
       # Then check tab bodies
-      tab_hit = Enum.find_value(tabs, fn tab ->
-        case get_tab_bounds(state, tab.id) do
-          {x, _y, w, h} when px >= x and px <= x + w and py >= 0 and py <= h ->
-            {:tab, tab.id}
-          _ -> nil
-        end
-      end)
+      tab_hit =
+        Enum.find_value(tabs, fn tab ->
+          case get_tab_bounds(state, tab.id) do
+            {x, _y, w, h} when px >= x and px <= x + w and py >= 0 and py <= h ->
+              {:tab, tab.id}
+
+            _ ->
+              nil
+          end
+        end)
 
       tab_hit || :none
     end
@@ -256,5 +313,50 @@ defmodule ScenicWidgets.TabBar.State do
   """
   def point_inside?(%__MODULE__{frame: frame, theme: theme}, {px, py}) do
     px >= 0 and px <= frame.size.width and py >= 0 and py <= theme.height
+  end
+
+  @doc "Clamp scroll so the selected tab is fully visible."
+  @doc """
+  Is this tab actually on screen right now?
+
+  Tab positions are scroll-relative (`tab_x_position/2` subtracts the scroll
+  offset), so once the tabs overflow the bar, tabs scrolled off the left sit
+  at NEGATIVE x and tabs past the right edge sit beyond the frame. Such a tab
+  is not clickable, and anything that treats it as clickable — automation,
+  accessibility tooling, a test suite — ends up clicking empty space outside
+  the bar.
+
+  Requires the tab to be fully within the bar: a half-clipped tab is a
+  coin-flip for whoever clicks its midpoint.
+  """
+  def tab_visible?(%__MODULE__{frame: frame} = state, tab_id) do
+    case get_tab_bounds(state, tab_id) do
+      nil ->
+        false
+
+      {x, _y, width, _height} ->
+        x >= 0 and x + width <= frame.size.width
+    end
+  end
+
+  def ensure_selected_visible(%__MODULE__{selected_id: nil} = state), do: state
+
+  def ensure_selected_visible(state) do
+    case get_tab_bounds(state, state.selected_id) do
+      nil ->
+        state
+
+      {x, _y, width, _height} ->
+        viewport_width = state.frame.size.width
+
+        offset =
+          cond do
+            x < 0 -> state.scroll_offset + x
+            x + width > viewport_width -> state.scroll_offset + x + width - viewport_width
+            true -> state.scroll_offset
+          end
+
+        %{state | scroll_offset: offset |> max(0) |> min(max_scroll_offset(state))}
+    end
   end
 end

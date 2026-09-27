@@ -55,9 +55,10 @@ defmodule ScenicWidgets.SideNav.Api do
   Expand all nodes in the tree.
   """
   def expand_all(%State{} = state) do
-    all_ids = Item.flatten(state.tree)
-    |> Enum.filter(&Item.has_children?/1)
-    |> Enum.map(&Item.get_id/1)
+    all_ids =
+      Item.flatten(state.tree)
+      |> Enum.filter(&Item.has_children?/1)
+      |> Enum.map(&Item.get_id/1)
 
     new_expanded = MapSet.new(all_ids)
     new_bounds = State.calculate_item_bounds(state.tree, state.theme, new_expanded)
@@ -79,21 +80,90 @@ defmodule ScenicWidgets.SideNav.Api do
   """
   def update_tree(%State{} = state, new_tree) do
     # Get IDs from new tree
-    new_ids = Item.flatten(new_tree)
-    |> Enum.map(&Item.get_id/1)
-    |> MapSet.new()
+    new_ids =
+      Item.flatten(new_tree)
+      |> Enum.map(&Item.get_id/1)
+      |> MapSet.new()
 
-    # Keep only expanded IDs that still exist
-    new_expanded = MapSet.intersection(state.expanded, new_ids)
+    # Keep only expanded IDs that still exist. Items the caller did not have
+    # before arrive with their own `expanded:` preference (a search-results
+    # tree wants each file open); items the user already collapsed stay so.
+    remap = fn id -> remap_path(id, state.pending_path_moves) end
+    remapped_expanded = MapSet.new(state.expanded, remap)
+    old_ids = state.tree |> Item.flatten() |> Enum.map(&Item.get_id/1) |> MapSet.new()
+
+    newly_expanded =
+      new_tree
+      |> Item.flatten()
+      |> Enum.filter(&(Item.is_expanded?(&1) and not MapSet.member?(old_ids, Item.get_id(&1))))
+      |> Enum.map(&Item.get_id/1)
+      |> MapSet.new()
+
+    new_expanded =
+      remapped_expanded
+      |> MapSet.intersection(new_ids)
+      |> MapSet.union(newly_expanded)
 
     # Recalculate bounds
     new_bounds = State.calculate_item_bounds(new_tree, state.theme, new_expanded)
 
-    %{state |
-      tree: new_tree,
-      expanded: new_expanded,
-      item_bounds: new_bounds
+    content_width =
+      new_tree
+      |> State.calculate_content_width(state.theme, new_expanded)
+      |> State.scroll_content_width(new_bounds, state.frame)
+
+    content_height = State.scroll_content_height(new_bounds, content_width, state.frame)
+
+    new_scroll =
+      state.scroll
+      |> update_content_size(content_width, content_height)
+      |> State.sync_scrollbar_visibility()
+
+    active_id = remap.(state.active_id)
+    active_id = if MapSet.member?(new_ids, active_id), do: active_id
+    focused_id = remap.(state.focused_id)
+    focused_id = if MapSet.member?(new_ids, focused_id), do: focused_id
+    selected_ids = state.selected_ids |> MapSet.new(remap) |> MapSet.intersection(new_ids)
+
+    selection_anchor =
+      anchor = remap.(state.selection_anchor)
+
+    if MapSet.member?(new_ids, anchor), do: anchor
+
+    %{
+      state
+      | tree: new_tree,
+        expanded: new_expanded,
+        item_bounds: new_bounds,
+        scroll: new_scroll,
+        active_id: active_id,
+        focused_id: focused_id,
+        selected_ids: selected_ids,
+        selection_anchor: selection_anchor,
+        pending_path_moves: []
     }
+  end
+
+  defp remap_path(nil, _moves), do: nil
+
+  defp remap_path(path, moves) when is_binary(path) do
+    Enum.find_value(moves, path, fn {source, destination} ->
+      cond do
+        path == source ->
+          destination
+
+        descendant_path?(path, source) ->
+          Path.join(destination, Path.relative_to(path, source))
+
+        true ->
+          nil
+      end
+    end)
+  end
+
+  defp descendant_path?(candidate, directory) do
+    relative = Path.relative_to(candidate, directory)
+    relative != candidate and relative != "." and not String.starts_with?(relative, "..")
   end
 
   @doc """
@@ -111,18 +181,15 @@ defmodule ScenicWidgets.SideNav.Api do
       filtered_tree = filter_tree(state.tree, filter_term)
 
       # Auto-expand all items in filtered view
-      all_ids = Item.flatten(filtered_tree)
-      |> Enum.filter(&Item.has_children?/1)
-      |> Enum.map(&Item.get_id/1)
+      all_ids =
+        Item.flatten(filtered_tree)
+        |> Enum.filter(&Item.has_children?/1)
+        |> Enum.map(&Item.get_id/1)
 
       new_expanded = MapSet.new(all_ids)
       new_bounds = State.calculate_item_bounds(filtered_tree, state.theme, new_expanded)
 
-      %{state |
-        tree: filtered_tree,
-        expanded: new_expanded,
-        item_bounds: new_bounds
-      }
+      %{state | tree: filtered_tree, expanded: new_expanded, item_bounds: new_bounds}
     end
   end
 
@@ -140,14 +207,32 @@ defmodule ScenicWidgets.SideNav.Api do
   def update_theme(%State{} = state, theme_updates) do
     new_theme = Map.merge(state.theme, theme_updates)
 
-    # Check if dimension-related properties changed
-    dimension_keys = [:item_height, :indent]
+    # Check if dimension-related properties changed. The font size is one:
+    # wider text is wider content, and a title that fit at 13pt scrolls at 26.
+    dimension_keys = [:item_height, :indent, :font_size, :chevron_margin]
     dimensions_changed? = Enum.any?(dimension_keys, &Map.has_key?(theme_updates, &1))
 
     if dimensions_changed? do
-      # Recalculate bounds with new dimensions
+      # Recalculate bounds with new dimensions, and tell the scroll state the
+      # content is a different size now. Bounds alone used to be recomputed
+      # here, so a zoom that made the tree taller than its frame drew every
+      # row at the new height and no scrollbar: the scroll state still
+      # believed the content fit.
       new_bounds = State.calculate_item_bounds(state.tree, new_theme, state.expanded)
-      %{state | theme: new_theme, item_bounds: new_bounds}
+
+      content_width =
+        state.tree
+        |> State.calculate_content_width(new_theme, state.expanded)
+        |> State.scroll_content_width(new_bounds, state.frame)
+
+      content_height = State.scroll_content_height(new_bounds, content_width, state.frame)
+
+      new_scroll =
+        state.scroll
+        |> State.update_content_size(content_width, content_height)
+        |> State.sync_scrollbar_visibility()
+
+      %{state | theme: new_theme, item_bounds: new_bounds, scroll: new_scroll}
     else
       # Just update colors, no need to recalculate bounds
       %{state | theme: new_theme}
@@ -222,12 +307,13 @@ defmodule ScenicWidgets.SideNav.Api do
     |> Enum.map(fn item ->
       filter_item(item, normalized_filter)
     end)
-    |> Enum.filter(& &1 != nil)
+    |> Enum.filter(&(&1 != nil))
   end
 
   defp filter_item(item, filter_term) do
-    title_matches = String.downcase(Item.get_title(item))
-    |> String.contains?(filter_term)
+    title_matches =
+      String.downcase(Item.get_title(item))
+      |> String.contains?(filter_term)
 
     has_children = Item.has_children?(item)
 
