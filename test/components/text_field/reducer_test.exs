@@ -54,9 +54,9 @@ defmodule ScenicWidgets.TextField.ReducerTest do
       input_mode: :store_backed,
       focused: true,
       font: %{
-        name: :ibm_plex_mono,
+        name: :roboto_mono,
         size: 16,
-        path: Path.expand("../../assets/fonts/IBMPlexMono-Regular.ttf", __DIR__)
+        path: Path.join(Mix.Project.deps_paths()[:scenic], "assets/fonts/roboto_mono.ttf")
       }
     })
   end
@@ -104,9 +104,9 @@ defmodule ScenicWidgets.TextField.ReducerTest do
         input_mode: :direct,
         focused: true,
         font: %{
-          name: :ibm_plex_mono,
+          name: :roboto_mono,
           size: 16,
-          path: Path.expand("../../assets/fonts/IBMPlexMono-Regular.ttf", __DIR__)
+          path: Path.join(Mix.Project.deps_paths()[:scenic], "assets/fonts/roboto_mono.ttf")
         }
       })
 

@@ -47,7 +47,6 @@ defmodule ScenicWidgets.TextField.Renderer do
 
   alias ScenicWidgets.TextField.MatchingBrace
   alias ScenicWidgets.TextField.Wrapping
-  require Logger
 
   @doc """
   Initial render of the TextField component.
@@ -133,88 +132,6 @@ defmodule ScenicWidgets.TextField.Renderer do
       end
 
     graph
-  end
-
-  defp render_gutter_menu_layer(graph, %State{gutter_menu: nil}, _x_shift, _id), do: graph
-
-  defp render_gutter_menu_layer(graph, %State{} = state, x_shift, id) do
-    rows = gutter_menu_rows(state)
-    theme = gutter_menu_theme(state)
-    bounds = gutter_menu_bounds(state, rows, theme)
-    bounds = %{bounds | x: bounds.x + x_shift}
-
-    ScenicWidgets.Menu.Dropdown.render(graph, rows, bounds,
-      theme: theme,
-      hovered: Map.get(state.gutter_menu, :hovered),
-      hovered_select_option: Map.get(state.gutter_menu, :hovered_option),
-      show_shortcuts: false,
-      id: id
-    )
-  end
-
-  @doc false
-  def gutter_menu_rows(%State{} = state) do
-    alias ScenicWidgets.Menu.Model.{Item, Select}
-
-    [
-      %Select{
-        id: :gutter_fold_level,
-        label: "Set Fold Level",
-        value: state.fold_level,
-        options: Enum.map(1..5, &{&1, "Level #{&1}"}),
-        option_width: 90,
-        closed_caret: :left,
-        expanded?: Map.get(state.gutter_menu, :select_expanded?, false)
-      },
-      %Item{id: :gutter_clear_folds, label: "Clear All Folds"}
-    ]
-  end
-
-  @doc false
-  def gutter_menu_theme(%State{} = state) do
-    c = state.colors
-
-    Map.merge(
-      %{
-        dropdown_bg: c.background,
-        dropdown_border: c.border,
-        item_text_color: c.text,
-        item_hover_bg: c.selection,
-        item_hover_text_color: c.background,
-        font: state.font.name,
-        dropdown_font_size: 14,
-        dropdown_item_height: 30,
-        dropdown_divider_height: 10,
-        dropdown_padding: 4,
-        dropdown_width: 240,
-        dropdown_column_gap: 16
-      },
-      state.gutter_menu_theme || %{}
-    )
-  end
-
-  @doc false
-  def gutter_menu_bounds(%State{} = state, rows \\ nil, theme \\ nil) do
-    rows = rows || gutter_menu_rows(state)
-    theme = theme || gutter_menu_theme(state)
-    %{x: click_x, y: click_y} = state.gutter_menu
-    width = theme.dropdown_width
-    height = ScenicWidgets.Menu.Dropdown.content_height(rows, theme)
-    max_x = max(state.frame.size.width - width, 0)
-
-    # Keep the popup wholly in the document layer whenever the pane has room.
-    # The gutter and document are independently clipped Scenic scripts; a
-    # glyph crossing their seam is rasterised twice and its two clipped halves
-    # can have visibly different hinting/weight.
-    x = min(max(click_x, state.line_number_width), max_x)
-    y = min(click_y, max(state.frame.size.height - height, 0))
-
-    ScenicWidgets.Menu.Dropdown.layout(rows, theme,
-      x: x,
-      y: y,
-      width: width,
-      max_height: state.frame.size.height - y
-    )
   end
 
   # Rebuild both gutter and content when gutter width changes
@@ -348,7 +265,6 @@ defmodule ScenicWidgets.TextField.Renderer do
           # Only vertical scroll
           translate: {0, -scroll.offset_y}
         )
-        |> render_gutter_menu_layer(state, 0, :gutter_context_menu_gutter)
       end,
       id: :gutter_group,
       scissor: {gutter_width, frame_height}
@@ -418,9 +334,6 @@ defmodule ScenicWidgets.TextField.Renderer do
     # Calculate wrapped display lines
     display_lines = wrap_lines(state)
 
-    # text_y_offset no longer used - single-line mode uses text_base: :middle
-    text_y_offset = 0
-
     Primitives.group(
       graph,
       fn outer_g ->
@@ -434,18 +347,14 @@ defmodule ScenicWidgets.TextField.Renderer do
             |> render_selection(state)
             |> render_search_matches(state)
             |> render_matching_braces(state, text_padding, line_height)
-            |> render_text_lines(state, display_lines, text_padding, line_height, text_y_offset)
-            |> render_cursor(state, text_padding, line_height, text_y_offset)
+            |> render_text_lines(state, display_lines, text_padding, line_height)
+            |> render_cursor(state, text_padding, line_height)
           end,
           id: :text_content,
           translate: {-scroll.offset_x, -scroll.offset_y}
         )
         # Render scrollbars INSIDE content_group, after text, so they're on top
         |> render_scrollbars_in_content(state, content_width, frame_height)
-        # The menu is repeated into each independently clipped layer. Scenic
-        # compiles the gutter and document into separate scripts; a root-level
-        # overlay could cover the gutter yet still sit beneath document glyphs.
-        |> render_gutter_menu_layer(state, -x_offset, :gutter_context_menu_content)
       end,
       id: :content_group,
       translate: {x_offset, 0},
@@ -657,8 +566,7 @@ defmodule ScenicWidgets.TextField.Renderer do
          %State{} = state,
          display_lines,
          x_offset,
-         line_height,
-         _text_y_offset \\ 0
+         line_height
        ) do
     # Draw only the lines that can be seen (plus a small buffer). Each is
     # positioned at its ABSOLUTE y, so the content group's scroll translate
@@ -899,7 +807,6 @@ defmodule ScenicWidgets.TextField.Renderer do
   end
 
   # Render the cursor
-  # text_y_offset is used for vertical centering in single-line mode
   defp render_cursor(
          graph,
          %State{
@@ -912,8 +819,7 @@ defmodule ScenicWidgets.TextField.Renderer do
            mode: mode
          } = state,
          x_offset,
-         line_height,
-         _text_y_offset \\ 0
+         line_height
        ) do
     # Get cursor position in display line coordinates
     {display_line, display_col} = source_to_display_cursor(state, {line, col})
@@ -1187,161 +1093,6 @@ defmodule ScenicWidgets.TextField.Renderer do
     {index, State.string_width(state, String.slice(segment, 0, within))}
   end
 
-  # Render scrollbars inside the main group (for z-order)
-  defp render_scrollbars_inner(
-         graph,
-         %State{
-           scroll: scroll,
-           frame: frame,
-           show_line_numbers: show_ln,
-           line_number_width: ln_width
-         } = _state
-       ) do
-    alias Widgex.Structs.Dimensions
-
-    gutter_offset = if show_ln, do: ln_width, else: 0
-    content_width = frame.size.width - gutter_offset
-    {frame_height} = {frame.size.height}
-
-    {frame_width, _} = frame.size.box
-
-    # Render scrollbars directly (not via ScrollRenderer) for debugging
-    # Vertical scrollbar on the right edge of content area
-    if Widgex.Scroll.ScrollState.scrollable_y?(scroll) do
-      scrollbar_width = 12
-      scrollbar_padding = 4
-
-      # Position at right edge of FULL frame (not content area)
-      track_x = frame_width - scrollbar_width - scrollbar_padding
-      track_height = frame_height - scrollbar_padding * 2
-
-      # Calculate thumb position and size
-      {thumb_y_ratio, thumb_height_ratio} = Widgex.Scroll.ScrollState.scrollbar_thumb(scroll, :y)
-      scale = track_height / scroll.viewport_height
-      # Minimum thumb size
-      thumb_height = max(thumb_height_ratio * scale, 20)
-      thumb_y = thumb_y_ratio * scale
-
-      # DEBUG: Try hardcoded position at bottom-right corner
-      # If this appears at top-left, there's a coordinate transform issue
-      # Should be 500px from left
-      test_x = 500
-      # Should be 500px from top
-      test_y = 500
-
-      graph
-      # Track - put at hardcoded position to debug
-      |> Primitives.rrect({scrollbar_width, 200, 4},
-        id: :scrollbar_y_track,
-        fill: {255, 0, 0, 128},
-        translate: {test_x, test_y}
-      )
-      # Thumb
-      |> Primitives.rrect({scrollbar_width, thumb_height, 4},
-        id: :scrollbar_y_thumb,
-        fill: {255, 0, 0, 255},
-        translate: {test_x, test_y + 10}
-      )
-      # Add horizontal scrollbar if needed
-      |> maybe_render_horizontal_scrollbar(
-        scroll,
-        frame_width,
-        frame_height,
-        gutter_offset,
-        scrollbar_width,
-        scrollbar_padding
-      )
-    else
-      graph
-      |> maybe_render_horizontal_scrollbar(
-        scroll,
-        frame_width,
-        frame_height,
-        gutter_offset,
-        12,
-        4
-      )
-    end
-  end
-
-  defp maybe_render_horizontal_scrollbar(
-         graph,
-         scroll,
-         frame_width,
-         frame_height,
-         gutter_offset,
-         scrollbar_width,
-         scrollbar_padding
-       ) do
-    if Widgex.Scroll.ScrollState.scrollable_x?(scroll) do
-      # Horizontal scrollbar at bottom, starting after gutter
-      track_width = frame_width - gutter_offset - scrollbar_padding * 2
-      # If vertical scrollbar exists, reduce width
-      track_width =
-        if Widgex.Scroll.ScrollState.scrollable_y?(scroll) do
-          track_width - scrollbar_width - scrollbar_padding
-        else
-          track_width
-        end
-
-      track_y = frame_height - scrollbar_width - scrollbar_padding
-      track_x = gutter_offset + scrollbar_padding
-
-      # Calculate thumb
-      {thumb_x_ratio, thumb_width_ratio} = Widgex.Scroll.ScrollState.scrollbar_thumb(scroll, :x)
-      scale = track_width / scroll.viewport_width
-      thumb_width = max(thumb_width_ratio * scale, 20)
-      thumb_x = thumb_x_ratio * scale
-
-      graph
-      # Track
-      |> Primitives.rrect({track_width, scrollbar_width, 4},
-        id: :scrollbar_x_track,
-        # Blue for horizontal
-        fill: {0, 0, 255, 128},
-        translate: {track_x, track_y}
-      )
-      # Thumb
-      |> Primitives.rrect({thumb_width, scrollbar_width, 4},
-        id: :scrollbar_x_thumb,
-        fill: {0, 0, 255, 255},
-        translate: {track_x + thumb_x, track_y}
-      )
-    else
-      graph
-    end
-  end
-
-  # Render scrollbars using ScrollRenderer (original, kept for reference)
-  defp render_scrollbars(
-         graph,
-         %State{
-           scroll: scroll,
-           frame: frame,
-           show_line_numbers: show_ln,
-           line_number_width: ln_width
-         } = _state
-       ) do
-    alias Widgex.Scroll.ScrollRenderer
-    alias Widgex.Structs.Dimensions
-
-    # Calculate content frame (text area only, excluding gutter)
-    # IMPORTANT: Must create a proper Dimensions struct so .box is correct
-    gutter_offset = if show_ln, do: ln_width, else: 0
-    content_width = frame.size.width - gutter_offset
-    content_frame = %{frame | size: Dimensions.new({content_width, frame.size.height})}
-
-    # Render scrollbars in a group translated by gutter offset
-    graph
-    |> Scenic.Primitives.group(
-      fn g ->
-        ScrollRenderer.render_scrollbars(g, scroll, content_frame)
-      end,
-      id: :scrollbars_group,
-      translate: {gutter_offset, 0}
-    )
-  end
-
   # ===== UPDATE HELPERS =====
 
   defp update_border_if_changed(graph, %State{focused: old_focused}, %State{
@@ -1448,8 +1199,6 @@ defmodule ScenicWidgets.TextField.Renderer do
     |> Graph.delete(:gutter_group)
     |> render_line_number_gutter(state, gutter_width)
   end
-
-  defp rebuild_gutter(graph, %State{show_line_numbers: false}), do: graph
 
   # Update text lines when content changes
   # Must update both text content AND x-position due to explicit indent positioning
@@ -1735,7 +1484,7 @@ defmodule ScenicWidgets.TextField.Renderer do
 
   defp update_scrollbars_if_changed(
          graph,
-         %State{scroll: old_scroll} = old_state,
+         %State{scroll: old_scroll},
          %State{scroll: new_scroll} = new_state
        ) do
     alias Widgex.Scroll.ScrollState
@@ -1850,7 +1599,7 @@ defmodule ScenicWidgets.TextField.Renderer do
 
   defp update_h_scrollbar_thumb(
          graph,
-         old_scroll,
+         _old_scroll,
          new_scroll,
          content_width,
          frame_height,
@@ -1889,7 +1638,7 @@ defmodule ScenicWidgets.TextField.Renderer do
 
   defp update_v_scrollbar_thumb(
          graph,
-         old_scroll,
+         _old_scroll,
          new_scroll,
          content_width,
          frame_height,
@@ -2101,6 +1850,19 @@ defmodule ScenicWidgets.TextField.Renderer do
 
   defp swallowed_spaces(source, offset, true),
     do: source |> Enum.drop(offset) |> Enum.take_while(&(&1 == " ")) |> length()
+
+  @doc false
+  # What a host needs to put its own menu beside a right-click on the gutter:
+  # the source line under the pointer, and where the click landed in the
+  # coordinates of the TextField's parent, which is where `frame.pin` is
+  # measured too. `x` and `y` are the click in the TextField's own frame.
+  def gutter_context(%State{} = state, x, y) do
+    local_y = y + state.scroll.offset_y
+    display_line = max(1, div(max(trunc(local_y), 0), State.line_height(state)) + 1)
+    %{x: pin_x, y: pin_y} = state.frame.pin
+
+    %{line: display_to_source_line(state, display_line), at: {pin_x + x, pin_y + y}}
+  end
 
   @doc "Map a display row to its source line, accounting for folds and wrapping."
   def display_to_source_line(%State{} = state, display_line) do

@@ -7,7 +7,6 @@ defmodule ScenicWidgets.TextField.State do
   """
 
   use Widgex.Scrollable
-  require Logger
   alias ScenicWidgets.TextField.Wrapping
 
   defstruct [
@@ -67,9 +66,6 @@ defmodule ScenicWidgets.TextField.State do
     # Host says an overlay (menu/dialog) owns the pointer — ignore clicks
     :overlay_open,
     # Right-click menu anchored in the line-number gutter.
-    :gutter_menu,
-    :gutter_menu_theme,
-    :fold_level,
 
     # Buffer-backed mode (when input_mode == :store_backed)
     # Buffer store process: pid or via-tuple (GenServer.cast target)
@@ -294,9 +290,6 @@ defmodule ScenicWidgets.TextField.State do
       placeholder: Map.get(data, :placeholder),
       border_sides: Map.get(data, :border_sides, [:top, :right, :bottom, :left]),
       overlay_open: Map.get(data, :overlay_open, false),
-      gutter_menu: nil,
-      gutter_menu_theme: Map.get(data, :gutter_menu_theme),
-      fold_level: Map.get(data, :fold_level, 1),
 
       # Buffer-backed mode
       dispatch: Map.get(data, :dispatch),
@@ -544,14 +537,17 @@ defmodule ScenicWidgets.TextField.State do
   end
 
   @doc """
-  Ensure font has metrics loaded. If metrics are nil but a path is provided,
-  load metrics from the TTF file using TruetypeMetrics.
+  Ensure the font has metrics loaded.
 
   Font config can include:
-  - `name` - Font name (atom)
+  - `name` - Font name (atom), as the app's Scenic asset library knows it
   - `size` - Font size (integer)
   - `metrics` - Pre-loaded FontMetrics struct (optional)
-  - `path` - Path to TTF file for loading metrics (optional)
+  - `path` - Path to a TTF file to load metrics from (optional)
+
+  With neither `metrics` nor `path`, the metrics come from the asset library
+  by `name`. That is where Scenic's own `:roboto` and `:roboto_mono` live, so
+  the default font works without any font config at all.
   """
   def ensure_font_metrics(%{metrics: %FontMetrics{}} = font), do: font
 
@@ -565,8 +561,15 @@ defmodule ScenicWidgets.TextField.State do
     end
   end
 
-  def ensure_font_metrics(%{name: name} = _font) do
-    raise "FontMetrics not available for font #{inspect(name)}. Either provide pre-loaded metrics or a path to the TTF file."
+  def ensure_font_metrics(%{name: name} = font) do
+    case Scenic.Assets.Static.meta(name) do
+      {:ok, {Scenic.Assets.Static.Font, %FontMetrics{} = metrics}} ->
+        Map.put(font, :metrics, metrics)
+
+      _ ->
+        raise "Font #{inspect(name)} is not in the app's Scenic asset library. " <>
+                "Add it there, or give the TextField its `metrics` or a `path` to its TTF file."
+    end
   end
 
   @default_colors %{
@@ -743,7 +746,9 @@ defmodule ScenicWidgets.TextField.State do
   Calculate character width using FontMetrics.
   Raises if FontMetrics are not available - cursor positioning requires accurate metrics.
   """
-  def char_width(%__MODULE__{font: %{metrics: %FontMetrics{} = metrics, size: size}}, char \\ "W") do
+  def char_width(state, char \\ "W")
+
+  def char_width(%__MODULE__{font: %{metrics: %FontMetrics{} = metrics, size: size}}, char) do
     FontMetrics.width(char, size, metrics)
   end
 
@@ -833,11 +838,6 @@ defmodule ScenicWidgets.TextField.State do
   end
 
   @doc """
-  Convert a click position (x, y) relative to the component frame to cursor position (line, col).
-  Accounts for scroll offset, gutter, and text padding.
-  Returns {line, col} tuple (1-indexed).
-  """
-  @doc """
   Gutter (line-number column) width for a given line count and font.
   Shared by `new/1` and `recalculate_line_number_width/1` so the two can
   never drift apart.
@@ -883,6 +883,11 @@ defmodule ScenicWidgets.TextField.State do
     %{state | line_number_width: gutter_width(state.show_line_numbers, state.lines, state.font)}
   end
 
+  @doc """
+  Convert a click position (x, y) relative to the component frame to cursor position (line, col).
+  Accounts for scroll offset, gutter, and text padding.
+  Returns {line, col} tuple (1-indexed).
+  """
   def click_to_cursor(%__MODULE__{scroll: scroll} = state, {click_x, click_y}) do
     line_height = line_height(state)
     # Same as in renderer
@@ -919,8 +924,8 @@ defmodule ScenicWidgets.TextField.State do
 
   # Convert an X coordinate to a column position within a line of text
   # Uses binary search-like approach for efficiency with FontMetrics
-  defp x_to_column(state, line_text, x) when x <= 0, do: 1
-  defp x_to_column(state, "", _x), do: 1
+  defp x_to_column(_state, _line_text, x) when x <= 0, do: 1
+  defp x_to_column(_state, "", _x), do: 1
 
   defp x_to_column(state, line_text, x) do
     # Walk through characters and find where the click falls
@@ -1028,7 +1033,7 @@ defmodule ScenicWidgets.TextField.State do
     end
   end
 
-  defp find_word_start(graphemes, pos) when pos <= 0, do: 0
+  defp find_word_start(_graphemes, pos) when pos <= 0, do: 0
 
   defp find_word_start(graphemes, pos) do
     char = Enum.at(graphemes, pos - 1, "")

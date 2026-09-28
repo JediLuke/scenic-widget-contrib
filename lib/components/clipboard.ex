@@ -67,13 +67,17 @@ defmodule ScenicWidgets.Clipboard.System do
   defp wayland?, do: System.get_env("WAYLAND_DISPLAY") not in [nil, ""]
 
   defp first_executable(candidates) do
-    Enum.find_value(candidates, {:error, {:executable_not_found, Enum.map(candidates, &elem(&1, 0))}}, fn
-      {name, args} ->
-        case System.find_executable(name) do
-          nil -> nil
-          path -> {:ok, path, args}
-        end
-    end)
+    Enum.find_value(
+      candidates,
+      {:error, {:executable_not_found, Enum.map(candidates, &elem(&1, 0))}},
+      fn
+        {name, args} ->
+          case System.find_executable(name) do
+            nil -> nil
+            path -> {:ok, path, args}
+          end
+      end
+    )
   end
 
   defp executable(name, args) do
