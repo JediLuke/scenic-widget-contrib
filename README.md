@@ -36,6 +36,24 @@ A nested menu at the top of the screen:
 - [TestPattern](./lib/components/test_pattern/)
 - Status: In Development
 
+## Building blocks
+
+Not components themselves, but what components are built from.
+
+### Widgex.Frame
+
+- [Widgex.Frame](./lib/widgex/structs/frame.ex)
+
+A rectangle: its top-left `pin` and its `size`. Components take one to know
+where they sit and how much room they have. Frames split into rows and
+columns, which is how a whole window gets laid out:
+
+```elixir
+frame = Widgex.Frame.new(viewport)
+[menu_bar, rest] = Widgex.Frame.v_split(frame, px: 40)
+[sidebar, editor] = Widgex.Frame.h_split(rest, px: 240)
+```
+
 ## Getting Involved
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for info on contributing your own
