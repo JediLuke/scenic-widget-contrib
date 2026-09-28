@@ -60,16 +60,13 @@ defmodule ScenicWidgets.TidbitColumn do
 
   @impl Scenic.Scene
   def handle_input({:cursor_scroll, _} = input, _context, scene) do
-    IO.inspect(input, label: "[TidbitColumn] scroll input")
     state = scene.assigns.state
 
     case Reducer.process_input(state, input) do
       {:noop, ^state} ->
-        IO.puts("[TidbitColumn] scroll - no state change")
         {:noreply, scene}
 
       {:noop, new_state} ->
-        IO.puts("[TidbitColumn] scroll - state changed, offset_y: #{new_state.scroll.offset_y}")
         new_graph = Renderer.update_render(scene.assigns.graph, state, new_state)
         new_scene =
           scene
@@ -125,7 +122,7 @@ defmodule ScenicWidgets.TidbitColumn do
   # ============================================================
 
   defp render_graph(%State{} = state) do
-    Graph.build(font: :ibm_plex_mono)
+    Graph.build(font: :roboto_mono)
     |> Renderer.initial_render(state)
   end
 

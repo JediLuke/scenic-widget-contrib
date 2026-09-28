@@ -42,7 +42,7 @@ defmodule ScenicWidgets.FilePicker do
   - `:filter` - File extension filter, e.g. ".txt" (default: nil = all files)
   """
 
-  use Scenic.Component, has_children: false
+  use Scenic.Component, has_children: true
   require Logger
 
   alias Scenic.Graph
@@ -78,12 +78,21 @@ defmodule ScenicWidgets.FilePicker do
 
     # Request input for keyboard navigation
     # In save mode, also request codepoint for typing filename
-    input_types = if state.mode == :save do
-      [:key, :codepoint, :cursor_scroll, :cursor_button]
-    else
-      [:key, :cursor_scroll, :cursor_button]
-    end
+    input_types =
+      if state.mode == :save do
+        [:cursor_scroll, :cursor_button]
+      else
+        [:key, :cursor_scroll, :cursor_button]
+      end
+
     request_input(scene, input_types)
+
+    # Open mode has no child text field, so the picker itself exclusively owns
+    # keyboard navigation and swallows printable input. Save mode delegates
+    # codepoint capture to its focused filename TextField.
+    if state.mode == :open, do: capture_input(scene, [:key, :codepoint])
+
+    if state.mode == :save, do: Process.send_after(self(), {:focus_filename, 0}, 30)
 
     {:ok, scene}
   end
@@ -108,51 +117,47 @@ defmodule ScenicWidgets.FilePicker do
 
   # Handle mouse click on file list or overlay
   def handle_input({:cursor_button, {:btn_left, 1, _mods, coords}}, _context, scene) do
-    Logger.debug("FilePicker click at #{inspect(coords)}")
-
     cond do
       # Check if click is on the overlay (outside modal) - cancel
       click_on_overlay?(scene.assigns.state, coords) ->
-        Logger.debug("Click on overlay - cancelling")
         handle_reducer_result(scene, {:action, :cancel})
 
       # Check if click is on any button
       button = click_on_button?(scene.assigns.state, coords) ->
-        Logger.debug("Click on button: #{inspect(button)}")
         handle_reducer_result(scene, Reducer.process_event(button, scene.assigns.state))
 
       # Check if click is within the file list area
       match?({:ok, _}, click_in_list_area?(scene.assigns.state, coords)) ->
         {:ok, local_coords} = click_in_list_area?(scene.assigns.state, coords)
-        Logger.debug("Click in list area at local coords #{inspect(local_coords)}")
 
         # Check for double-click (activate on double-click)
         now = System.monotonic_time(:millisecond)
         last_click = Map.get(scene.assigns, :last_click_time, 0)
         last_coords = Map.get(scene.assigns, :last_click_coords, {0, 0})
 
-        is_double_click = (now - last_click) < 400 and coords_close?(coords, last_coords)
+        is_double_click = now - last_click < 400 and coords_close?(coords, last_coords)
 
-        scene = scene
+        scene =
+          scene
           |> assign(last_click_time: now)
           |> assign(last_click_coords: coords)
 
         if is_double_click do
-          Logger.debug("Double-click detected, activating")
-          handle_reducer_result(scene, Reducer.process_double_click(scene.assigns.state, local_coords))
+          handle_reducer_result(
+            scene,
+            Reducer.process_double_click(scene.assigns.state, local_coords)
+          )
         else
           handle_reducer_result(scene, Reducer.process_click(scene.assigns.state, local_coords))
         end
 
       true ->
         # Click somewhere else in modal (header/footer area)
-        Logger.debug("Click in modal but outside list area")
         {:noreply, scene}
     end
   end
 
-  def handle_input(input, _context, scene) do
-    Logger.debug("FilePicker unhandled input: #{inspect(input)}")
+  def handle_input(_input, _context, scene) do
     {:noreply, scene}
   end
 
@@ -165,8 +170,39 @@ defmodule ScenicWidgets.FilePicker do
     handle_reducer_result(scene, Reducer.process_event(button_id, scene.assigns.state))
   end
 
+  def handle_event({:text_changed, :filename_input, text}, _from, scene) do
+    state = %{scene.assigns.state | filename: text, filename_cursor: String.length(text)}
+    {:noreply, assign(scene, state: state)}
+  end
+
+  def handle_event({:enter_pressed, :filename_input, text}, _from, scene) do
+    state = %{scene.assigns.state | filename: text, filename_cursor: String.length(text)}
+    handle_reducer_result(scene, Reducer.process_event(:save_button, state))
+  end
+
+  def handle_event({:escape_pressed, :filename_input}, _from, scene) do
+    handle_reducer_result(scene, {:action, :cancel})
+  end
+
   def handle_event(_event, _from, scene) do
     {:noreply, scene}
+  end
+
+  def handle_info({:focus_filename, attempt}, scene) do
+    case Scenic.Scene.child(scene, :filename_input) do
+      {:ok, [_pid | _]} ->
+        Scenic.Scene.put_child(scene, :filename_input, :focus)
+        cast_parent(scene, {:file_picker, :filename_focused})
+        {:noreply, scene}
+
+      _ when attempt < 10 ->
+        Process.send_after(self(), {:focus_filename, attempt + 1}, 30)
+        {:noreply, scene}
+
+      _ ->
+        Logger.warning("FilePicker filename field did not mount in time")
+        {:noreply, scene}
+    end
   end
 
   # ===== PRIVATE HELPERS =====
@@ -216,18 +252,19 @@ defmodule ScenicWidgets.FilePicker do
     modal_y = (frame_height - modal_height) / 2
 
     # Footer height depends on mode
-    footer_height = if mode == :save, do: 110, else: 70
-    header_height = 60
+    footer_height = if mode == :save, do: 128, else: 76
+    header_height = 92
 
     # List area dimensions (inside modal)
     list_x = modal_x + 20
-    list_y = modal_y + header_height  # After header
+    # After header
+    list_y = modal_y + header_height
     list_width = modal_width - 40
     list_height = modal_height - header_height - footer_height
 
     # Check if click is within list bounds
     if click_x >= list_x and click_x <= list_x + list_width and
-       click_y >= list_y and click_y <= list_y + list_height do
+         click_y >= list_y and click_y <= list_y + list_height do
       # Return coordinates relative to list area
       {:ok, {click_x - list_x, click_y - list_y}}
     else
@@ -266,10 +303,10 @@ defmodule ScenicWidgets.FilePicker do
     modal_y = (frame_height - modal_height) / 2
 
     # Footer height depends on mode (must match renderer)
-    footer_height = if mode == :save, do: 110, else: 70
+    footer_height = if mode == :save, do: 128, else: 76
 
     # Button y position in footer (save mode has buttons lower due to filename input)
-    button_y_offset = if mode == :save, do: 72, else: 15
+    button_y_offset = if mode == :save, do: 80, else: 20
 
     # Button definitions: {id, x, y, width, height}
     # The action button is either :open_button or :save_button based on mode
@@ -277,17 +314,22 @@ defmodule ScenicWidgets.FilePicker do
 
     buttons = [
       # Up button in header
-      {:up_button, modal_x + 15, modal_y + 12, 60, 36},
+      {:up_button, modal_x + 16, modal_y + 12, 64, 32},
+      {:project_root_button, modal_x + 88, modal_y + 12, 108, 32},
+      {:home_button, modal_x + 204, modal_y + 12, 44, 32},
+      {:disk_root_button, modal_x + 256, modal_y + 12, 44, 32},
       # Cancel button in footer
-      {:cancel_button, modal_x + modal_width - 200, modal_y + modal_height - footer_height + button_y_offset, 85, 36},
+      {:cancel_button, modal_x + modal_width - 208,
+       modal_y + modal_height - footer_height + button_y_offset, 88, 36},
       # Open/Save button in footer
-      {action_button_id, modal_x + modal_width - 100, modal_y + modal_height - footer_height + button_y_offset, 85, 36}
+      {action_button_id, modal_x + modal_width - 108,
+       modal_y + modal_height - footer_height + button_y_offset, 88, 36}
     ]
 
     # Find which button (if any) was clicked
     Enum.find_value(buttons, fn {id, bx, by, bw, bh} ->
       if click_x >= bx and click_x <= bx + bw and
-         click_y >= by and click_y <= by + bh do
+           click_y >= by and click_y <= by + bh do
         id
       else
         nil

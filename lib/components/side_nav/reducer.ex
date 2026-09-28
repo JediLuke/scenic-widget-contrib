@@ -14,6 +14,7 @@ defmodule ScenicWidgets.SideNav.Reducer do
   use Widgex.Scrollable, direction: :vertical
 
   alias ScenicWidgets.SideNav.{State, Item}
+  alias Widgex.Scroll.ScrollReducer
 
   @doc """
   Handle mouse click input.
@@ -217,31 +218,133 @@ defmodule ScenicWidgets.SideNav.Reducer do
   Accepts either {dx, dy} or {{dx, dy}, coords} format.
   Returns {:scroll_changed, new_state} or {:noop, state}
   """
-  def handle_scroll_input(%State{} = state, {{_dx, dy}, _coords}) do
+  def handle_scroll_input(%State{} = state, {{dx, dy}, _coords}) do
     # Full scroll event with coords - extract delta
-    do_scroll(state, dy)
+    do_scroll(state, dx, dy)
   end
 
-  def handle_scroll_input(%State{} = state, {_dx, dy}) do
+  def handle_scroll_input(%State{} = state, {dx, dy}) do
     # Just the delta tuple
-    do_scroll(state, dy)
+    do_scroll(state, dx, dy)
   end
 
-  def handle_scroll_input(%State{} = state, {_dx, dy, _x, _y}) do
+  def handle_scroll_input(%State{} = state, {dx, dy, _x, _y}) do
     # Alternative format from some Scenic drivers
-    do_scroll(state, dy)
+    do_scroll(state, dx, dy)
   end
 
-  defp do_scroll(%State{} = state, dy) when is_number(dy) do
-    # Use Widgex.Scrollable's handle_scroll function
-    # Negate for natural scrolling (scroll down = content moves up)
-    new_scroll = handle_scroll(state.scroll, -dy)
+  # Both axes. The sidebar is created with direction: :both — file trees run
+  # off the right edge at depth as readily as they run off the bottom — but
+  # dx used to be discarded here, so horizontal scrolling could never happen
+  # no matter what the scroll state allowed.
+  defp do_scroll(%State{} = state, dx, dy) when is_number(dx) and is_number(dy) do
+    # Negate for natural scrolling (scroll down/right = content moves up/left)
+    new_scroll = handle_scroll_2d(state.scroll, -dx, -dy)
 
     if scroll_changed?(state.scroll, new_scroll) do
       {:scroll_changed, %{state | scroll: new_scroll}}
     else
       {:noop, state}
     end
+  end
+
+  @doc """
+  Scroll by an exact pixel amount; positive `dy` moves the view down.
+
+  Distinct from `handle_scroll_input/2`, which multiplies the delta by
+  `scroll_speed` — the right feel for a notched wheel, and far too coarse for
+  the steady glide an edge-of-pane drag wants.
+
+  Returns `{:scroll_changed, new_state}` or `{:noop, state}`, so a caller at the
+  end of the content can tell it has stopped moving.
+  """
+  def drag_scroll(%State{} = state, dy) when is_number(dy) do
+    new_scroll =
+      state.scroll
+      |> ScrollReducer.scroll_by(0, dy)
+      |> show_scrollbars()
+
+    if scroll_changed?(state.scroll, new_scroll) do
+      {:scroll_changed, %{state | scroll: new_scroll}}
+    else
+      {:noop, state}
+    end
+  end
+
+  # Inline rename — the edit primitives of a single-line text field.
+  #
+  # These are here, pure, rather than inline in the input handlers, because
+  # caret arithmetic is the part of a text input that is worth testing without
+  # a viewport: quillex's test/side_nav/rename_editing_test.exs drives them
+  # directly (contrib's own suite cannot build without cairo headers).
+  #
+  # The caret is a grapheme index into rename_value, so it is safe against
+  # multi-byte names and always in 0..String.length(rename_value).
+
+  @doc """
+  Begin renaming `item_id`, seeded with its basename and the caret at the end.
+
+  The name is the starting text, not a placeholder: it is there to be edited.
+  """
+  def start_rename(%State{} = state, item_id) do
+    name = Path.basename(item_id)
+    %{state | renaming_id: item_id, rename_value: name, rename_caret: String.length(name)}
+  end
+
+  @doc """
+  Insert `text` at the caret and leave the caret after what was inserted.
+  """
+  def rename_insert(%State{rename_value: value, rename_caret: caret} = state, text)
+      when is_binary(text) do
+    {before_caret, after_caret} = split_rename(value, caret)
+
+    %{
+      state
+      | rename_value: before_caret <> text <> after_caret,
+        rename_caret: caret + String.length(text)
+    }
+  end
+
+  @doc """
+  Delete the grapheme before the caret. At the start of the name, a no-op.
+  """
+  def rename_backspace(%State{rename_caret: 0} = state), do: state
+
+  def rename_backspace(%State{rename_value: value, rename_caret: caret} = state) do
+    {before_caret, after_caret} = split_rename(value, caret)
+
+    %{
+      state
+      | rename_value: String.slice(before_caret, 0, caret - 1) <> after_caret,
+        rename_caret: caret - 1
+    }
+  end
+
+  @doc """
+  Delete the grapheme at the caret. At the end of the name, a no-op.
+  """
+  def rename_delete(%State{rename_value: value, rename_caret: caret} = state) do
+    {before_caret, after_caret} = split_rename(value, caret)
+    %{state | rename_value: before_caret <> String.slice(after_caret, 1..-1//1)}
+  end
+
+  @doc "Move the caret one grapheme left, stopping at the start of the name."
+  def rename_caret_left(%State{rename_caret: caret} = state),
+    do: %{state | rename_caret: max(caret - 1, 0)}
+
+  @doc "Move the caret one grapheme right, stopping at the end of the name."
+  def rename_caret_right(%State{rename_value: value, rename_caret: caret} = state),
+    do: %{state | rename_caret: min(caret + 1, String.length(value))}
+
+  @doc "Move the caret to the start of the name."
+  def rename_caret_home(%State{} = state), do: %{state | rename_caret: 0}
+
+  @doc "Move the caret to the end of the name."
+  def rename_caret_end(%State{rename_value: value} = state),
+    do: %{state | rename_caret: String.length(value)}
+
+  defp split_rename(value, caret) do
+    {String.slice(value, 0, caret), String.slice(value, caret..-1//1)}
   end
 
   # Private helpers

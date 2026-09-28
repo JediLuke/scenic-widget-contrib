@@ -50,7 +50,7 @@ defmodule ScenicWidgets.FilePicker.Reducer do
       :key_end ->
         {:state, State.cursor_end(state)}
 
-      :key_escape ->
+      :key_esc ->
         {:action, :cancel}
 
       _ ->
@@ -89,7 +89,7 @@ defmodule ScenicWidgets.FilePicker.Reducer do
       :key_backspace ->
         {:state, State.navigate_up(state)}
 
-      :key_escape ->
+      :key_esc ->
         {:action, :cancel}
 
       _ ->
@@ -105,7 +105,9 @@ defmodule ScenicWidgets.FilePicker.Reducer do
   def process_input(%State{scroll: scroll} = state, {:cursor_scroll, scroll_data}) do
     case normalize_scroll_input(scroll_data) do
       {_dx, dy} when dy != 0 ->
-        new_scroll = handle_scroll(scroll, dy)
+        # GLFW's picker gesture arrives with the opposite sign to the visual
+        # list direction used by the rest of the chrome.
+        new_scroll = handle_scroll(scroll, -dy)
         {:state, %{state | scroll: new_scroll}}
 
       _ ->
@@ -121,6 +123,15 @@ defmodule ScenicWidgets.FilePicker.Reducer do
   def process_event(:up_button, %State{} = state) do
     {:state, State.navigate_up(state)}
   end
+
+  def process_event(:project_root_button, %State{} = state),
+    do: {:state, State.navigate_to(state, state.project_root)}
+
+  def process_event(:home_button, %State{} = state),
+    do: {:state, State.navigate_to(state, state.home_path)}
+
+  def process_event(:disk_root_button, %State{} = state),
+    do: {:state, State.navigate_to(state, state.disk_root)}
 
   # Save/Open button in save mode
   def process_event(:save_button, %State{mode: :save} = state) do
